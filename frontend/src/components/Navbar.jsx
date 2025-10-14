@@ -1,0 +1,217 @@
+import React, { useEffect, useState } from 'react'
+import logo from "../assets/logo1.png"
+import { Bell, ChevronDown, LogOut, Settings, User, User2 } from 'lucide-react';
+import { logout } from "../lib/api"
+import { Menu, MenuButton, MenuItem, MenuItems, Transition } from "@headlessui/react";
+import { useNavigate, Link } from 'react-router';
+import { settingsItems } from '../utils';
+import { navLinks } from '../utils';
+
+const Navbar = () => {
+  const [activeLink, setActiveLink] = useState('home');
+  const [progress, setProgress] = useState(0);
+  const navigate = useNavigate();
+  const [openUser, setOpenUser] = useState(false);
+  const [openSettings, setOpenSettings] = useState(false);
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.substring(1) || 'home';
+      setActiveLink(hash);
+    };
+
+    handleHashChange();
+    window.addEventListener('hashchange', handleHashChange);
+
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [])
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login/owner')
+  };
+
+  return (
+    <nav className="bg-[#ffeb9e] shadow-md fixed w-full top-0 z-50">
+      <div className="max-w-full px-6">
+        <div className="flex justify-between items-center h-15">
+          <div className="flex items-center gap-2 mr-8">
+            <Link to="/">
+              <img
+                src={logo}
+                alt="Logo"
+                className="h-18 w-auto cursor-pointer"
+              />
+            </Link>
+          </div>
+
+          <div className="flex items-center space-x-1 flex-1 px-5">
+            {navLinks.map((link) => (
+              <a
+                key={link.name}
+                href={link.href}
+                onClick={() => setActiveLink(link.id)}
+                className='relative'
+              >
+                <div className={`px-4 py-2 text-sm font-medium transition-colors duration-150 rounded ${activeLink === link.id
+                  ? 'text-blue-600 bg-yellow-100 rounded-2xl'
+                  : 'text-gray-700 hover:bg-yellow-100 rounded-2xl'
+                  }`}>
+                  {link.name}
+                </div>
+              </a>
+            ))}
+          </div>
+
+          <div className='flex items-center gap-5'>
+            <div className='flex items-center gap-2'>
+              <div className='relative w-5 h-5'>
+                <svg className='w-5 h-5 transform -rotate-90'>
+                  <circle
+                    cx='10'
+                    cy='10'
+                    r='8'
+                    stroke='#d4d4d4'
+                    strokeWidth='3'
+                    fill='none'
+                  />
+                  <circle
+                    cx='10'
+                    cy='10'
+                    r='8'
+                    stroke='#3b82f6'
+                    strokeWidth='3'
+                    fill='none'
+                    strokeDasharray={`${(progress / 3) * 50.27} 50.27`}
+                    className='transition-all duration-500'
+                  />
+                </svg>
+              </div>
+              <span className='text-gray-700 text-sm'>
+                <span className='text-blue-600 font-semibold'>{progress}</span>/3
+              </span>
+            </div>
+
+            <button className='flex items-center gap-1 text-gray-700 hover:text-blue-600 text-sm font-medium'>
+              Support
+              <ChevronDown
+                size={16}
+                className={`transform transition-transform duration-200 ease-out
+                  ${openUser ? "rotate-180" : "rotate-0"}`}
+              />
+            </button>
+
+            <button className='flex items-center gap-1 text-gray-700 hover:text-blue-600 text-sm font-medium'>
+              EN
+              <ChevronDown
+                size={16}
+                className={`transform transition-transform duration-200 ease-out
+                  ${openUser ? "rotate-180" : "rotate-0"}`}
+              />
+            </button>
+
+            <Menu
+              as="div"
+              className="relative inline-block text-left"
+              onMouseEnter={() => setOpenSettings(true)}
+              onMouseLeave={() => setOpenSettings(false)}
+            >
+              <MenuButton
+                onClick={() => setOpenSettings((o) => !o)}
+                className="flex items-center gap-1 text-gray-700 hover:text-blue-600 text-sm font-medium focus:outline-none"
+              >
+                <Settings size={20} />
+              </MenuButton>
+
+              <Transition
+                show={openSettings}
+                enter="transition ease-out duration-100"
+                enterFrom="transform opacity-0 scale-95"
+                enterTo="transform opacity-100 scale-100"
+                leave="transition ease-in duration-75"
+                leaveFrom="transform opacity-100 scale-100"
+                leaveTo="transform opacity-0 scale-95"
+              >
+                <MenuItems
+                  static
+                  className="absolute right-0 mt-2 w-48 origin-top-right bg-white border border-gray-200 rounded-xl shadow-lg focus:outline-none overflow-hidden"
+                >
+                  {settingsItems.map(({ label, path }) => (
+                    <MenuItem
+                      key={label}
+                      as="button"
+                      onClick={() => {
+                        navigate(path);
+                        setOpenSettings(false); // close after click
+                      }}
+                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 cursor-pointer 
+                 hover:bg-amber-50 data-[focus]:bg-gray-100 data-[focus]:text-blue-600
+                 first:rounded-t-xl last:rounded-b-xl"
+                    >
+                      {label}
+                    </MenuItem>
+                  ))}
+                </MenuItems>
+              </Transition>
+            </Menu>
+
+            <Menu
+              as="div"
+              className="relative inline-block text-left"
+              onMouseEnter={() => setOpenUser(true)}
+              onMouseLeave={() => setOpenUser(false)}
+            >
+              <MenuButton
+                onClick={() => setOpenUser((o) => !o)}
+                className="flex items-center gap-1 text-gray-700 hover:text-blue-600 text-sm font-medium focus:outline-none"
+              >
+                <User2 size={20} />
+                <ChevronDown
+                  size={16}
+                  className={`transform transition-transform duration-200 ease-out
+                  ${openUser ? "rotate-180" : "rotate-0"}`}
+                />
+              </MenuButton>
+
+              <Transition
+                show={openUser}
+                enter="transition ease-out duration-100"
+                enterFrom="transform opacity-0 scale-95"
+                enterTo="transform opacity-100 scale-100"
+                leave="transition ease-in duration-75"
+                leaveFrom="transform opacity-100 scale-100"
+                leaveTo="transform opacity-0 scale-95"
+              >
+                <MenuItems
+                  static
+                  className="absolute right-0 mt-2 w-35 origin-top-right bg-white border border-gray-200 rounded-xl shadow-lg focus:outline-none"
+                >
+                  <MenuItem
+                    as="a"
+                    href="#profile"
+                    className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 data-[focus]:bg-gray-100 data-[focus]:text-blue-600 hover:bg-amber-50 first:rounded-t-xl"
+                  >
+                    <User size={16} />
+                    My Profile
+                  </MenuItem>
+
+                  <MenuItem
+                    as="button"
+                    onClick={handleLogout}
+                    className="flex items-center gap-2 w-full text-left px-4 py-2 text-sm text-gray-700 data-[focus]:bg-gray-100 data-[focus]:text-blue-600 cursor-pointer last:rounded-b-xl hover:bg-amber-50"
+                  >
+                    <LogOut size={16} className='text-red-500' />
+                    Logout
+                  </MenuItem>
+                </MenuItems>
+              </Transition>
+            </Menu>
+          </div>
+
+        </div>
+      </div>
+    </nav>
+  );
+}
+
+export default Navbar
