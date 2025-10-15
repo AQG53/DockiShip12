@@ -16,11 +16,12 @@ import TenantSetupPage from './pages/TenantSetup.jsx'
 //import GeneralSettings from './pages/settings/GeneralSettings.jsx'
 //import ListingSettings from './pages/settings/ListingSettings.jsx'
 //import InventorySettings from './pages/settings/InventorySettings.jsx'
-//import StaffSettings from './pages/settings/StaffSettings.jsx'
+import StaffSettings from './pages/settings/StaffSettings.jsx'
+import RequestReset from './pages/RequestReset.jsx'
+import ResetPassword from './pages/ResetPassword.jsx'
 
 const App = () => {
   const { isLoading, isAuthenticated } = useAuthUser();
-  console.log(isAuthenticated)
   // const isAuthenticated = true;
   // const isLoading = false;
 
@@ -57,6 +58,14 @@ const App = () => {
           path='/setup/tenant'
           element={!isAuthenticated ? <Navigate to="/login/owner"/> : <TenantSetupPage />}
         />
+        <Route 
+          path='/password/request'
+          element={!isAuthenticated ? <RequestReset /> : <Navigate to="/" replace/> }
+        />
+        <Route 
+          path='/reset-password'
+          element={!isAuthenticated ? <ResetPassword /> : <Navigate to="/" replace/> }
+        />
         <Route
           path="/settings"
           element={isAuthenticated ? <SettingsLayout /> : <Navigate to="/login/owner" replace />}
@@ -66,8 +75,8 @@ const App = () => {
           <Route path="orders" element={<OrderSettings />} />
           <Route path="general" element={<GeneralSettings />} />
           <Route path="listings" element={<ListingSettings />} />
-          <Route path="inventory" element={<InventorySettings />} />
-          <Route path="staff" element={<StaffSettings />} /> */}
+          <Route path="inventory" element={<InventorySettings />} /> */}
+          <Route path="staff" element={<StaffSettings />} /> 
           <Route path="roles" element={<RoleManage />} />
         </Route>
       </Routes>

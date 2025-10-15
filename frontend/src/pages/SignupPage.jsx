@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Eye, EyeOff, Headphones, ChevronDown, Check } from 'lucide-react';
-import Logo from '../assets/logo1.png'
-import SignupLogo from '../assets/signup.svg'
+import Logo from '../assets/logo1.png';
+import SignupLogo from '../assets/signup.svg';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router';
 import { signup_owner } from '../lib/api';
@@ -17,7 +17,6 @@ export default function SignupPage() {
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [agreedToTerms, setAgreedToTerms] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
-    const [currentStep, setCurrentStep] = useState(1);
     const navigate = useNavigate();
 
     const passwordRequirements = [
@@ -37,19 +36,16 @@ export default function SignupPage() {
             toast.error('Please fill in all fields');
             return;
         }
-
         if (formData.password !== formData.confirmPassword) {
             toast.error('Passwords do not match');
             return;
         }
-
         if (!agreedToTerms) {
             toast.error('Please agree to the Terms of Service and Privacy Policy');
             return;
         }
 
         setIsLoading(true);
-
         try {
             const res = await signup_owner({
                 fullName: formData.fullName.trim(),
@@ -63,92 +59,80 @@ export default function SignupPage() {
 
             if (status >= 200 && status < 300 && token) {
                 toast.success('Account created successfully!');
-                // token + user already persisted in signup_owner()
                 navigate('/setup/tenant', { replace: true });
                 return;
             }
-
             const msg = data?.message || 'Signup failed.';
             toast.error(msg);
         } catch (err) {
-            const msg = err?.response?.data?.message || "Signup failed.";
+            const msg = err?.response?.data?.message || 'Signup failed.';
             toast.error(msg);
         } finally {
             setIsLoading(false);
         }
     };
 
-    const handleSignIn = () => {
-        navigate('/login/owner');
-    };
-
+    const handleSignIn = () => navigate('/login/owner');
     const handleKeyPress = (e) => {
-        if (e.key === 'Enter' && !isLoading) {
-            handleSignUp();
-        }
+        if (e.key === 'Enter' && !isLoading) handleSignUp();
     };
 
     return (
-        <div className="min-h-screen flex">
+        <div className="h-screen w-full flex overflow-hidden">
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
                 <div className="absolute top-20 left-10 w-72 h-72 bg-yellow-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse"></div>
                 <div className="absolute top-40 right-10 w-72 h-72 bg-orange-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse delay-1000"></div>
                 <div className="absolute -bottom-8 left-1/3 w-72 h-72 bg-yellow-300 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse delay-2000"></div>
             </div>
-            <div className="w-3/5 bg-[#fff1c1] p-10 py-5 flex flex-col px-30">
-                <img src={Logo} alt="Logo" className='w-50 mx-5' />
-                <div className="flex-1 flex flex-col justify-center max-w">
-                    <h1 className="text-3xl font-bold text-gray-800 mb-4">
+            <div className="w-3/5 bg-[#fff1c1] px-15 py-5 flex flex-col min-w-0">
+                <img src={Logo} alt="Logo" className="h-20 w-40 mx-4" />
+                <div className="flex-1 flex flex-col justify-center max-w-[820px]">
+                    <h1 className="text-3xl font-bold text-gray-800 mb-2">
                         Start Your Journey Today{' '}
-                        <span className="inline-block bg-[#fcd33f] text-black text-sm px-3 py-1 rounded-full align-middle">
+                        <span className="inline-block bg-[#fcd33f] text-black text-xs px-3 py-1 rounded-full align-middle">
                             FREE
                         </span>
                     </h1>
-                    <p className="text-gray-600 text-lg mb-8">
-                        Join thousands of merchants who manage their multi-channel ecommerce business
-                        with DockiShip. Get started in minutes, no credit card required.
+
+                    <p className="text-gray-700 text-lg mb-10 leading-relaxed">
+                        Join thousands of merchants who manage their multi-channel ecommerce business with DockiShip.
+                        Get started in minutes, no credit card required.
                     </p>
 
                     <div className="relative">
                         <img
                             src={SignupLogo}
                             alt="Signup"
-                            className="w-full h-110 mt-3 hover:rotate-2"
+                            className="w-full max-h-[46vh] m object-contain mb-10 transition-transform hover:rotate-2"
                         />
-
                     </div>
-
                 </div>
 
-                {/* Footer */}
-                <div className="text-sm text-gray-600 mx-10">
-                    © 2025 DockiShip <a href="#" className="hover:text-blue-600">Terms of service</a> |
-                    <a href="#" className="hover:text-blue-600 ml-1">Privacy policy</a> |
-                    <a href="#" className="hover:text-blue-600 ml-1">Help center</a>
+                <div className="text-[12px] text-gray-600 px-30 mb-5">
+                    © 2025 DockiShip&nbsp;·&nbsp;
+                    <a href="#" className="hover:text-blue-700">Terms of service</a>&nbsp;·&nbsp;
+                    <a href="#" className="hover:text-blue-700">Privacy policy</a>&nbsp;·&nbsp;
+                    <a href="#" className="hover:text-blue-700">Help center</a>
                 </div>
             </div>
 
-            {/* Right Side - Signup Form */}
-            <div className="w-2/5 bg-white flex items-center justify-center p-12">
-                <div className="w-full max-w-md">
-                    {/* Support Button */}
-                    <div className="flex justify-end mb-10">
-                        <button className="flex items-center gap-2 text-gray-700 hover:text-blue-600 text-sm font-medium">
+            <div className="w-2/5 bg-white flex items-center justify-center p-8 min-w-0">
+                <div className="w-full max-w">
+                    <div className="flex justify-end mb-6">
+                        <button className="mt-2 flex items-center gap-2 text-gray-700 hover:text-blue-600 text-sm font-medium">
                             <Headphones size={18} />
                             Support
                             <ChevronDown size={18} />
                         </button>
                     </div>
 
-                    {/* Signup Form */}
-                    <div className="bg-white">
-                        <h2 className="text-3xl font-bold text-gray-800 mb-2">Create your account</h2>
-                        <p className="text-gray-600 text-sm mb-8">Start managing your business today</p>
+                    <div className='px-18 max-w-[520px] items-center'>
+                        <h2 className="text-2xl font-bold text-gray-800 mb-1">Create your account</h2>
+                        <p className="text-gray-600 text-sm mb-6">Start managing your business today</p>
 
-                        <div className="space-y-5">
-                            {/* Full Name Input */}
+                        <div className="space-y-4">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Full Name</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
                                 <input
                                     type="text"
                                     name="fullName"
@@ -157,13 +141,13 @@ export default function SignupPage() {
                                     onChange={handleInputChange}
                                     onKeyDown={handleKeyPress}
                                     disabled={isLoading}
-                                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                                 />
                             </div>
 
-                            {/* Email Input */}
+                            {/* Email */}
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                                 <input
                                     type="email"
                                     name="email"
@@ -172,13 +156,13 @@ export default function SignupPage() {
                                     onChange={handleInputChange}
                                     onKeyDown={handleKeyPress}
                                     disabled={isLoading}
-                                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                                 />
                             </div>
 
-                            {/* Password Input */}
+                            {/* Password */}
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
                                 <div className="relative">
                                     <input
                                         type={showPassword ? 'text' : 'password'}
@@ -188,7 +172,7 @@ export default function SignupPage() {
                                         onChange={handleInputChange}
                                         onKeyDown={handleKeyPress}
                                         disabled={isLoading}
-                                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                                     />
                                     <button
                                         type="button"
@@ -196,15 +180,16 @@ export default function SignupPage() {
                                         disabled={isLoading}
                                         className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
                                     >
-                                        {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                                     </button>
                                 </div>
+
                                 {formData.password && (
                                     <div className="mt-2 space-y-1">
                                         {passwordRequirements.map((req, idx) => (
-                                            <div key={idx} className="flex items-center gap-2 text-xs">
+                                            <div key={idx} className="flex items-center gap-2 text-[11px]">
                                                 <div className={`w-3 h-3 rounded-full flex items-center justify-center ${req.met ? 'bg-green-500' : 'bg-gray-300'}`}>
-                                                    {req.met && <Check size={10} className="text-white" />}
+                                                    {req.met && <Check size={9} className="text-white" />}
                                                 </div>
                                                 <span className={req.met ? 'text-green-600' : 'text-gray-500'}>{req.text}</span>
                                             </div>
@@ -213,9 +198,9 @@ export default function SignupPage() {
                                 )}
                             </div>
 
-                            {/* Confirm Password Input */}
+                            {/* Confirm Password */}
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Confirm Password</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
                                 <div className="relative">
                                     <input
                                         type={showConfirmPassword ? 'text' : 'password'}
@@ -225,7 +210,7 @@ export default function SignupPage() {
                                         onChange={handleInputChange}
                                         onKeyDown={handleKeyPress}
                                         disabled={isLoading}
-                                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                                     />
                                     <button
                                         type="button"
@@ -233,15 +218,15 @@ export default function SignupPage() {
                                         disabled={isLoading}
                                         className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
                                     >
-                                        {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                                        {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                                     </button>
                                 </div>
                                 {formData.confirmPassword && formData.password !== formData.confirmPassword && (
-                                    <p className="text-xs text-red-600 mt-1">Passwords do not match</p>
+                                    <p className="text-[11px] text-red-600 mt-1">Passwords do not match</p>
                                 )}
                             </div>
 
-                            {/* Terms Checkbox */}
+                            {/* Terms */}
                             <div className="flex items-start gap-3">
                                 <input
                                     type="checkbox"
@@ -249,17 +234,16 @@ export default function SignupPage() {
                                     checked={agreedToTerms}
                                     onChange={(e) => setAgreedToTerms(e.target.checked)}
                                     disabled={isLoading}
-                                    className="mt-1 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                                    className="mt-0.5 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
                                 />
                                 <label htmlFor="terms" className="text-sm text-gray-600">
                                     I agree to the{' '}
-                                    <a href="#" className="text-blue-600 hover:underline">Terms of Service</a>
-                                    {' '}and{' '}
+                                    <a href="#" className="text-blue-600 hover:underline">Terms of Service</a>{' '}
+                                    and{' '}
                                     <a href="#" className="text-blue-600 hover:underline">Privacy Policy</a>
                                 </label>
                             </div>
 
-                            {/* Sign Up Button */}
                             <button
                                 onClick={handleSignUp}
                                 disabled={isLoading}
@@ -268,8 +252,8 @@ export default function SignupPage() {
                                 {isLoading ? (
                                     <>
                                         <svg className="w-5 h-5 animate-spin text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
                                         </svg>
                                         Creating account...
                                     </>
@@ -279,13 +263,12 @@ export default function SignupPage() {
                             </button>
                         </div>
 
-                        {/* Sign In Link */}
-                        <div className="mt-6 text-center">
-                            <span className="text-gray-600">Already have an account? </span>
+                        <div className="mt-5 text-center">
+                            <span className="text-gray-600 text-sm">Already have an account? </span>
                             <button
                                 onClick={handleSignIn}
                                 disabled={isLoading}
-                                className="text-[#ffc700] hover:text-[#ffdd63] font-semibold"
+                                className="text-[#ffc700] hover:text-[#ffdd63] font-semibold text-sm"
                             >
                                 Sign in
                             </button>

@@ -41,10 +41,9 @@ axiosInstance.interceptors.response.use(
   (res) => res,
   (error) => {
     const status = error?.response?.status;
-    const url = error?.config?.url || "";
-    const callerWantsNoRedirect = !!config.skipAuthRedirect;
-    const isAuthRoute = /\/auth\/(owner|member)\/(login|signup)/i.test(url);
-    if (status === 401 && !callerWantsNoRedirect &&  !isAuthRoute) {
+    const currentPath = window.location.pathname;
+
+    if (status === 401 && !currentPath.includes('/login')) {
       try {
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(USER_KEY);

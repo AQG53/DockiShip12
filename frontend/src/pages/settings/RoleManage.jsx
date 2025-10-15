@@ -59,7 +59,10 @@ export default function RoleManage() {
                 </div>
 
                 {isLoading ? (
-                    <div className="flex items-center justify-center py-16 text-gray-500"><Loader className="animate-spin"/></div>
+                    <div className="flex items-center justify-center py-16 text-gray-500 gap-2">
+                        <Loader className="animate-spin" />
+                        <span>Loading roles...</span>
+                    </div>
                 ) : isError ? (
                     <div className="flex items-center justify-center py-16 text-red-600">
                         {error?.message || "Failed to load roles"}

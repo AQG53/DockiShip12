@@ -8,7 +8,7 @@ export function useCreateRole() {
     mutationFn: createRole,
     onSuccess: () => {
       const tenantId = getTenantId();
-      qc.invalidateQueries({ queryKey: ["roles", tenantId] }); // 👈 refetch table
+      qc.invalidateQueries({ queryKey: ["roles", tenantId] });
     },
   });
 }
