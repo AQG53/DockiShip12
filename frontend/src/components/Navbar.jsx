@@ -7,6 +7,7 @@ import { useNavigate, Link } from 'react-router';
 import { settingsItems } from '../utils';
 import { navLinks } from '../utils';
 import { jwtDecode } from 'jwt-decode';
+import toast from 'react-hot-toast';
 
 const TOKEN_KEY = "ds_access_token";
 
@@ -70,6 +71,7 @@ const Navbar = () => {
 
   const handleLogout = () => {
     logout();
+    toast.success("Logged out successfully");
     navigate('/login/owner')
   };
 
