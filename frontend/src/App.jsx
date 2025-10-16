@@ -19,6 +19,7 @@ import TenantSetupPage from './pages/TenantSetup.jsx'
 import StaffSettings from './pages/settings/StaffSettings.jsx'
 import RequestReset from './pages/RequestReset.jsx'
 import ResetPassword from './pages/ResetPassword.jsx'
+import MyProfilePage from './pages/MyProfile.jsx'
 
 const App = () => {
   const { isLoading, isAuthenticated } = useAuthUser();
@@ -65,6 +66,10 @@ const App = () => {
         <Route 
           path='/reset-password'
           element={!isAuthenticated ? <ResetPassword /> : <Navigate to="/" replace/> }
+        />
+        <Route 
+          path='/my-profile'
+          element={isAuthenticated ? <MyProfilePage /> : <Navigate to="/login/owner" replace/> }
         />
         <Route
           path="/settings"

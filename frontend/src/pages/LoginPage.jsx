@@ -136,7 +136,7 @@ export default function LoginPage() {
         </div>
       </div>
 
-      <div className="w-2/5 bg-white h-full p-8 flex flex-col max-w-full">
+      <div className="w-2/5 bg-white h-full p-15 flex flex-col max-w-[550px]">
         {/* Support (same location; stays visible) */}
         <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm pb-3">
           <div className="flex justify-end">

@@ -13,7 +13,7 @@ import {
 export function AddMemberModal({ open, onClose, onSave, mode = "create", member = null }) {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-
+  const [isSaving, setIsSaving] = useState(false);
   const [selectedRoleIds, setSelectedRoleIds] = useState([]);
 
   const {
@@ -21,8 +21,6 @@ export function AddMemberModal({ open, onClose, onSave, mode = "create", member 
     isLoading: rolesLoading,
     isError: rolesError,
   } = useRoles();
-
-  const isSaving = false; 
 
   const roleIdByName = useMemo(() => {
     const map = new Map();
@@ -62,13 +60,13 @@ export function AddMemberModal({ open, onClose, onSave, mode = "create", member 
 
   const handleSave = async (e) => {
     e?.preventDefault?.();
-
     if (mode === "create") {
       if (!fullName.trim()) return toast.error("Full name is required");
       if (!email.trim()) return toast.error("Email is required");
       if (!validateEmail(email)) return toast.error("Please enter a valid email");
 
       try {
+        setIsSaving(true);
         await inviteMember({
           fullName: fullName.trim(),
           email: email.trim().toLowerCase(),
@@ -87,13 +85,14 @@ export function AddMemberModal({ open, onClose, onSave, mode = "create", member 
         toast.success(
           selectedRoleIds.length > 0 ? "Member invited & roles assigned" : "Member invited"
         );
+        setIsSaving(false);
         onSave?.({ fullName, email, roleIds: selectedRoleIds });
         onClose?.();
       } catch (err) {
         console.error(err);
         toast.error(err?.response?.data?.message || "Failed to invite member");
+        setIsSaving(false);
       }
-
       return;
     }
 
@@ -102,11 +101,14 @@ export function AddMemberModal({ open, onClose, onSave, mode = "create", member 
       return;
     }
     try {
+      setIsSaving(true);
       await assignRolesToUser(member.id, selectedRoleIds);
       toast.success("Roles updated");
+      setIsSaving(false);
       onSave?.({ userId: member.id, roleIds: selectedRoleIds });
       onClose?.();
     } catch (err) {
+      setIsSaving(false);
       console.error(err);
       toast.error(err?.response?.data?.message || "Failed to update roles");
     }
@@ -138,6 +140,7 @@ export function AddMemberModal({ open, onClose, onSave, mode = "create", member 
               </button>
               <button
                 onClick={handleSave}
+                disabled={isSaving}
                 className="px-3 py-2 rounded-lg bg-[#ffd026] text-blue-600 text-sm font-bold hover:opacity-90 disabled:opacity-50"
               >
                 {isSaving ? (

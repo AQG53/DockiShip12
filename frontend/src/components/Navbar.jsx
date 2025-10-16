@@ -3,7 +3,7 @@ import logo from "../assets/logo1.png"
 import { ChevronDown, LogOut, Settings, User, User2 } from 'lucide-react';
 import { logout } from "../lib/api"
 import { Menu, MenuButton, MenuItem, MenuItems, Transition } from "@headlessui/react";
-import { useNavigate, Link } from 'react-router';
+import { useNavigate, Link, useLocation } from 'react-router';
 import { settingsItems } from '../utils';
 import { navLinks } from '../utils';
 import { jwtDecode } from 'jwt-decode';
@@ -19,6 +19,28 @@ const Navbar = () => {
   const [openSettings, setOpenSettings] = useState(false);
   const [token, setToken] = useState(null);
   const [claims, setClaims] = useState(null);
+  const location = useLocation();
+
+  useEffect(() => {
+    // map paths to navbar ids for highlighting
+    const map = new Map([
+      ['/', 'home'],
+      ['/inventory', 'inventory'],
+      ['/purchases', 'purchases'],
+    ]);
+
+    // find the first matching navbar route
+    const match = Array.from(map.keys()).find((p) =>
+      location.pathname === p || location.pathname.startsWith(p + '/')
+    );
+
+    if (match) {
+      setActiveLink(map.get(match));
+    } else {
+      // any non-navbar page (settings, profile, etc.) clears highlight
+      setActiveLink('');
+    }
+  }, [location.pathname]);
 
   useEffect(() => {
     const readToken = () => {
@@ -52,18 +74,6 @@ const Navbar = () => {
     };
   }, []);
 
-  useEffect(() => {
-    const handleHashChange = () => {
-      const hash = window.location.hash.substring(1) || 'home';
-      setActiveLink(hash);
-    };
-
-    handleHashChange();
-    window.addEventListener('hashchange', handleHashChange);
-
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, [])
-
   const handleLogout = () => {
     logout();
     toast.success("Logged out successfully");
@@ -85,6 +95,7 @@ const Navbar = () => {
   const canManageUsers = moduleSet.has('user');
   const canManageRoles = moduleSet.has('role');
   const isMember = (claims?.typ || '').toLowerCase() === 'member';
+  console.log(claims);
 
   const visibleLinks = useMemo(() => {
     return navLinks.filter((link) => {
@@ -112,21 +123,18 @@ const Navbar = () => {
 
           <div className="flex items-center space-x-1 flex-1 px-5">
             {visibleLinks.map((link) => (
-              <a
+              <Link
                 key={link.name}
-                href={link.href}
-                onClick={() => setActiveLink(link.id)}
+                to={link.to}
                 className="relative"
+                onClick={() => setActiveLink(link.id)}
               >
-                <div
-                  className={`px-4 py-2 text-sm font-medium transition-colors duration-150 rounded ${activeLink === link.id
-                    ? 'text-blue-600 bg-yellow-100 rounded-2xl'
-                    : 'text-gray-700 hover:bg-yellow-100 rounded-2xl'
-                    }`}
-                >
+                <div className={`px-4 py-2 text-sm font-medium transition-colors rounded
+                              ${activeLink === link.id ? 'text-blue-600 bg-yellow-100 rounded-2xl'
+                              : 'text-gray-700 hover:bg-yellow-100 rounded-2xl'}`}>
                   {link.name}
                 </div>
-              </a>
+              </Link>
             ))}
           </div>
 
@@ -213,6 +221,7 @@ const Navbar = () => {
                         key={label}
                         as="button"
                         onClick={() => {
+                          setActiveLink("");
                           navigate(path);
                           setOpenSettings(false);
                         }}
@@ -262,8 +271,8 @@ const Navbar = () => {
                 >
                   <MenuItem
                     as="a"
-                    href="#profile"
-                    className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 data-[focus]:bg-gray-100 data-[focus]:text-blue-600 hover:bg-amber-50 first:rounded-t-xl"
+                    onClick={() => { setActiveLink(""); navigate("/my-profile") }}
+                    className="cursor-pointer flex items-center gap-2 px-4 py-2 text-sm text-gray-700 data-[focus]:bg-gray-100 data-[focus]:text-blue-600 hover:bg-amber-50 first:rounded-t-xl"
                   >
                     <User size={16} />
                     My Profile

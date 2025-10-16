@@ -30,12 +30,15 @@ export default function SignupPage() {
         setFormData({ ...formData, [e.target.name]: e.target.value });
     };
 
+    const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
     const handleSignUp = async (e) => {
         e?.preventDefault?.();
         if (!formData.fullName || !formData.email || !formData.password || !formData.confirmPassword) {
             toast.error('Please fill in all fields');
             return;
         }
+        if (!validateEmail(formData.email)) return toast.error('Please enter a valid email address');
         if (formData.password !== formData.confirmPassword) {
             toast.error('Passwords do not match');
             return;
@@ -116,9 +119,9 @@ export default function SignupPage() {
                 </div>
             </div>
 
-            <div className="w-2/5 bg-white flex items-center justify-center p-8 min-w-0">
-                <div className="w-full max-w">
-                    <div className="flex justify-end mb-6">
+            <div className="w-2/5 bg-white h-full p-6 flex flex-col min-w-0">
+                <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm pb-3">
+                    <div className="flex justify-end">
                         <button className="shrink-0 mt-2 flex items-center gap-2 text-gray-700 hover:text-blue-600 text-sm font-medium">
                             <Headphones size={18} />
                             Support
@@ -128,11 +131,11 @@ export default function SignupPage() {
 
                     <div className='px-18 max-w-[520px] items-center'>
                         <h2 className="text-2xl font-bold text-gray-800 mb-1">Create your account</h2>
-                        <p className="text-gray-600 text-sm mb-6">Start managing your business today</p>
+                        <p className="text-gray-600 text-sm mb-3">Start managing your business today</p>
 
-                        <div className="space-y-4">
+                        <div className="space-y-3">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">Full Name</label>
                                 <input
                                     type="text"
                                     name="fullName"
@@ -141,13 +144,13 @@ export default function SignupPage() {
                                     onChange={handleInputChange}
                                     onKeyDown={handleKeyPress}
                                     disabled={isLoading}
-                                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                                    className="w-[340px] h-[45px] px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                                 />
                             </div>
 
                             {/* Email */}
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">Email</label>
                                 <input
                                     type="email"
                                     name="email"
@@ -156,13 +159,13 @@ export default function SignupPage() {
                                     onChange={handleInputChange}
                                     onKeyDown={handleKeyPress}
                                     disabled={isLoading}
-                                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                                    className="w-[340px] h-[45px] px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                                 />
                             </div>
 
                             {/* Password */}
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">Password</label>
                                 <div className="relative">
                                     <input
                                         type={showPassword ? 'text' : 'password'}
@@ -172,20 +175,20 @@ export default function SignupPage() {
                                         onChange={handleInputChange}
                                         onKeyDown={handleKeyPress}
                                         disabled={isLoading}
-                                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                                        className="w-[340px] h-[45px] px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                                     />
                                     <button
                                         type="button"
                                         onClick={() => setShowPassword(!showPassword)}
                                         disabled={isLoading}
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                                        className="absolute right-6 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
                                     >
                                         {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                                     </button>
                                 </div>
 
                                 {formData.password && (
-                                    <div className="mt-2 space-y-1">
+                                    <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
                                         {passwordRequirements.map((req, idx) => (
                                             <div key={idx} className="flex items-center gap-2 text-[11px]">
                                                 <div className={`w-3 h-3 rounded-full flex items-center justify-center ${req.met ? 'bg-green-500' : 'bg-gray-300'}`}>
@@ -200,7 +203,7 @@ export default function SignupPage() {
 
                             {/* Confirm Password */}
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">Confirm Password</label>
                                 <div className="relative">
                                     <input
                                         type={showConfirmPassword ? 'text' : 'password'}
@@ -210,13 +213,13 @@ export default function SignupPage() {
                                         onChange={handleInputChange}
                                         onKeyDown={handleKeyPress}
                                         disabled={isLoading}
-                                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                                        className="w-[340px] h-[45px] px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                                     />
                                     <button
                                         type="button"
                                         onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                                         disabled={isLoading}
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                                        className="absolute right-6 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
                                     >
                                         {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                                     </button>
@@ -247,7 +250,7 @@ export default function SignupPage() {
                             <button
                                 onClick={handleSignUp}
                                 disabled={isLoading}
-                                className="w-full bg-black hover:bg-gray-800 text-white font-semibold py-3 rounded-lg transition-colors duration-200 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                className="w-full bg-black hover:bg-gray-800 text-white font-semibold py-2.5 rounded-lg transition-colors duration-200 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                             >
                                 {isLoading ? (
                                     <>
@@ -263,7 +266,7 @@ export default function SignupPage() {
                             </button>
                         </div>
 
-                        <div className="mt-5 text-center">
+                        <div className="mt-3 text-center">
                             <span className="text-gray-600 text-sm">Already have an account? </span>
                             <button
                                 onClick={handleSignIn}
