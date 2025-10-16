@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader, ChevronDown, Check } from "lucide-react";
-import { Listbox, Transition } from "@headlessui/react";
+import { Listbox, ListboxButton, ListboxOption, ListboxOptions, Transition } from "@headlessui/react";
 import toast from "react-hot-toast";
 import { useRoles } from "../hooks/useRoles";
 
@@ -259,7 +259,6 @@ export function AddMemberModal({ open, onClose, onSave, mode = "create", member 
                         leaveTo="opacity-0 scale-95"
                       >
                         <ListboxOptions className="absolute z-[72] mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg focus:outline-none max-h-60 overflow-auto">
-                          {/* No role "clear" item */}
                           <ListboxOption value="__CLEAR_ALL__" disabled>
                             {() => (
                               <div className="px-3 py-2 text-[11px] text-gray-500 border-b border-gray-100">
@@ -268,7 +267,6 @@ export function AddMemberModal({ open, onClose, onSave, mode = "create", member 
                             )}
                           </ListboxOption>
 
-                          {/* Render roles */}
                           {roles.map((role) => (
                             <ListboxOption
                               key={role.id}

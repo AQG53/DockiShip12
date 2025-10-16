@@ -119,7 +119,7 @@ export default function SignupPage() {
             <div className="w-2/5 bg-white flex items-center justify-center p-8 min-w-0">
                 <div className="w-full max-w">
                     <div className="flex justify-end mb-6">
-                        <button className="mt-2 flex items-center gap-2 text-gray-700 hover:text-blue-600 text-sm font-medium">
+                        <button className="shrink-0 mt-2 flex items-center gap-2 text-gray-700 hover:text-blue-600 text-sm font-medium">
                             <Headphones size={18} />
                             Support
                             <ChevronDown size={18} />

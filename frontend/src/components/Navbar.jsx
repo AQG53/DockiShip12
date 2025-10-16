@@ -53,11 +53,6 @@ const Navbar = () => {
   }, []);
 
   useEffect(() => {
-    console.log("[Navbar] raw token from localStorage:", token);
-    if (claims) console.log("[Navbar] decoded JWT claims:", claims);
-  }, [token, claims]);
-
-  useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.substring(1) || 'home';
       setActiveLink(hash);
@@ -87,6 +82,9 @@ const Navbar = () => {
 
   const canSeeInventory = moduleSet.has('inventory');
   const canSeePurchases = moduleSet.has('purchases');
+  const canManageUsers = moduleSet.has('user');
+  const canManageRoles = moduleSet.has('role');
+  const isMember = (claims?.typ || '').toLowerCase() === 'member';
 
   const visibleLinks = useMemo(() => {
     return navLinks.filter((link) => {
@@ -205,21 +203,28 @@ const Navbar = () => {
                   static
                   className="absolute right-0 mt-2 w-48 origin-top-right bg-white border border-gray-200 rounded-xl shadow-lg focus:outline-none overflow-hidden"
                 >
-                  {settingsItems.map(({ label, path }) => (
-                    <MenuItem
-                      key={label}
-                      as="button"
-                      onClick={() => {
-                        navigate(path);
-                        setOpenSettings(false); // close after click
-                      }}
-                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 cursor-pointer 
-                 hover:bg-amber-50 data-[focus]:bg-gray-100 data-[focus]:text-blue-600
-                 first:rounded-t-xl last:rounded-b-xl"
-                    >
-                      {label}
-                    </MenuItem>
-                  ))}
+                  {settingsItems.map(({ label, path }) => {
+                    if (isMember && (label === "Staff Settings" || label === "Role Manage")) return null;
+                    if (label === "Staff Settings" && !canManageUsers) return null;
+                    if (label === "Role Manage" && !canManageRoles) return null;
+
+                    return (
+                      <MenuItem
+                        key={label}
+                        as="button"
+                        onClick={() => {
+                          navigate(path);
+                          setOpenSettings(false);
+                        }}
+                        className="block w-full text-left px-4 py-2 text-sm text-gray-700 cursor-pointer 
+                                hover:bg-amber-50 data-[focus]:bg-gray-100 data-[focus]:text-blue-600
+                                  first:rounded-t-xl last:rounded-b-xl"
+                      >
+                        {label}
+                      </MenuItem>
+                    );
+                  })}
+
                 </MenuItems>
               </Transition>
             </Menu>

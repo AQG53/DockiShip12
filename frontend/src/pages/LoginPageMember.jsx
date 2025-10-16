@@ -73,7 +73,7 @@ export default function LoginPage() {
               setNeedTenantSelection(true);
               toast('Select a company to continue', { icon: '🏢' });
             } else {
-              toast.error('No tenant access found for this account.');
+              toast.error('User not found, please create an account.');
             }
           }
           else {
