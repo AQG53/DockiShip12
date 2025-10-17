@@ -150,6 +150,7 @@ export async function listUsers() {
     email: u.email || "",
     fullName: u.fullName || "",
     isActive: !!u.isActive,
+    createdAt: u.createdAt,
     membershipId: u.membershipId || "",
     status: u.status || (u.isActive ? "active" : "inactive"),
     roles: (Array.isArray(u.roles) ? u.roles : []).map((name) => ({
@@ -190,4 +191,17 @@ export async function resetPassword({token, password}) {
     headers: { Authorization: undefined, "X-Tenant-ID": undefined },
   });
   return res.data;
+}
+
+export async function authCheck() {
+  const res = await axiosInstance.get("/auth/check");
+  const data = res?.data || {};
+  return {
+    valid: !!data.valid,
+    user: data.user || null,
+    tenant: data.tenant || null,
+    roles: Array.isArray(data.roles) ? data.roles : [],
+    perms: Array.isArray(data.perms) ? data.perms : [],
+    raw: data,
+  };
 }

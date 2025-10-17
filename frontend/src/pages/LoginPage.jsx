@@ -55,6 +55,9 @@ export default function LoginPage() {
       {
         onSuccess: (res) => {
           if (res?.access_token) {
+            if (!Array.isArray(res?.ownedTenants)) {
+              return toast('Let’s set up your first company', { icon: '🏗️' });
+            }
             const userName = res?.user?.fullName || 'there';
             toast.success(`Welcome back, ${userName}!`);
             return navigate('/');

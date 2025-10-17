@@ -1,10 +1,8 @@
-// MyProfile.jsx
-import { useState } from 'react';
-import {
-    User, Mail, Phone, Globe, DollarSign, Clock, Key, Trash2, Save, Edit2, X
-} from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { User, Mail, Phone, Globe, DollarSign, Clock, Key, Trash2, Save, Edit2, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Navbar from '../components/Navbar';
+import { useAuthCheck } from '../hooks/useAuthCheck';
 
 export default function MyProfilePage() {
     const [isEditing, setIsEditing] = useState(false);
@@ -22,6 +20,29 @@ export default function MyProfilePage() {
     });
 
     const [originalData, setOriginalData] = useState({ ...formData });
+
+    const { data, isLoading, isError } = useAuthCheck();
+
+    useEffect(() => {
+        if (data?.user) {
+            setFormData(prev => ({
+                ...prev,
+                fullName: data.user.fullName ?? prev.fullName,
+                email: data.user.email ?? prev.email,
+            }));
+            setOriginalData(prev => ({
+                ...prev,
+                fullName: data.user.fullName ?? prev.fullName,
+                email: data.user.email ?? prev.email,
+            }));
+        }
+    }, [data]);
+
+    useEffect(() => {
+        if (isError) {
+            toast.error('Could not fetch profile. Please re-login.');
+        }
+    }, [isError]);
 
     const countries = [
         'United States', 'United Kingdom', 'Canada', 'Australia', 'Germany',
@@ -65,7 +86,6 @@ export default function MyProfilePage() {
             setIsSaving(false);
             setIsEditing(false);
             toast.success('Profile updated successfully!');
-            // console.log('Updated profile:', formData);
         }, 1200);
     };
 
@@ -127,9 +147,9 @@ export default function MyProfilePage() {
                     </div>
 
                     {!isEditing ? (
-                        <button onClick={handleEdit} className={primaryBtn}>
+                        <button onClick={handleEdit} className={primaryBtn} disabled={isLoading}>
                             <Edit2 size={16} />
-                            Edit Profile
+                            {isLoading ? 'Loading…' : 'Edit Profile'}
                         </button>
                     ) : (
                         <div className="flex items-center gap-2">

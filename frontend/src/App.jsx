@@ -20,11 +20,14 @@ import StaffSettings from './pages/settings/StaffSettings.jsx'
 import RequestReset from './pages/RequestReset.jsx'
 import ResetPassword from './pages/ResetPassword.jsx'
 import MyProfilePage from './pages/MyProfile.jsx'
+import useTenantGuard from "./hooks/useTenantGuard.js";
+import ProtectedSettingsRoute from './components/ProtectedSettingsRoute.jsx'
 
 const App = () => {
   const { isLoading, isAuthenticated } = useAuthUser();
   // const isAuthenticated = true;
   // const isLoading = false;
+  const hasTenant = useTenantGuard();
 
   if (isLoading) {
     return <PageLoader />
@@ -36,7 +39,13 @@ const App = () => {
         <Route
           path="/"
           element={
-            isAuthenticated ? <Dashboard /> : <Navigate to="/login/owner" replace />
+            !isAuthenticated ? (
+              <Navigate to={"/login/owner"} replace />
+            ) : hasTenant === false ? (
+              <Navigate to={"/setup/tenant"} replace />
+            ) : (
+              <Dashboard />
+            )
           }
         />
         <Route
@@ -47,29 +56,29 @@ const App = () => {
         />
         <Route
           path='/login/member'
-          element={!isAuthenticated ? <LoginPageMember /> : <Navigate to="/" replace/> } 
+          element={!isAuthenticated ? <LoginPageMember /> : <Navigate to="/" replace />}
         />
-        <Route 
+        <Route
           path='/signup/owner'
           element={
             isAuthenticated ? <Navigate to="/setup/tenant" replace /> : <SignupPage />
           }
         />
-        <Route 
+        <Route
           path='/setup/tenant'
-          element={!isAuthenticated ? <Navigate to="/login/owner"/> : <TenantSetupPage />}
+          element={!isAuthenticated ? <Navigate to="/login/owner" /> : <TenantSetupPage />}
         />
-        <Route 
+        <Route
           path='/password/request'
-          element={!isAuthenticated ? <RequestReset /> : <Navigate to="/" replace/> }
+          element={!isAuthenticated ? <RequestReset /> : <Navigate to="/" replace />}
         />
-        <Route 
+        <Route
           path='/reset-password'
-          element={!isAuthenticated ? <ResetPassword /> : <Navigate to="/" replace/> }
+          element={!isAuthenticated ? <ResetPassword /> : <Navigate to="/" replace />}
         />
-        <Route 
+        <Route
           path='/my-profile'
-          element={isAuthenticated ? <MyProfilePage /> : <Navigate to="/login/owner" replace/> }
+          element={isAuthenticated ? <MyProfilePage /> : <Navigate to="/login/owner" replace />}
         />
         <Route
           path="/settings"
@@ -81,8 +90,18 @@ const App = () => {
           <Route path="general" element={<GeneralSettings />} />
           <Route path="listings" element={<ListingSettings />} />
           <Route path="inventory" element={<InventorySettings />} /> */}
-          <Route path="staff" element={<StaffSettings />} /> 
-          <Route path="roles" element={<RoleManage />} />
+          <Route path="staff" element={
+            <ProtectedSettingsRoute perm={"user.manage"}>
+              <StaffSettings />
+            </ProtectedSettingsRoute>
+          }
+          />
+          <Route path="roles" element={
+            <ProtectedSettingsRoute perm={"role.manage"}>
+              <RoleManage />
+            </ProtectedSettingsRoute>
+          }
+          />
         </Route>
       </Routes>
       <Toaster />

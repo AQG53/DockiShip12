@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Building2, X } from 'lucide-react';
+import { Building2, LogOut, X } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import Logo from '../assets/logo1.png';
 import toast from 'react-hot-toast';
@@ -54,12 +54,26 @@ export default function CompanySetup() {
     }
   };
 
+  const handleLogout = () => {
+    logout();
+    toast.success('Logged out successfully');
+    navigate('/login/owner');
+  };
+
+
   return (
     <div className="h-screen w-screen overflow-hidden bg-gradient-to-br from-[#fff1c1] via-[#fffae6] to-[#fff1c1] relative">
       <div className="absolute inset-x-0 top-0 flex items-center justify-between px-6 py-4">
         <div className="flex items-center gap-3">
           <img src={Logo} alt="DockiShip" className="h-20 w-auto px-15" />
         </div>
+        <button
+          onClick={handleLogout}
+          className="inline-flex items-center gap-2 rounded-lg text-gray-800 font-medium text-sm px-4 py-2"
+        >
+          <LogOut size={16} className="text-red-600" />
+          Change User
+        </button>
       </div>
 
       <div className="h-full w-full flex items-center justify-center px-6">

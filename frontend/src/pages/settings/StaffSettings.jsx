@@ -3,6 +3,7 @@ import { Plus, Pencil, Trash2, Loader } from "lucide-react";
 import { NoData } from "../../components/NoData.jsx";
 import { AddMemberModal } from "../../components/AddMemberModal";
 import { useMembers } from "../../hooks/useMembers";
+import { formatDate } from "../../utils/index.js";
 
 export default function StaffSettings() {
     const { data: members = [], isLoading, isError, error, refetch } = useMembers();
@@ -135,9 +136,8 @@ export default function StaffSettings() {
                                         {m.isActive ? "Yes" : "No"}
                                     </div>
 
-                                    {/* Created At (dummy current date/time) */}
                                     <div className="break-words whitespace-pre-line">
-                                        {getCurrentDateTime()}
+                                        {formatDate(m.createdAt)}
                                     </div>
 
                                     <div className="flex items-center gap-2">
