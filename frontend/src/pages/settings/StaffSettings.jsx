@@ -2,13 +2,17 @@ import { useState } from "react";
 import { Plus, Pencil, Trash2, Loader } from "lucide-react";
 import { NoData } from "../../components/NoData.jsx";
 import { AddMemberModal } from "../../components/AddMemberModal";
-import { useMembers } from "../../hooks/useMembers";
+import { useMembers, useDeleteMember } from "../../hooks/useMembers"
+import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { formatDate } from "../../utils/index.js";
+import toast from "react-hot-toast";
 
 export default function StaffSettings() {
     const { data: members = [], isLoading, isError, error, refetch } = useMembers();
     const [showAddModal, setShowAddModal] = useState(false);
     const [editingMember, setEditingMember] = useState(null);
+    const [confirmDelete, setConfirmDelete] = useState(null);
+    const { mutate: deleteMember, isPending: isDeleting } = useDeleteMember();
 
     const openAddModal = () => {
         setEditingMember(null);
@@ -31,15 +35,26 @@ export default function StaffSettings() {
         setShowAddModal(true);
     };
 
-    const handleDelete = async (id) => {
-        if (window.confirm("Are you sure you want to delete this member?")) {
-            // Add API call here
-        }
+    const handleDelete = (member) => {
+        setConfirmDelete(member);
     };
 
-    const getCurrentDateTime = () => {
-        const now = new Date();
-        return now.toLocaleString();
+    const confirmDeleteMember = () => {
+        if (!confirmDelete?.id) return;
+        deleteMember(confirmDelete.id, {
+            onSuccess: () => {
+                toast.success("Member deleted successfully");
+                setConfirmDelete(null);
+            },
+            onError: (err) => {
+                const msg =
+                    err?.response?.data?.message ||
+                    err?.message ||
+                    "Failed to delete member";
+                toast.error(msg);
+                setConfirmDelete(null);
+            },
+        });
     };
 
     return (
@@ -148,8 +163,9 @@ export default function StaffSettings() {
                                             <Pencil size={14} /> Edit
                                         </button>
                                         <button
-                                            onClick={() => handleDelete(m.id)}
-                                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-gray-200 hover:bg-gray-50 text-red-600 cursor-pointer"
+                                            onClick={() => handleDelete(m)}
+                                            disabled={isDeleting}
+                                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-gray-200 hover:bg-gray-50 text-red-600 disabled:opacity-50 cursor-pointer"
                                         >
                                             <Trash2 size={14} /> Delete
                                         </button>
@@ -169,6 +185,22 @@ export default function StaffSettings() {
                     mode={editingMember ? "edit" : "create"}
                     member={editingMember}
                 />
+            )}
+
+            {confirmDelete && (
+                <ConfirmModal
+                    open={!!confirmDelete}
+                    title="Delete Member"
+                    loading={isDeleting}
+                    onClose={() => setConfirmDelete(null)}
+                    onConfirm={confirmDeleteMember}
+                >
+                    <p className="text-gray-700">
+                        Are you sure you want to delete{" "}
+                        <span className="font-semibold">{confirmDelete.fullName}</span>? This action
+                        cannot be undone.
+                    </p>
+                </ConfirmModal>
             )}
         </div>
     );

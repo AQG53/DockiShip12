@@ -205,3 +205,9 @@ export async function authCheck() {
     raw: data,
   };
 }
+
+export async function deleteUser(userId) {
+  if (!userId) throw new Error("Missing userId");
+  const res = await axiosInstance.delete(`/users/${userId}`);
+  return res?.data?.ok === true;
+}
