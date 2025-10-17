@@ -211,7 +211,6 @@ const Navbar = () => {
                   className="absolute right-0 mt-2 w-48 origin-top-right bg-white border border-gray-200 rounded-xl shadow-lg focus:outline-none overflow-hidden"
                 >
                   {settingsItems.map(({ label, path }) => {
-                    if ((label === "Staff Settings" || label === "Role Manage")) return null;
                     if (label === "Staff Settings" && !canManageUsers) return null;
                     if (label === "Role Manage" && !canManageRoles) return null;
 
