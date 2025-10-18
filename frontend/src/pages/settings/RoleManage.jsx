@@ -4,16 +4,18 @@ import { AddRoleModal } from "../../components/AddRoleModal";
 import { NoData } from "../../components/NoData";
 import { formatDate } from "../../utils/index.js";
 import { useRoles } from "../../hooks/useRoles.js";
+import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 // import { listRoles, createRole, deleteRole, updateRole } from "../../lib/api"; // wire later
 
 export default function RoleManage() {
     const { data: roles = [], isLoading, isError, error, refetch } = useRoles();
-    const [loading, setLoading] = useState(false);
     const [showModal, setShowModal] = useState(false);
     const [form, setForm] = useState({ name: "", description: "" });
     const [editingRole, setEditingRole] = useState(null);
+    const [confirmDelete, setConfirmDelete] = useState(null);
 
-    const openModal = () => {setEditingRole(null); setShowModal(true); };
+
+    const openModal = () => { setEditingRole(null); setShowModal(true); };
     const closeModal = () => {
         setShowModal(false);
         setForm({ name: "", description: "" });
@@ -26,8 +28,7 @@ export default function RoleManage() {
     };
 
     const handleDelete = async (id) => {
-        // await deleteRole(id);
-        setRoles(prev => prev.filter(r => r.id !== id));
+        setConfirmDelete(id);
     };
 
     const handleEdit = (role) => {
@@ -35,6 +36,24 @@ export default function RoleManage() {
         setShowModal(true);
         setEditingRole(role);
         setShowModal(true);
+    };
+
+    const confirmDeleteRole = () => {
+        if (!confirmDelete) return;
+        deleteMember(confirmDelete, {
+            onSuccess: () => {
+                toast.success("Role deleted successfully");
+                setConfirmDelete(null);
+            },
+            onError: (err) => {
+                const msg =
+                    err?.response?.data?.message ||
+                    err?.message ||
+                    "Failed to delete role";
+                toast.error(msg);
+                setConfirmDelete(null);
+            },
+        });
     };
 
     return (
@@ -99,11 +118,27 @@ export default function RoleManage() {
             {showModal && (
                 <AddRoleModal
                     open={showModal}
-                    onClose={() => setShowModal(false)}
+                    onClose={closeModal}
                     onSave={handleSaveRole}
                     mode={editingRole ? "edit" : "create"}
                     role={editingRole}
                 />
+            )}
+
+            {confirmDelete && (
+                <ConfirmModal
+                    open={!!confirmDelete}
+                    title="Delete Role"
+                    loading={isDeleting}
+                    onClose={() => setConfirmDelete(null)}
+                    onConfirm={confirmDeleteRole}
+                >
+                    <p className="text-gray-700">
+                        Are you sure you want to delete{" "}
+                        <span className="font-semibold">{confirmDelete}</span>? This action
+                        cannot be undone.
+                    </p>
+                </ConfirmModal>
             )}
         </div>
     );

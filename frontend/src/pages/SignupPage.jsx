@@ -166,7 +166,7 @@ export default function SignupPage() {
                             {/* Password */}
                             <div>
                                 <label className="block text-xs font-medium text-gray-700 mb-1">Password</label>
-                                <div className="relative">
+                                <div className="flex items-center w-[340px] h-[45px] border border-gray-300 rounded-lg focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent">
                                     <input
                                         type={showPassword ? 'text' : 'password'}
                                         name="password"
@@ -175,13 +175,13 @@ export default function SignupPage() {
                                         onChange={handleInputChange}
                                         onKeyDown={handleKeyPress}
                                         disabled={isLoading}
-                                        className="w-[340px] h-[45px] px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                                        className="flex-1 px-3 py-2.5 focus:outline-none disabled:bg-gray-100"
                                     />
                                     <button
                                         type="button"
                                         onClick={() => setShowPassword(!showPassword)}
                                         disabled={isLoading}
-                                        className="absolute right-6 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                                        className="p-2 text-gray-500 hover:text-gray-700"
                                     >
                                         {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                                     </button>
@@ -204,7 +204,7 @@ export default function SignupPage() {
                             {/* Confirm Password */}
                             <div>
                                 <label className="block text-xs font-medium text-gray-700 mb-1">Confirm Password</label>
-                                <div className="relative">
+                                <div className="flex items-center w-[340px] h-[45px] border border-gray-300 rounded-lg focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent">
                                     <input
                                         type={showConfirmPassword ? 'text' : 'password'}
                                         name="confirmPassword"
@@ -213,13 +213,13 @@ export default function SignupPage() {
                                         onChange={handleInputChange}
                                         onKeyDown={handleKeyPress}
                                         disabled={isLoading}
-                                        className="w-[340px] h-[45px] px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                                        className="flex-1 px-3 py-2.5 focus:outline-none disabled:bg-gray-100"
                                     />
                                     <button
                                         type="button"
                                         onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                                         disabled={isLoading}
-                                        className="absolute right-6 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                                        className="p-2 text-gray-500 hover:text-gray-700"
                                     >
                                         {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                                     </button>
@@ -279,6 +279,6 @@ export default function SignupPage() {
                     </div>
                 </div>
             </div>
-        </div>
+        </div >
     );
 }

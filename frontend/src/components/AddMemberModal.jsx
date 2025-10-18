@@ -14,7 +14,7 @@ export function AddMemberModal({ open, onClose, onSave, mode = "create", member 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const [selectedRoleIds, setSelectedRoleIds] = useState([]);
+  const [selectedRoleId, setSelectedRoleId] = useState(null);
 
   const {
     data: roles = [],
@@ -28,10 +28,11 @@ export function AddMemberModal({ open, onClose, onSave, mode = "create", member 
     return map;
   }, [roles]);
 
-  const selectedRoles = useMemo(
-    () => roles.filter((r) => selectedRoleIds.includes(r.id)),
-    [roles, selectedRoleIds]
+  const selectedRole = useMemo(
+    () => roles.find((r) => r.id === selectedRoleId),
+    [roles, selectedRoleId]
   );
+
 
   useEffect(() => {
     if (!open) return;
@@ -42,17 +43,17 @@ export function AddMemberModal({ open, onClose, onSave, mode = "create", member 
 
       const already = Array.isArray(member.roles)
         ? member.roles
-            .map((r) => (typeof r === "string" ? r : r?.name))
-            .filter(Boolean)
-            .map((name) => roleIdByName.get(name))
-            .filter(Boolean)
+          .map((r) => (typeof r === "string" ? r : r?.name))
+          .filter(Boolean)
+          .map((name) => roleIdByName.get(name))
+          .filter(Boolean)
         : [];
 
-      setSelectedRoleIds(already);
+      setSelectedRoleId(already[0] || null);
     } else {
       setFullName("");
       setEmail("");
-      setSelectedRoleIds([]);
+      setSelectedRoleId(null);
     }
   }, [open, mode, member, roleIdByName]);
 
@@ -72,21 +73,18 @@ export function AddMemberModal({ open, onClose, onSave, mode = "create", member 
           email: email.trim().toLowerCase(),
         });
 
-        if (selectedRoleIds.length > 0) {
-          const found = await findUserByEmail(email.trim().toLowerCase());
-          const userId = found?.userId || found?.id;
-          if (!userId) {
-            toast.error("Invited, but couldn’t resolve user id to assign roles");
-          } else {
-            await assignRolesToUser(userId, selectedRoleIds);
-          }
+        const found = await findUserByEmail(email.trim().toLowerCase());
+        const userId = found?.userId || found?.id;
+        if (userId) {
+          const rolesToAssign = selectedRoleId ? [selectedRoleId] : [];
+          await assignRolesToUser(userId, rolesToAssign);
         }
 
         toast.success(
-          selectedRoleIds.length > 0 ? "Member invited & roles assigned" : "Member invited"
+          selectedRoleId > 0 ? "Member invited & role assigned" : "Member invited"
         );
         setIsSaving(false);
-        onSave?.({ fullName, email, roleIds: selectedRoleIds });
+        onSave?.({ fullName, email, roleIds: selectedRoleId });
         onClose?.();
       } catch (err) {
         console.error(err);
@@ -102,10 +100,11 @@ export function AddMemberModal({ open, onClose, onSave, mode = "create", member 
     }
     try {
       setIsSaving(true);
-      await assignRolesToUser(member.id, selectedRoleIds);
+      const rolesToAssign = selectedRoleId ? [selectedRoleId] : [];
+      await assignRolesToUser(member.id, rolesToAssign);
       toast.success("Roles updated");
       setIsSaving(false);
-      onSave?.({ userId: member.id, roleIds: selectedRoleIds });
+      onSave?.({ userId: member.id, roleIds: selectedRoleId });
       onClose?.();
     } catch (err) {
       setIsSaving(false);
@@ -121,7 +120,7 @@ export function AddMemberModal({ open, onClose, onSave, mode = "create", member 
 
   return (
     <div className="fixed inset-0 z-[70]">
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/30 overflow-hidden" onClick={onClose} />
       <div className="relative z-[71] flex min-h-screen items-start md:items-center justify-center p-4 overflow-y-auto">
         <div className="w-full max-w-2xl rounded-xl bg-[#f6f7fb] border border-gray-200 shadow-2xl overflow-visible max-h-[85vh]">
           {/* Header */}
@@ -224,31 +223,25 @@ export function AddMemberModal({ open, onClose, onSave, mode = "create", member 
                   <label className="text-sm text-gray-700">Roles</label>
 
                   <Listbox
-                    value={selectedRoleIds}
-                    onChange={setSelectedRoleIds}
-                    multiple
+                    value={selectedRoleId}
+                    onChange={setSelectedRoleId}
                     disabled={rolesLoading || rolesError}
                   >
                     <div className="relative">
                       <ListboxButton
-                        className={`w-full inline-flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${
-                          rolesLoading
-                            ? "border-gray-200 bg-gray-100 text-gray-400"
-                            : "border-gray-300 bg-white text-gray-800"
-                        } outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed`}
+                        className={`w-full inline-flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${rolesLoading
+                          ? "border-gray-200 bg-gray-100 text-gray-400"
+                          : "border-gray-300 bg-white text-gray-800"
+                          } outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed`}
                       >
                         <span className="truncate text-left">
                           {rolesLoading
                             ? "Loading roles…"
                             : rolesError
-                            ? "Failed to load roles"
-                            : selectedRoles.length === 0
-                            ? "No role"
-                            : selectedRoles.length === 1
-                            ? selectedRoles[0].name
-                            : `${selectedRoles[0].name}, ${selectedRoles[1]?.name ?? ""}${
-                                selectedRoles.length > 2 ? `  +${selectedRoles.length - 2}` : ""
-                              }`}
+                              ? "Failed to load roles"
+                              : !selectedRole
+                                ? "No role"
+                                : selectedRole.name}
                         </span>
                         <ChevronDown className="h-4 w-4 text-gray-500" />
                       </ListboxButton>
@@ -262,21 +255,19 @@ export function AddMemberModal({ open, onClose, onSave, mode = "create", member 
                         leaveTo="opacity-0 scale-95"
                       >
                         <ListboxOptions className="absolute z-[72] mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg focus:outline-none max-h-60 overflow-auto">
-                          <ListboxOption value="__CLEAR_ALL__" disabled>
+                          <ListboxOption value={null}>
                             {() => (
-                              <div className="px-3 py-2 text-[11px] text-gray-500 border-b border-gray-100">
-                                Select one or more roles
+                              <div className="px-3 py-2 text-sm text-gray-600 cursor-pointer hover:bg-gray-50">
+                                No role
                               </div>
                             )}
                           </ListboxOption>
-
                           {roles.map((role) => (
                             <ListboxOption
                               key={role.id}
                               value={role.id}
                               className={({ active, selected }) =>
-                                `flex items-center justify-between px-3 py-2 text-sm cursor-pointer ${
-                                  active ? "bg-gray-50" : ""
+                                `flex items-center justify-between px-3 py-2 text-sm cursor-pointer ${active ? "bg-gray-50" : ""
                                 } ${selected ? "text-blue-600" : "text-gray-700"}`
                               }
                             >

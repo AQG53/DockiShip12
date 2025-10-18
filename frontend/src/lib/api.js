@@ -111,7 +111,7 @@ export async function createRole(payload) {
 }
 
 export async function updateRoleFull(roleId, { name, description, permissionNames }) {
-  const res = await axiosInstance.patch(`/roles/${roleId}`, {
+  const res = await axiosInstance.put(`/roles/${roleId}`, {
     name,
     description,
     permissionNames,
@@ -209,5 +209,11 @@ export async function authCheck() {
 export async function deleteUser(userId) {
   if (!userId) throw new Error("Missing userId");
   const res = await axiosInstance.delete(`/users/${userId}`);
+  return res?.data?.ok === true;
+}
+
+export async function deleteRole(roleId) {
+  if(roleId) throw new Error("Missing roleId");
+  const res = await axiosInstance.delete(`/roles/${roleId}`);
   return res?.data?.ok === true;
 }
