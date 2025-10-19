@@ -22,6 +22,7 @@ import ResetPassword from './pages/ResetPassword.jsx'
 import MyProfilePage from './pages/MyProfile.jsx'
 import useTenantGuard from "./hooks/useTenantGuard.js";
 import ProtectedSettingsRoute from './components/ProtectedSettingsRoute.jsx'
+import ShopManage from './pages/settings/ShopManage.jsx'
 
 const App = () => {
   const { isLoading, isAuthenticated } = useAuthUser();
@@ -85,8 +86,8 @@ const App = () => {
           element={isAuthenticated ? <SettingsLayout /> : <Navigate to="/login/owner" replace />}
         >
           <Route index element={<Navigate to="roles" replace />} />
-          {/* <Route path="shop" element={<ShopSettings />} />
-          <Route path="orders" element={<OrderSettings />} />
+          <Route path="shop" element={<ShopManage />} />
+          {/* <Route path="orders" element={<OrderSettings />} />
           <Route path="general" element={<GeneralSettings />} />
           <Route path="listings" element={<ListingSettings />} />
           <Route path="inventory" element={<InventorySettings />} /> */}

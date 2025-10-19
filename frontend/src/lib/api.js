@@ -185,8 +185,8 @@ export async function requestPasswordReset({ email }) {
   return res.data;
 }
 
-export async function resetPassword({token, password}) {
-  const body = {token, password};
+export async function resetPassword({token, newPassword}) {
+  const body = {token, newPassword};
   const res = await axiosInstance.post("/auth/password/reset", body, {
     headers: { Authorization: undefined, "X-Tenant-ID": undefined },
   });
@@ -216,4 +216,22 @@ export async function deleteRole(roleId) {
   if(roleId) throw new Error("Missing roleId");
   const res = await axiosInstance.delete(`/roles/${roleId}`);
   return res?.data?.ok === true;
+}
+
+export async function updateMyProfile({ fullName, phone, country }) {
+  const raw = localStorage.getItem(USER_KEY);
+  let userId = null;
+  try {
+    const u = raw ? JSON.parse(raw) : null;
+    userId = u?.id || u?.userId || null;
+  } catch {}
+
+  if (!userId) throw new Error('No current user');
+
+  const res = await axiosInstance.patch(`/users/${userId}`, {
+    fullName,
+    phone,
+    country,
+  });
+  return res.data;
 }

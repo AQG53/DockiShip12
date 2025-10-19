@@ -145,6 +145,7 @@ export default function CompanySetup() {
       {showConfirm && (
         <ConfirmModal
           title="Confirm Company Registration"
+          open={showConfirm}
           onClose={() => setShowConfirm(false)}
           onConfirm={handleConfirmCreate}
           loading={isSubmitting}

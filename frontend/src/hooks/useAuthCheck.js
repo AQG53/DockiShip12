@@ -1,4 +1,3 @@
-// src/hooks/useAuthCheck.js
 import { useQuery } from "@tanstack/react-query";
 import { authCheck } from "../lib/api"; 
 
