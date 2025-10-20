@@ -8,6 +8,7 @@ import { settingsItems } from '../utils';
 import { navLinks } from '../utils';
 import { jwtDecode } from 'jwt-decode';
 import toast from 'react-hot-toast';
+import { useAuthCheck } from "../hooks/useAuthCheck";
 
 const TOKEN_KEY = "ds_access_token";
 
@@ -20,6 +21,7 @@ const Navbar = () => {
   const [token, setToken] = useState(null);
   const [claims, setClaims] = useState(null);
   const location = useLocation();
+  const { data, isLoading } = useAuthCheck();
 
   useEffect(() => {
     // map paths to navbar ids for highlighting
@@ -130,7 +132,7 @@ const Navbar = () => {
               >
                 <div className={`px-4 py-2 text-sm font-medium transition-colors rounded
                               ${activeLink === link.id ? 'text-blue-600 bg-yellow-100 rounded-2xl'
-                              : 'text-gray-700 hover:bg-yellow-100 rounded-2xl'}`}>
+                    : 'text-gray-700 hover:bg-yellow-100 rounded-2xl'}`}>
                   {link.name}
                 </div>
               </Link>
@@ -183,6 +185,17 @@ const Navbar = () => {
                   ${openUser ? "rotate-180" : "rotate-0"}`}
               />
             </button> */}
+
+            {!isLoading && data && (
+              <div className="flex flex-col items-end text-right mr-2">
+                <span className="text-sm font-medium text-gray-500">
+                  Tenant: {data?.tenant?.name || "No Tenant"}
+                </span>
+                <span className="text-xs text-gray-500">
+                  Role: {data?.roles?.[0] || "No Role"}
+                </span>
+              </div>
+            )}
 
             <Menu
               as="div"

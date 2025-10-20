@@ -1,17 +1,5 @@
 import { useEffect, useState, Fragment } from 'react';
-import {
-    User,
-    Mail,
-    Phone,
-    Globe,
-    Save,
-    Edit2,
-    X,
-    Key,
-    Trash2,
-    ChevronDown,
-    Check
-} from 'lucide-react';
+import { User, Mail, Globe, Save, Edit2, X, Key, Trash2, ChevronDown, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Navbar from '../components/Navbar';
 import { useAuthCheck } from '../hooks/useAuthCheck';

@@ -1,4 +1,4 @@
-import axiosInstance, { TOKEN_KEY, USER_KEY, TENANT_KEY } from "./axios";
+import axiosInstance, { TOKEN_KEY, USER_KEY, TENANT_KEY, getTenantId } from "./axios";
 import { jwtDecode } from "jwt-decode";
 
 export async function login_owner({ email, password, tenantId }) {
@@ -236,3 +236,17 @@ export async function updateMyProfile({ fullName, phone, country }) {
   });
   return res.data;
 }
+
+export async function updateTenant({ name, description, currency, timezone }) {
+  const tenantId = getTenantId();
+  if (!tenantId) throw new Error("No active tenantId");
+
+  const res = await axiosInstance.patch(`/tenants/${tenantId}`, {
+    name,
+    description,
+    currency,
+    timezone, 
+  });
+  return res.data?.data ?? res.data ?? {};
+}
+
