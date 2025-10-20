@@ -1,12 +1,11 @@
 import Dashboard from './pages/Dashboard.jsx'
 import LoginPage from './pages/LoginPage.jsx'
 import LoginPageMember from './pages/LoginPageMember.jsx'
-
 import { Navigate, Route, Routes } from 'react-router'
 import useAuthUser from './hooks/useAuthUser.js'
 import { Toaster } from "react-hot-toast"
-import PageLoader from './components/PageLoader.jsx'
 
+import PageLoader from './components/PageLoader.jsx'
 import RoleManage from './pages/settings/RoleManage.jsx'
 import SettingsLayout from './pages/settings/SettingsLayout.jsx'
 import SignupPage from './pages/SignupPage.jsx'
@@ -23,11 +22,27 @@ import MyProfilePage from './pages/MyProfile.jsx'
 import useTenantGuard from "./hooks/useTenantGuard.js";
 import ProtectedSettingsRoute from './components/ProtectedSettingsRoute.jsx'
 import ShopManage from './pages/settings/ShopManage.jsx'
+import { useEffect } from 'react'
+import useUserPermissions from './hooks/useUserPermissions.js'
+
+function OwnerOnly({ children }) {
+  const { claims, ready } = useUserPermissions();
+  if (!ready) return <PageLoader />;
+
+  const firstRole = String(claims?.roles?.[0] ?? '').toLowerCase();
+  const isOwner = firstRole === 'owner';
+  return isOwner ? children : <Navigate to="/" replace />;
+}
 
 const App = () => {
   const { isLoading, isAuthenticated } = useAuthUser();
-  // const isAuthenticated = true;
-  // const isLoading = false;
+
+  const { claims } = useUserPermissions();
+  useEffect(() => {
+    if (claims?.user)
+      console.log(claims)
+  }, [claims])
+
   const hasTenant = useTenantGuard();
 
   if (isLoading) {
@@ -86,7 +101,14 @@ const App = () => {
           element={isAuthenticated ? <SettingsLayout /> : <Navigate to="/login/owner" replace />}
         >
           <Route index element={<Navigate to="roles" replace />} />
-          <Route path="shop" element={<ShopManage />} />
+          <Route
+            path="shop"
+            element={
+              <OwnerOnly>
+                <ShopManage />
+              </OwnerOnly>
+            }
+          />
           {/* <Route path="orders" element={<OrderSettings />} />
           <Route path="general" element={<GeneralSettings />} />
           <Route path="listings" element={<ListingSettings />} />
@@ -104,9 +126,9 @@ const App = () => {
           }
           />
         </Route>
-        <Route 
+        <Route
           path='/*'
-          element={<Navigate to={"/"}/>}
+          element={<Navigate to={"/"} />}
         />
       </Routes>
       <Toaster />

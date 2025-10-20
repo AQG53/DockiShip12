@@ -250,3 +250,12 @@ export async function updateTenant({ name, description, currency, timezone }) {
   return res.data?.data ?? res.data ?? {};
 }
 
+export async function deleteCurrentTenant() {
+  const tenantId = getTenantId();
+  if (!tenantId) throw new Error("No active tenantId");
+
+  const res = await axiosInstance.delete(`/tenants/${tenantId}`);
+  return res?.status === 200 || res?.status === 204 || res?.data?.ok === true;
+}
+
+

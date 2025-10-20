@@ -3,6 +3,7 @@ import { Building2, DollarSign, Clock, Trash2, Save, Edit2, X } from 'lucide-rea
 import toast from 'react-hot-toast';
 import { useAuthCheck } from '../../hooks/useAuthCheck';
 import useUpdateTenant from '../../hooks/useTenant';
+import { deleteCurrentTenant, logout } from '../../lib/api';
 
 export default function ShopManage() {
   const [isEditing, setIsEditing] = useState(false);
@@ -12,6 +13,7 @@ export default function ShopManage() {
   const { data, isLoading, isError } = useAuthCheck();
   const [payload, setPayload] = useState(null);
   const updateTenantMutation = useUpdateTenant();
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const [formData, setFormData] = useState({
     name: '-',
@@ -101,12 +103,30 @@ export default function ShopManage() {
     setShowDeleteConfirm(true);
   };
 
-  const confirmDeleteCompany = () => {
-    toast.loading('Deleting company…', { duration: 1000 });
-    setTimeout(() => {
-      toast.success('Company deleted successfully');
-      setShowDeleteConfirm(false);
-    }, 1100);
+  const confirmDeleteCompany = async () => {
+    if (confirmText !== 'DELETE' || isDeleting) return;
+
+    try {
+      setIsDeleting(true);
+      toast.loading('Deleting company…');
+
+      const ok = await deleteCurrentTenant();
+      toast.dismiss();
+
+      if (ok) {
+        toast.success('Company deleted successfully');
+        setShowDeleteConfirm(false);
+        logout();
+      } else {
+        toast.error('Failed to delete company');
+      }
+    } catch (err) {
+      toast.dismiss();
+      const msg = err?.response?.data?.message || 'Delete failed';
+      toast.error(msg);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const card = 'rounded-2xl border border-gray-200 bg-white shadow-sm';
@@ -332,10 +352,10 @@ export default function ShopManage() {
                   </button>
                   <button
                     onClick={confirmDeleteCompany}
-                    disabled={confirmText !== 'DELETE'}
+                    disabled={confirmText !== 'DELETE' || isDeleting}
                     className={`${dangerBtn} flex-1 justify-center disabled:opacity-50`}
                   >
-                    Delete Company
+                    {isDeleting ? 'Deleting…' : 'Delete Company'}
                   </button>
                 </div>
               </div>

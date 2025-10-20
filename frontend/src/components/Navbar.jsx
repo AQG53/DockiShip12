@@ -24,14 +24,12 @@ const Navbar = () => {
   const { data, isLoading } = useAuthCheck();
 
   useEffect(() => {
-    // map paths to navbar ids for highlighting
     const map = new Map([
       ['/', 'home'],
       ['/inventory', 'inventory'],
       ['/purchases', 'purchases'],
     ]);
 
-    // find the first matching navbar route
     const match = Array.from(map.keys()).find((p) =>
       location.pathname === p || location.pathname.startsWith(p + '/')
     );
@@ -39,7 +37,6 @@ const Navbar = () => {
     if (match) {
       setActiveLink(map.get(match));
     } else {
-      // any non-navbar page (settings, profile, etc.) clears highlight
       setActiveLink('');
     }
   }, [location.pathname]);
@@ -189,7 +186,7 @@ const Navbar = () => {
             {!isLoading && data && (
               <div className="flex flex-col items-end text-right mr-2">
                 <span className="text-sm font-medium text-gray-500">
-                  Tenant: {data?.tenant?.name || "No Tenant"}
+                  Company: {data?.tenant?.name || "No Tenant"}
                 </span>
                 <span className="text-xs text-gray-500">
                   Role: {data?.roles?.[0] || "No Role"}
@@ -224,6 +221,7 @@ const Navbar = () => {
                   className="absolute right-0 mt-2 w-48 origin-top-right bg-white border border-gray-200 rounded-xl shadow-lg focus:outline-none overflow-hidden"
                 >
                   {settingsItems.map(({ label, path }) => {
+                    if (label === "Shop Manage" && !claims?.roles[0]) return null;
                     if (label === "Staff Settings" && !canManageUsers) return null;
                     if (label === "Role Manage" && !canManageRoles) return null;
 

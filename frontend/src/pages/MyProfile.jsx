@@ -435,7 +435,7 @@ export default function MyProfilePage() {
                 </section>
 
                 {/* Danger Zone */}
-                <section className="rounded-2xl border border-red-200 bg-white shadow-sm">
+                {/* <section className="rounded-2xl border border-red-200 bg-white shadow-sm">
                     <header className="px-6 py-4 border-b border-red-200">
                         <h2 className="text-base font-semibold text-red-700 flex items-center gap-2">
                             <Trash2 size={18} />
@@ -456,10 +456,10 @@ export default function MyProfilePage() {
                             </button>
                         </div>
                     </div>
-                </section>
+                </section> */}
 
                 {/* Delete Confirmation Modal */}
-                {showDeleteConfirm && (
+                {/* {showDeleteConfirm && (
                     <div className="fixed inset-0 z-[70]">
                         <div className="absolute inset-0 bg-black/40" onClick={() => setShowDeleteConfirm(false)} />
                         <div className="relative z-[71] flex min-h-screen items-center justify-center p-4">
@@ -502,7 +502,7 @@ export default function MyProfilePage() {
                             </div>
                         </div>
                     </div>
-                )}
+                )} */}
             </div>
         </>
     );
