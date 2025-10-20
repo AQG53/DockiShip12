@@ -3,9 +3,9 @@ import { Plus, Inbox, Pencil, Trash2, X, Loader } from "lucide-react";
 import { AddRoleModal } from "../../components/AddRoleModal";
 import { NoData } from "../../components/NoData";
 import { formatDate } from "../../utils/index.js";
-import { useRoles } from "../../hooks/useRoles.js";
+import { useDeleteRole, useRoles } from "../../hooks/useRoles.js";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
-// import { listRoles, createRole, deleteRole, updateRole } from "../../lib/api"; // wire later
+import toast from "react-hot-toast";
 
 export default function RoleManage() {
     const { data: roles = [], isLoading, isError, error, refetch } = useRoles();
@@ -13,7 +13,7 @@ export default function RoleManage() {
     const [form, setForm] = useState({ name: "", description: "" });
     const [editingRole, setEditingRole] = useState(null);
     const [confirmDelete, setConfirmDelete] = useState(null);
-
+    const { mutate: deleteRole, isPending: isDeleting } = useDeleteRole();
 
     const openModal = () => { setEditingRole(null); setShowModal(true); };
     const closeModal = () => {
@@ -27,8 +27,8 @@ export default function RoleManage() {
         refetch();
     };
 
-    const handleDelete = async (id) => {
-        setConfirmDelete(id);
+    const handleDelete = async (role) => {
+        setConfirmDelete(role);
     };
 
     const handleEdit = (role) => {
@@ -39,8 +39,8 @@ export default function RoleManage() {
     };
 
     const confirmDeleteRole = () => {
-        if (!confirmDelete) return;
-        deleteMember(confirmDelete, {
+        if (!confirmDelete?.id) return;
+        deleteRole(confirmDelete.id, {
             onSuccess: () => {
                 toast.success("Role deleted successfully");
                 setConfirmDelete(null);
@@ -103,7 +103,8 @@ export default function RoleManage() {
                                         <Pencil size={14} /> Edit
                                     </button>
                                     <button
-                                        onClick={() => handleDelete(r.id)}
+                                        onClick={() => handleDelete(r)}
+                                        disabled={isDeleting}
                                         className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-gray-200 hover:bg-gray-50 text-red-600 cursor-pointer"
                                     >
                                         <Trash2 size={14} /> Delete
@@ -135,7 +136,7 @@ export default function RoleManage() {
                 >
                     <p className="text-gray-700">
                         Are you sure you want to delete{" "}
-                        <span className="font-semibold">{confirmDelete}</span>? This action
+                        <span className="font-semibold">{confirmDelete.name}</span>? This action
                         cannot be undone.
                     </p>
                 </ConfirmModal>
