@@ -112,7 +112,7 @@ export async function createRole(payload) {
 }
 
 export async function updateRoleFull(roleId, { name, description, permissionNames }) {
-  const res = await axiosInstance.put(`/roles/${roleId}`, {
+  const res = await axiosInstance.put(`/roles/${roleId}/permissions`, {
     name,
     description,
     permissionNames,
@@ -174,7 +174,7 @@ export async function findUserByEmail(email) {
 }
 
 export async function assignRolesToUser(userId, roleIds) {
-  const res = await axiosInstance.post(`/users/${userId}/roles/add`, { roleIds });
+  const res = await axiosInstance.put(`/users/${userId}/roles`, { roleIds });
   return res.data?.data ?? res.data;
 }
 
