@@ -75,7 +75,7 @@ const App = () => {
         />
         <Route
           path='/reset-password'
-          element={!isAuthenticated ? <ResetPassword /> : <Navigate to="/" replace />}
+          element={<ResetPassword />}
         />
         <Route
           path='/my-profile'

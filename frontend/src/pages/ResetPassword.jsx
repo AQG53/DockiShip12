@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Eye, EyeOff, Check, ArrowLeft, AlertTriangle } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router';
 import toast from 'react-hot-toast';
 import Logo from '../assets/logo1.png';
 import { useResetPassword } from '../hooks/usePasswordReset';
+import { logout } from '../lib/api';
 
 export default function ResetPassword() {
   const [newPassword, setNewPassword] = useState('');
@@ -26,6 +27,10 @@ export default function ResetPassword() {
 
   const mutation = useResetPassword();
   const isSubmitting = mutation.isPending;
+
+  useEffect(() => {
+      logout();
+    }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -95,9 +100,8 @@ export default function ResetPassword() {
                     {requirements.map((req, i) => (
                       <div key={i} className="flex items-center gap-2 text-xs">
                         <div
-                          className={`w-4 h-4 rounded-full flex items-center justify-center ${
-                            req.met ? 'bg-green-500' : 'bg-gray-300'
-                          }`}
+                          className={`w-4 h-4 rounded-full flex items-center justify-center ${req.met ? 'bg-green-500' : 'bg-gray-300'
+                            }`}
                         >
                           {req.met && <Check size={10} className="text-white" />}
                         </div>
@@ -136,9 +140,8 @@ export default function ResetPassword() {
                 {confirmPassword && (
                   <div className="mt-2 flex items-center gap-2 text-xs">
                     <div
-                      className={`w-4 h-4 rounded-full flex items-center justify-center ${
-                        match ? 'bg-green-500' : 'bg-red-500'
-                      }`}
+                      className={`w-4 h-4 rounded-full flex items-center justify-center ${match ? 'bg-green-500' : 'bg-red-500'
+                        }`}
                     >
                       {match && <Check size={10} className="text-white" />}
                     </div>

@@ -68,6 +68,7 @@ export async function signup_owner({ fullName, email, password }) {
 export function logout() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+  localStorage.removeItem(TENANT_KEY);
   window.dispatchEvent(new Event("auth-changed"));
 }
 export function getCurrentUser() {
