@@ -19,8 +19,8 @@ export default function MyProfilePage() {
     const resetMutation = useRequestReset();
 
     const [formData, setFormData] = useState({
-        fullName: 'John Doe',
-        email: 'john.doe@dockiship.com',
+        fullName: '-',
+        email: '-',
         phone: '-',
         countryName: '',
         countryCode: '',

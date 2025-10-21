@@ -94,6 +94,7 @@ export default function ShopManage() {
       });
       setIsEditing(false);
     } finally {
+      window.location.reload();
       setIsSaving(false);
     }
   };

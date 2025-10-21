@@ -24,6 +24,7 @@ import ProtectedSettingsRoute from './components/ProtectedSettingsRoute.jsx'
 import ShopManage from './pages/settings/ShopManage.jsx'
 import { useEffect } from 'react'
 import useUserPermissions from './hooks/useUserPermissions.js'
+import AcceptInvite from './pages/AcceptInvite.jsx'
 
 function OwnerOnly({ children }) {
   const { claims, ready } = useUserPermissions();
@@ -95,6 +96,10 @@ const App = () => {
         <Route
           path='/my-profile'
           element={isAuthenticated ? <MyProfilePage /> : <Navigate to="/login/owner" replace />}
+        />
+        <Route 
+          path='/invite/accept' 
+          element={<AcceptInvite />}
         />
         <Route
           path="/settings"

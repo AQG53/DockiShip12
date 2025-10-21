@@ -1,12 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listUsers, deleteUser } from "../lib/api";
+import { getTenantId } from "../lib/axios";
 
 export function useMembers(options = {}) {
+  const tenantId = getTenantId();
   return useQuery({
-    queryKey: ["members"],
+    queryKey: ["members", tenantId],
+    enabled: !!tenantId,
     queryFn: () => listUsers(),
-    keepPreviousData: true,
-    staleTime: 60_000,
+    keepPreviousData: false,
+    staleTime: 0,
     retry: false,
     ...options,
   });

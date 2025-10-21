@@ -30,10 +30,12 @@ axiosInstance.interceptors.request.use((config) => {
     config.headers = config.headers || {};
     config.headers.Authorization = `Bearer ${token}`;
   }
+  else delete config.headers.Authorization;
   if (tenantId) {
     config.headers = config.headers || {};
     config.headers["X-Tenant-ID"] = tenantId;
   }
+  else delete config.headers["X-Tenant-ID"];
   return config;
 });
 

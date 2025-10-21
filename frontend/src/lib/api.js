@@ -71,6 +71,7 @@ export function logout() {
   localStorage.removeItem(TENANT_KEY);
   window.dispatchEvent(new Event("auth-changed"));
 }
+
 export function getCurrentUser() {
   const raw = localStorage.getItem(USER_KEY);
   return raw ? JSON.parse(raw) : null;
@@ -256,6 +257,16 @@ export async function deleteCurrentTenant() {
 
   const res = await axiosInstance.delete(`/tenants/${tenantId}`);
   return res?.status === 200 || res?.status === 204 || res?.data?.ok === true;
+}
+
+export async function acceptInvite({ token }) {
+  if (!token) throw new Error("Missing invitation token");
+  const res = await axiosInstance.post(
+    "/invitations/accept",
+    { token },
+    { headers: { Authorization: undefined, "X-Tenant-ID": undefined } }
+  );
+  return res?.data ?? {};
 }
 
 
