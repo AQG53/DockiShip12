@@ -7,6 +7,7 @@ import {
   getProductById,
   updateProductParent,
   updateProductVariant,
+  addProductVariant
 } from "../lib/api";
 
 
@@ -74,5 +75,12 @@ export function useUpdateVariant() {
     mutationKey: ["products", "update", "variant"],
     mutationFn: ({ productId, variantId, payload }) =>
       updateProductVariant(productId, variantId, payload),
+  });
+}
+
+export function useAddVariant() {
+  return useMutation({
+    mutationKey: ["products", "variants", "add"],
+    mutationFn: ({ productId, payload }) => addProductVariant(productId, payload),
   });
 }

@@ -1,6 +1,6 @@
 import { Fragment, useMemo, useState, useEffect, useRef } from "react";
 import { useAuthCheck } from "../hooks/useAuthCheck";
-import { useProductMetaEnums, useCreateProduct, useGetProduct, useUpdateProductParent, useUpdateVariant } from "../hooks/useProducts";
+import { useProductMetaEnums, useCreateProduct, useGetProduct, useUpdateProductParent, useUpdateVariant, useAddVariant } from "../hooks/useProducts";
 import toast from "react-hot-toast";
 import {
     Dialog,
@@ -24,6 +24,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     });
     const { mutateAsync: updateParent, isPending: savingParent } = useUpdateProductParent();
     const { mutateAsync: updateVariant, isPending: savingVariant } = useUpdateVariant();
+    const { mutateAsync: addVariant, isPending: addingVariant } = useAddVariant();
 
     const CURRENCY = auth?.tenant?.currency;
 
@@ -571,22 +572,33 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                 if (variantEnabled && Array.isArray(variants) && variants.length) {
                     for (const v of variants) {
                         const row = variantPrices[v.id] || {};
-                        const variantPayload = {
-                            // fields the backend PATCH supports for variants (see Postman):
+                        const common = {
+                            sku: (v.sku || "").trim(),
+                            sizeText: v.sizeText || v.sizeCode || "",
                             barcode: v.barcode || undefined,
                             status: v.active ? "active" : "inactive",
                             isDraft: !!isDraft,
                             condition,
                             retailPrice: row.retail != null && row.retail !== "" ? Number(row.retail) : undefined,
                             originalPrice: row.original != null && row.original !== "" ? Number(row.original) : undefined,
+                            retailCurrency: CURRENCY,
+                            originalCurrency: CURRENCY,
                             weight: v.weight != null && v.weight !== "" ? Number(v.weight) : undefined,
-                            weightUnit: v.weightUnit || undefined,
+                            weightUnit: v.weightUnit || weightUnit,
                             length: v.length != null && v.length !== "" ? Number(v.length) : undefined,
                             width: v.width != null && v.width !== "" ? Number(v.width) : undefined,
                             height: v.height != null && v.height !== "" ? Number(v.height) : undefined,
-                            dimensionUnit: v.unit || undefined,
+                            dimensionUnit: v.unit || dimUnit,
+                            attributes: {}, // reserved
                         };
-                        await updateVariant({ productId, variantId: v.id, payload: variantPayload });
+
+                        if (!v.id) {
+                            // NEW VARIANT → POST /products/:id/variants
+                            await addVariant({ productId, payload: common });
+                        } else {
+                            // EXISTING VARIANT → PATCH /products/:id/variants/:variantId
+                            await updateVariant({ productId, variantId: v.id, payload: common });
+                        }
                     }
                 }
 

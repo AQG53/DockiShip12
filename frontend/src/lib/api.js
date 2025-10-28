@@ -327,5 +327,8 @@ export async function updateProductVariant(productId, variantId, payload) {
   return res?.data?.data ?? res?.data ?? {};
 }
 
-
+export async function addProductVariant(productId, payload) {
+  const res = await axiosInstance.post(`/products/${productId}/variants`, payload);
+  return res?.data?.data ?? res?.data ?? {};
+}
 

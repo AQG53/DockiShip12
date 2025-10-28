@@ -13,8 +13,10 @@ import { NoData } from "../../components/NoData";
 import { useProducts, useDeleteProduct } from "../../hooks/useProducts";
 import { ConfirmModal } from "../../components/ConfirmModal";
 import toast from "react-hot-toast";
+import { useAuthCheck } from "../../hooks/useAuthCheck";
 
 export default function ProductList() {
+  const { data: auth } = useAuthCheck({ refetchOnWindowFocus: false });
   const groups = useMemo(() => [{ id: "all", name: "All" }], []);
   const keyTypes = useMemo(
     () => [
@@ -54,8 +56,9 @@ export default function ProductList() {
 
   useEffect(() => {
     if (!data?.rows) return;
-    setRows(mapProductsToRows(data.rows));
-  }, [data]);
+    setRows(mapProductsToRows(data.rows, auth));
+    console.log(data);
+  }, [data, auth]);
 
   const deleteProduct = () => {
     if (!confirmItem?.id) return;
@@ -242,7 +245,7 @@ export default function ProductList() {
 }
 
 /* ---------- helpers ---------- */
-function mapProductsToRows(apiRows) {
+function mapProductsToRows(apiRows, auth) {
   if (!Array.isArray(apiRows)) return [];
 
   return apiRows.map((p) => {
@@ -250,7 +253,7 @@ function mapProductsToRows(apiRows) {
     const hasVariants = variants.length > 0;
     const typeLabel = p?.type === "Simple" ? "Simple" : `Variant (${variants.length})`;
 
-    const currency = p?.currency || variants[0]?.currency || "PKR";
+    const currency = auth?.tenant?.currency || "PKR";
     const fmt = (n) => {
       const num = Number(n);
       if (Number.isNaN(num)) return "—";
