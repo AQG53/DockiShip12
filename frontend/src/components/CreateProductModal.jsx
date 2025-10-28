@@ -25,7 +25,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const { mutateAsync: updateParent, isPending: savingParent } = useUpdateProductParent();
     const { mutateAsync: updateVariant, isPending: savingVariant } = useUpdateVariant();
 
-    const CURRENCY = auth?.tenant?.currency || "PKR";
+    const CURRENCY = auth?.tenant?.currency;
 
     const { data: enums } = useProductMetaEnums();
 

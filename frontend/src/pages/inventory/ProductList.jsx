@@ -248,7 +248,7 @@ function mapProductsToRows(apiRows) {
   return apiRows.map((p) => {
     const variants = Array.isArray(p?.variants) ? p.variants : [];
     const hasVariants = variants.length > 0;
-    const typeLabel = hasVariants ? `Variant (${variants.length})` : "Simple";
+    const typeLabel = p?.type === "Simple" ? "Simple" : `Variant (${variants.length})`;
 
     const currency = p?.currency || variants[0]?.currency || "PKR";
     const fmt = (n) => {
