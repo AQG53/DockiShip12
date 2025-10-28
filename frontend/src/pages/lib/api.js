@@ -295,37 +295,4 @@ export async function listProducts({ page, perPage, search, status } = {}) {
   return { rows: Array.isArray(rows) ? rows : [], meta };
 }
 
-export async function deleteProduct(productId) {
-  if (!productId) throw new Error("Missing productId");
-  const res = await axiosInstance.delete(`/products/${productId}`);
-  return res?.status === 200 || res?.status === 204 || res?.data?.ok === true;
-}
-
-export async function getProductMetaEnums() {
-  const res = await axiosInstance.get("/products/meta/enums");
-  return res?.data ?? {};
-}
-
-export async function createProduct(payload) {
-  const res = await axiosInstance.post("/products", payload);
-  return res?.data?.data ?? res?.data ?? {};
-}
-
-export async function getProductById(productId) {
-  const res = await axiosInstance.get(`/products/${productId}`);
-  const data = res?.data?.data ?? res?.data ?? {};
-  return data;
-}
-
-export async function updateProductParent(productId, payload) {
-  const res = await axiosInstance.patch(`/products/${productId}`, payload);
-  return res?.data?.data ?? res?.data ?? {};
-}
-
-export async function updateProductVariant(productId, variantId, payload) {
-  const res = await axiosInstance.patch(`/products/${productId}/variants/${variantId}`, payload);
-  return res?.data?.data ?? res?.data ?? {};
-}
-
-
 

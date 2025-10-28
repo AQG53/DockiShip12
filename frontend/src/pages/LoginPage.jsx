@@ -110,10 +110,12 @@ export default function LoginPage() {
   return (
     <div className="h-screen w-full flex overflow-hidden md:overflow-hidden">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-20 left-10 w-72 h-72 bg-yellow-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse"></div>
+        <div className="absolute top-20 left-10 w-72 h-72 bg-yellow-2 00 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse"></div>
         <div className="absolute top-40 right-10 w-72 h-72 bg-orange-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse delay-1000"></div>
         <div className="absolute -bottom-8 left-1/3 w-72 h-72 bg-yellow-300 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse delay-2000"></div>
       </div>
+
+      {/* LEFT ILLUSTRATION */}
       <div className="w-3/5 bg-[#fff1c1] p-10 py-5 flex flex-col justify-between px-15 h-full">
         <img src={Logo} alt="Logo" className='w-40 mx-4' />
 
@@ -139,9 +141,10 @@ export default function LoginPage() {
         </div>
       </div>
 
-      <div className="w-2/5 bg-white h-full p-15 flex flex-col max-w-[550px]">
-        {/* Support (same location; stays visible) */}
-        <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm pb-3">
+      {/* RIGHT COLUMN (no scroll; grid squeezes content) */}
+      <div className="w-2/5 bg-white h-full p-15 flex flex-col max-w-[550px] overflow-hidden">
+        {/* Support (fixed height) */}
+        <div className="shrink-0">
           <div className="flex justify-end">
             <button className="flex items-center gap-2 text-gray-700 hover:text-blue-600 text-sm font-medium">
               <Headphones size={18} />
@@ -159,12 +162,21 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Main content (scrolls if needed; same order) */}
-        <div className="flex-1 pr-1">
-          <div className="bg-white">
-            <h2 className="text-2xl font-bold text-gray-800 mb-6 mt-5">Log in to your account</h2>
+        {/* Main content (grid that adapts height, NO SCROLL) */}
+        {(() => {
+          const compact = needTenantSelection; // when tenant selector shows, compress spacing
+          const h2Cls = compact ? 'text-2xl mb-4 mt-4' : 'text-2xl mb-6 mt-5';
+          const gapY = compact ? 'space-y-3' : 'space-y-5';
+          const inputPy = compact ? 'py-[10px]' : 'py-3';
+          const btnPy = compact ? 'py-[10px]' : 'py-3';
+          const forgotMt = compact ? '' : '';
+          return (
+            <div
+              className={`flex-1 grid content-start ${gapY}`}
+              style={{ gridTemplateRows: 'auto auto auto auto auto auto auto 1fr' }}
+            >
+              <h2 className={`font-bold text-gray-800 ${h2Cls}`}>Log in to your account</h2>
 
-            <div className="space-y-5">
               <div>
                 <input
                   type="email"
@@ -173,7 +185,7 @@ export default function LoginPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   onKeyDown={handleKeyPress}
                   disabled={needTenantSelection}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+                  className={`w-full px-4 ${inputPy} border border-gray-300 rounded-lg`}
                 />
               </div>
 
@@ -185,7 +197,7 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   onKeyDown={handleKeyPress}
                   disabled={needTenantSelection}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+                  className={`w-full px-4 ${inputPy} border border-gray-300 rounded-lg`}
                 />
                 <button
                   type="button"
@@ -196,100 +208,95 @@ export default function LoginPage() {
                 </button>
               </div>
 
-              <div className="flex justify-end">
-                <button onClick={handleForgotPassword} className="text-sm text-gray-600 hover:text-blue-600">
+              <div className={`flex justify-end ${forgotMt}`}>
+                <button onClick={handleForgotPassword} className="text-xs sm:text-sm text-gray-600 hover:text-blue-600">
                   Forgot password?
                 </button>
               </div>
 
-              {needTenantSelection && tenants.length > 1 && (
-                <div className="space-y-3">
-                  <label className="text-sm text-gray-700">Select company</label>
+              {/* Reserve a row for tenant selector; height is 0 when hidden */}
+              <div className={needTenantSelection ? 'block' : 'h-0 overflow-hidden'}>
+                {needTenantSelection && tenants.length > 1 && (
+                  <div className="space-y-2">
+                    <label className="text-xs sm:text-sm text-gray-700">Select company</label>
 
-                  <Listbox value={selectedTenantId} onChange={setSelectedTenantId}>
-                    <div className="relative">
-                      <ListboxButton className="w-full flex justify-between items-center border border-gray-300 rounded-lg px-4 py-3 text-left text-gray-700 focus:outline-none">
-                        <span>
-                          {selectedTenantId
-                            ? tenants.find((t) => t.id === selectedTenantId)?.name
-                            : 'Choose company…'}
-                        </span>
-                        <ChevronDown className="h-5 w-5 text-gray-500" />
-                      </ListboxButton>
+                    <Listbox value={selectedTenantId} onChange={setSelectedTenantId}>
+                      <div className="relative">
+                        <ListboxButton className="w-full flex justify-between items-center border border-gray-300 rounded-lg px-3 sm:px-4 py-[10px] text-left text-gray-700 focus:outline-none">
+                          <span className="truncate">
+                            {selectedTenantId
+                              ? tenants.find((t) => t.id === selectedTenantId)?.name
+                              : 'Choose company…'}
+                          </span>
+                          <ChevronDown className="h-5 w-5 text-gray-500" />
+                        </ListboxButton>
+                        <Transition
+                          enter="transition ease-out duration-100"
+                          enterFrom="opacity-0 scale-95"
+                          enterTo="opacity-100 scale-100"
+                          leave="transition ease-in duration-75"
+                          leaveFrom="opacity-100 scale-100"
+                          leaveTo="opacity-0 scale-95"
+                        >
+                          <ListboxOptions className="absolute bottom-full z-50 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-auto">
+                            {tenants.map((t) => (
+                              <ListboxOption
+                                key={t.id}
+                                value={t.id}
+                                className={({ active, selected }) =>
+                                  `cursor-pointer mx-1 select-none px-4 py-2 ${active ? 'bg-gray-50' : ''} ${selected ? 'text-blue-600 font-medium' : 'text-gray-700'}`
+                                }
+                              >
+                                {({ selected }) => (
+                                  <div className="flex justify-between items-center">
+                                    <span className="truncate">{t.name}</span>
+                                    {selected && <Check className="h-4 w-4" />}
+                                  </div>
+                                )}
+                              </ListboxOption>
+                            ))}
+                          </ListboxOptions>
+                        </Transition>
+                      </div>
+                    </Listbox>
 
-                      <Transition
-                        enter="transition ease-out duration-100"
-                        enterFrom="opacity-0 scale-95"
-                        enterTo="opacity-100 scale-100"
-                        leave="transition ease-in duration-75"
-                        leaveFrom="opacity-100 scale-100"
-                        leaveTo="opacity-0 scale-95"
-                      >
-                        <ListboxOptions className="absolute z-50 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-auto">
-                          {tenants.map((t) => (
-                            <ListboxOption
-                              key={t.id}
-                              value={t.id}
-                              className={({ active, selected }) =>
-                                `cursor-pointer mx-1 select-none px-4 py-2 ${active ? 'bg-gray-50' : ''
-                                } ${selected ? 'text-blue-600 font-medium' : 'text-gray-700'}`
-                              }
-                            >
-                              {({ selected }) => (
-                                <div className="flex justify-between items-center">
-                                  <span>{t.name}</span>
-                                  {selected && <Check className="h-4 w-4" />}
-                                </div>
-                              )}
-                            </ListboxOption>
-                          ))}
-                        </ListboxOptions>
-                      </Transition>
-                    </div>
-                  </Listbox>
+                    <button
+                      onClick={handleContinueWithTenant}
+                      disabled={isPending}
+                      className={`w-full bg-black hover:bg-gray-800 disabled:opacity-60 text-white font-semibold ${btnPy} rounded-lg transition-colors duration-200`}
+                    >
+                      {isPending ? 'Signing in…' : 'Continue'}
+                    </button>
+                  </div>
+                )}
+              </div>
 
-                  <button
-                    onClick={handleContinueWithTenant}
-                    disabled={isPending}
-                    className="w-full bg-black hover:bg-gray-800 disabled:opacity-60 text-white font-semibold py-3 rounded-lg transition-colors duration-200"
-                  >
-                    {isPending ? 'Signing in…' : 'Continue'}
-                  </button>
-                </div>
-              )}
-
+              {/* Primary sign in button (hidden when tenant step is active) */}
               {!needTenantSelection && (
                 <button
                   onClick={handleSignIn}
                   disabled={isPending}
-                  className="w-full bg-black hover:bg-gray-800 disabled:opacity-60 text-white font-semibold py-3 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2"
+                  className={`w-full bg-black hover:bg-gray-800 disabled:opacity-60 text-white font-semibold ${btnPy} rounded-lg transition-colors duration-200`}
                 >
-                  {isPending ? (
-                    <>
-                      <svg className="w-5 h-5 animate-spin text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-                      </svg>
-                      Signing in...
-                    </>
-                  ) : (
-                    'Sign in'
-                  )}
+                  {isPending ? 'Signing in…' : 'Sign in'}
                 </button>
               )}
 
-              <div className="mt-2 text-center">
-                <span className="text-gray-600 text-sm">Don't have an account? </span>
-                <button onClick={handleSignUp} className="text-[#ffc700] hover:text-[#ffdd63] font-semibold text-sm">
+              <div className="text-center -mt-1">
+                <span className="text-gray-600 text-xs sm:text-sm">Don't have an account? </span>
+                <button onClick={handleSignUp} className="text-[#ffc700] hover:text-[#ffdd63] font-semibold text-xs sm:text-sm">
                   Sign up for free
                 </button>
               </div>
-            </div>
-          </div>
-        </div>
 
-        {/* Footer (same location; stays visible) */}
-        <div className="sticky bottom-0 bg-white/95 backdrop-blur-sm pt-3 mt-3 text-center text-xs text-gray-600">
+              {/* filler row to absorb leftover height so footer stays put */}
+              <div />
+            </div>
+          );
+        })()}
+
+        {/* Footer (fixed at bottom by flex) */}
+        <div className="shrink-0 pt-3 mt-3 text-center text-xs text-gray-600">
           © 2025 DockiShip •{' '}
           <a href="#" className="hover:text-blue-600">Terms of service</a> •{' '}
           <a href="#" className="hover:text-blue-600">Privacy policy</a> •{' '}
