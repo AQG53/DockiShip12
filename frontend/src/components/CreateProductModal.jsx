@@ -558,6 +558,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                 const parentPayload = {
                     // Minimal safe parent fields (see Postman: name, brand, status, isDraft)
                     name: payload.name,
+                    sku: payload.sku,
                     brand: payload.brand,
                     status: payload.status,
                     isDraft: !!isDraft,
