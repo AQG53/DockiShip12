@@ -139,7 +139,7 @@ const App = () => {
           path='/purchases'
           element={isAuthenticated ? <PurchasesLayout /> : <Navigate to="/login/owner" replace />}
         >
-          <Route index element={<Navigate to="to-purchase" replace />} />
+          <Route index element={<Navigate to="suppliers/manage" replace />} />
 
           {/* Products */}
           <Route path="suppliers/manage" element={<SuppliersManage />} />

@@ -1,53 +1,60 @@
 import { Fragment, useMemo, useState } from "react";
-import {
-  Listbox,
-  Transition,
-} from "@headlessui/react";
+import { Listbox, ListboxButton, ListboxOption, ListboxOptions, Transition } from "@headlessui/react";
 import {
   ChevronDown,
   Check,
   Search,
-  Upload,
-  Download,
   Plus,
   Store,
+  MoreHorizontal,
+  Filter,
+  Edit,
+  StickyNote,
+  Trash2,
 } from "lucide-react";
-import CreateProductModal from "../../components/CreateProductModal";
+import AddSupplierModal from "../../components/AddSupplierModal";
 
 export default function SuppliersManage() {
-  // ------- filters -------
-  const groups = [{ id: "all", name: "All Group" }, { id: "electronics", name: "Electronics" }, { id: "apparel", name: "Apparel" }];
-  const tags = [{ id: "", name: "Please select Tag" }, { id: "featured", name: "Featured" }, { id: "clearance", name: "Clearance" }];
-  const warehouses = [{ id: "all", name: "All Warehouse" }, { id: "wh1", name: "Warehouse A" }, { id: "wh2", name: "Warehouse B" }];
-  const invTypes = [{ id: "all", name: "All inventory types" }, { id: "stock", name: "Stock" }, { id: "bundle", name: "Bundle" }];
-  const keyTypes = [{ id: "sku", name: "Stock SKU" }, { id: "name", name: "Product Name" }];
-
-  const [group, setGroup] = useState(groups[0]);
-  const [tag, setTag] = useState(tags[0]);
-  const [warehouse, setWarehouse] = useState(warehouses[0]);
-  const [invType, setInvType] = useState(invTypes[0]);
-  const [keyType, setKeyType] = useState(keyTypes[0]);
-  const [search, setSearch] = useState("");
-  const [openCreate, setOpenCreate] = useState(false);
+  const fields = [
+    { id: "company", name: "Company Name" },
+    { id: "currency", name: "Currency" },
+    { id: "time", name: "Time" },
+  ];
+  const [field, setField] = useState(fields[0]);
+  const [query, setQuery] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
 
   const clearAll = () => {
-    setGroup(groups[0]); setTag(tags[0]); setWarehouse(warehouses[0]);
-    setInvType(invTypes[0]); setKeyType(keyTypes[0]); setSearch("");
+    setField(fields[0]);
+    setQuery("");
   };
 
-  // ------- data (empty) -------
-  const rows = useMemo(() => [], []);
+  const rows = useMemo(
+    () => [
+      {
+        id: "1",
+        company: "test",
+        productQty: 0,
+        currency: "USD",
+        createdAt: "10-25-25 08:29",
+        lastPurchase: "--",
+      },
+    ],
+    []
+  );
 
-  // ------- shared styles to mirror StaffSettings -------
   const card = "rounded-xl border border-gray-200 bg-white";
-  const input = "h-8 rounded-lg border border-gray-300 px-2.5 text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10";
-  const btnPrimary = "inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-[#ffd026] text-blue-600 text-sm font-bold hover:opacity-90";
-  const btnOutline = "inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-sm text-gray-700";
-  const btnGhost = "inline-flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-100 text-sm text-gray-700";
+  const input =
+    "h-8 rounded-lg border border-gray-300 px-2.5 text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10";
+  const btnPrimary =
+    "inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-[#ffd026] text-blue-600 text-sm font-bold hover:opacity-90";
+  const btnOutline =
+    "inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-sm text-gray-700";
+  const btnGhost =
+    "inline-flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-100 text-sm text-gray-700";
 
   return (
-    <div className="space-y-4 px-4 sm:px-5 lg:px-6 pb-8">
-      {/* Header row (like StaffSettings) */}
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div className="h-8 w-8 rounded-md bg-amber-100 border border-gray-200 flex items-center justify-center">
@@ -55,131 +62,153 @@ export default function SuppliersManage() {
           </div>
           <h1 className="text-lg font-semibold text-gray-900">Suppliers</h1>
         </div>
-
-        <div className="flex items-center gap-2">
-          <button className={btnOutline} onClick={() => alert("Import CSV (coming soon)")}>
-            <Upload size={16} /> Import
-          </button>
-          <button className={btnOutline} onClick={() => alert("Export CSV (coming soon)")}>
-            <Download size={16} /> Export
-          </button>
-          <button className={btnPrimary} onClick={() => setOpenCreate(true)}>
-            <Plus size={16} /> Add Supplier
-          </button>
-        </div>
       </div>
 
-      {/* Filters bar (compact, like a control strip) */}
       <div className={card}>
         <div className="px-4 py-3">
           <div className="flex flex-wrap items-center gap-2.5">
-            <HeadlessSelect value={group} onChange={setGroup} options={groups} className="w-[140px]" />
-            <HeadlessSelect value={tag} onChange={setTag} options={tags} className="w-[160px]" />
-            <HeadlessSelect value={warehouse} onChange={setWarehouse} options={warehouses} className="w-[160px]" />
-            <HeadlessSelect value={invType} onChange={setInvType} options={invTypes} className="w-[170px]" />
-            <HeadlessSelect value={keyType} onChange={setKeyType} options={keyTypes} className="w-[120px]" />
+            <HeadlessSelect
+              value={field}
+              onChange={setField}
+              options={fields}
+              className="w-[150px]"
+            />
 
             <div className="relative">
-              <Search className="pointer-events-none absolute left-2 top-2 h-4 w-4 text-gray-400" />
+              <span className="pointer-events-none absolute left-2 top-2">
+                <Search className="h-4 w-4 text-gray-400" />
+              </span>
               <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search"
-                className={`${input} w-[200px] pl-7`}
+                className={`${input} w-[280px] pl-7`}
               />
+              <span className="pointer-events-none absolute right-2 top-2">
+                <Filter className="h-4 w-4 text-gray-400" />
+              </span>
             </div>
 
-            <button className={btnGhost} onClick={clearAll}>Clear</button>
+            <button className={btnOutline} onClick={clearAll}>
+              Clear
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Table card (same spacing feel as StaffSettings list) */}
       <div className={card}>
-        {/* action bar above header row */}
-        <div className="px-4 py-2.5 border-b border-gray-200 text-sm text-gray-600 flex items-center gap-4">
-          <button className="hover:text-gray-900" onClick={() => alert("Notes (coming soon)")}>Notes</button>
-          <button className="hover:text-gray-900" onClick={() => alert("Delete (coming soon)")}>Delete</button>
+        <div className="px-4 py-2.5 border-b border-gray-200 text-sm text-gray-600 flex items-center justify-end gap-4">
+          <button
+            className={btnPrimary}
+            onClick={() => setAddOpen(true)}
+          >
+            <Plus size={16} /> Add suppliers
+          </button>
         </div>
 
-        {/* header row (grid-like look similar to StaffSettings) */}
-        <div className="grid grid-cols-13 bg-gray-50 px-4 py-3 text-[12px] font-semibold text-gray-700">
-          <div className="col-span-1">
-            <input type="checkbox" className="h-4 w-4" />
-          </div>
-          <div className="col-span-1">Image</div>
-          <div className="col-span-2">Product Name</div>
-          <div className="col-span-2">Warehouse</div>
-          <div className="col-span-1">OnHand</div>
-          <div className="col-span-1">Available</div>
-          <div className="col-span-1">Reserved</div>
-          <div className="col-span-1">InTransit</div>
-          <div className="col-span-1">Avg. Cost</div>
-          <div className="col-span-1">Total Value</div>
-          <div className="col-span-1">Action</div>
+        <div className="grid grid-cols-12 bg-gray-50 px-4 py-2.5 text-[12px] font-semibold text-gray-700">
+          <div className="col-span-3">Company Name</div>
+          <div className="col-span-2">Product Quantity</div>
+          <div className="col-span-2">Currency</div>
+          <div className="col-span-3">Time</div>
+          <div className="col-span-2 pl-18">Action</div>
         </div>
 
-        {/* rows */}
         {rows.length === 0 ? (
-          <div className="flex items-center justify-center py-14 text-gray-400 text-[13px]">
-            <div className="flex flex-col items-center gap-2">
-              <svg className="h-10 w-10 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <rect x="3" y="4" width="18" height="14" rx="2"></rect>
-                <path d="M7 8h10M7 12h6M3 18h18"></path>
-              </svg>
-              <p>No Data</p>
-            </div>
-          </div>
+          <EmptyState />
         ) : (
           <ul className="divide-y divide-gray-100">
             {rows.map((r) => (
-              <li key={r.id} className="grid grid-cols-13 px-4 py-3 text-[13px] text-gray-800 items-center gap-2">
-                <div className="col-span-1">
-                  <input type="checkbox" className="h-4 w-4" />
+              <li
+                key={r.id}
+                className="grid grid-cols-12 px-4 py-2.5 text-[13px] text-gray-800 items-center gap-2"
+              >
+
+                <div className="col-span-3 truncate">{r.company}</div>
+
+                <div className="col-span-2">{r.productQty}</div>
+
+                <div className="col-span-2">{r.currency}</div>
+
+                <div className="col-span-3 leading-5 flex flex-col gap-1">
+                  <div className="inline-flex gap-25">
+                    <div className="text-gray-700">Create</div>
+                    <div className="text-[12px] text-gray-500">{r.createdAt}</div>
+                  </div>
+                  <div className="inline-flex gap-25">
+                    <div className="text-gray-700">Recent purchase</div>
+                    <div className="text-[12px] text-gray-500">{r.lastPurchase}</div>
+                  </div>
                 </div>
-                <div className="col-span-1">
-                  <div className="h-10 w-10 rounded-md bg-gray-100" />
-                </div>
-                <div className="col-span-2 truncate">{r.name}</div>
-                <div className="col-span-2">{r.warehouse}</div>
-                <div className="col-span-1">{r.onHand}</div>
-                <div className="col-span-1">{r.available}</div>
-                <div className="col-span-1">{r.reserved}</div>
-                <div className="col-span-1">{r.inTransit}</div>
-                <div className="col-span-1">—</div>
-                <div className="col-span-1">—</div>
-                <div className="col-span-1">
-                  <button className="text-amber-700 hover:underline">View</button>
+
+                <div className="col-span-2 flex flex-col items-start pt-1 px-10">
+                  <div className="mb-0.5">
+                    <button className="text-amber-600 hover:underline text-[13px] whitespace-nowrap">Related products</button>
+                  </div>
+
+                  <div className="relative group pl-10">
+                    <button className="text-amber-600 hover:opacity-80 p-0.5 ml-0.5">
+                      <span className="text-lg leading-none">...</span> 
+                    </button>
+
+                    <div className="absolute z-10 w-20 -mt-1 ml-[-20px] transition-opacity duration-150 ease-out opacity-0 group-hover:opacity-100 group-hover:block hidden">
+                      <div className="rounded-xl border border-gray-200 bg-white py-1 text-xs shadow-lg focus:outline-none">
+                        <button className="w-full inline-flex items-center gap-2 text-left px-3 py-2 text-gray-800 hover:bg-gray-100"><span><Edit className="w-3 h-3" /></span>Edit</button>
+                        <button className="w-full inline-flex items-center gap-2 text-left px-3 py-2 text-gray-800 hover:bg-gray-100"><span><StickyNote className="w-3 h-3" /></span>Notes</button>
+                        <button className="w-full inline-flex items-center gap-2 text-left px-3 py-2 text-gray-800 hover:bg-gray-100"><span><Trash2 className="w-3 h-3 text-red-700" /></span>Delete</button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </li>
+
             ))}
           </ul>
         )}
       </div>
 
-      {/* modal */}
-      <CreateProductModal
-        open={openCreate}
-        onClose={() => setOpenCreate(false)}
+      <AddSupplierModal
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
         onSave={(payload) => {
-          console.log("create-product payload", payload);
+          // await refetchSuppliers();
+          setAddOpen(false);
         }}
       />
+    </div >
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="flex items-center justify-center py-14 text-gray-400 text-[13px]">
+      <div className="flex flex-col items-center gap-2">
+        <svg
+          className="h-10 w-10 opacity-40"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+        >
+          <rect x="3" y="4" width="18" height="14" rx="2"></rect>
+          <path d="M7 8h10M7 12h6M3 18h18"></path>
+        </svg>
+        <p>No Suppliers</p>
+      </div>
     </div>
   );
 }
 
-/* ---------- Headless UI Select (compact) ---------- */
 function HeadlessSelect({ value, onChange, options, className = "" }) {
   return (
     <Listbox value={value} onChange={onChange}>
       <div className={`relative ${className}`}>
-        <Listbox.Button className="relative w-full h-8 rounded-lg border border-gray-300 bg-white pl-2.5 pr-7 text-left text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10">
+        <ListboxButton className="relative w-full h-8 rounded-lg border border-gray-300 bg-white pl-2.5 pr-7 text-left text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10">
           <span className="block truncate">{value?.name}</span>
           <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center">
             <ChevronDown size={16} className="text-gray-500" />
           </span>
-        </Listbox.Button>
+        </ListboxButton>
 
         <Transition
           as={Fragment}
@@ -190,24 +219,29 @@ function HeadlessSelect({ value, onChange, options, className = "" }) {
           leaveFrom="transform opacity-100 scale-100"
           leaveTo="transform opacity-0 scale-95"
         >
-          <Listbox.Options className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-gray-200 bg-white py-1 text-sm shadow-lg focus:outline-none">
+          <ListboxOptions className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-gray-200 bg-white py-1 text-sm shadow-lg focus:outline-none">
             {options.map((opt) => (
-              <Listbox.Option
+              <ListboxOption
                 key={opt.id || opt.name}
                 value={opt}
                 className={({ active }) =>
-                  `relative cursor-pointer select-none px-3 py-2 ${active ? "bg-gray-100 text-gray-900" : "text-gray-800"}`
+                  `relative cursor-pointer select-none px-3 py-2 ${active ? "bg-gray-100 text-gray-900" : "text-gray-800"
+                  }`
                 }
               >
                 {({ selected }) => (
                   <div className="flex items-center gap-2">
-                    {selected ? <Check size={16} className="text-amber-700" /> : <span className="w-4" />}
-                    <span className="block truncate">{opt.name}</span>
+                    {selected ? (
+                      <Check size={16} className="text-amber-700" />
+                    ) : (
+                      <span className="w-4" />
+                    )}
+                    <span className="block">{opt.name}</span>
                   </div>
                 )}
-              </Listbox.Option>
+              </ListboxOption>
             ))}
-          </Listbox.Options>
+          </ListboxOptions>
         </Transition>
       </div>
     </Listbox>
