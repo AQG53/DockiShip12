@@ -156,7 +156,7 @@ export default function ProductList() {
         {isPending ? (
           <div className="flex items-center justify-center py-16 text-gray-500 gap-2">
             <Loader className="animate-spin" />
-            <span>Loading roles...</span>
+            <span>Loading products...</span>
           </div>
         ) : isError ? (
           <div className="px-4 py-6 text-sm text-red-600">Failed to load products: {String(error?.message || "Unknown error")}</div>

@@ -96,6 +96,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const [images, setImages] = useState([]);
     const [variantImages, setVariantImages] = useState({}); // map: local variant id -> File[]
     const [imagePreviews, setImagePreviews] = useState([]);
+    
     const fileInputRef = useRef(null);
     const variantInputsRef = useRef({});
 
@@ -248,6 +249,84 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         return `${parent}-${tail}`;
     };
 
+    // --- helpers to sync parent <-> variants ---
+    const prevVariantEnabledRef = useRef(variantEnabled);
+
+    function seedVariantsFromParent() {
+      // create one variant row seeded from parent fields
+      const localId = `local-${crypto.randomUUID()}`;
+      const nextVariant = {
+        id: localId,
+        sizeCode: "",
+        sizeText: "—",
+        sku: computeAutoSku(sku, { sizeCode: "" }, 0),
+        barcode: "",
+        weight: isNonEmpty(weightMain) ? String(weightMain) : "",
+        weightUnit: weightUnit,
+        length: isNonEmpty(dimL) ? String(dimL) : "",
+        width: isNonEmpty(dimW) ? String(dimW) : "",
+        height: isNonEmpty(dimH) ? String(dimH) : "",
+        unit: dimUnit,
+        active: true,
+        autoSku: true,
+      };
+
+      setVariants([nextVariant]);
+
+      // seed prices into variantPrices if parent has them
+      setVariantPrices((prev) => ({
+        ...prev,
+        [localId]: {
+          retail: isNonEmpty(retailPrice) ? String(retailPrice) : "",
+          original: isNonEmpty(sellingPrice) ? String(sellingPrice) : "",
+        },
+      }));
+    }
+
+    function copyParentIntoExistingVariants() {
+      // push down parent fields only where variant fields are empty
+      setVariants((prev) =>
+        prev.map((v) => ({
+          ...v,
+          weight: isNonEmpty(v.weight) ? v.weight : (isNonEmpty(weightMain) ? String(weightMain) : v.weight),
+          weightUnit: v.weightUnit || weightUnit,
+          length: isNonEmpty(v.length) ? v.length : (isNonEmpty(dimL) ? String(dimL) : v.length),
+          width: isNonEmpty(v.width) ? v.width : (isNonEmpty(dimW) ? String(dimW) : v.width),
+          height: isNonEmpty(v.height) ? v.height : (isNonEmpty(dimH) ? String(dimH) : v.height),
+          unit: v.unit || dimUnit,
+        }))
+      );
+
+      // If variant has no prices, seed from parent
+      setVariantPrices((prev) => {
+        const next = { ...prev };
+        variants.forEach((v) => {
+          const row = next[v.id] || { retail: "", original: "" };
+          if (!isNonEmpty(row.retail) && isNonEmpty(retailPrice)) row.retail = String(retailPrice);
+          if (!isNonEmpty(row.original) && isNonEmpty(sellingPrice)) row.original = String(sellingPrice);
+          next[v.id] = row;
+        });
+        return next;
+      });
+    }
+
+    function pullFirstVariantIntoParent() {
+      if (!variants || variants.length === 0) return;
+      const first = variants[0];
+      // copy measurements back to parent
+      setWeightMain(isNonEmpty(first.weight) ? String(first.weight) : "");
+      setWeightUnit(first.weightUnit || weightUnit);
+      setDimL(isNonEmpty(first.length) ? String(first.length) : "");
+      setDimW(isNonEmpty(first.width) ? String(first.width) : "");
+      setDimH(isNonEmpty(first.height) ? String(first.height) : "");
+      setDimUnit(first.unit || dimUnit);
+
+      // copy pricing back from first variant if exists
+      const row = variantPrices[first.id] || {};
+      if (isNonEmpty(row.retail)) setRetailPrice(String(row.retail));
+      if (isNonEmpty(row.original)) setSellingPrice(String(row.original));
+    }
+
     const addVariantAdHoc = () => {
         setVariants((prev) => [
             ...prev,
@@ -395,6 +474,32 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             return next;
         });
     }, [variantEnabled, variants]);
+
+    // Detect toggle transitions: seed on enable; pull back on disable
+    useEffect(() => {
+      const prev = prevVariantEnabledRef.current;
+      if (!prev && variantEnabled) {
+        // turned ON
+        if (variants.length === 0) {
+          seedVariantsFromParent();
+        } else {
+          // ensure existing variants have parent defaults for blanks
+          copyParentIntoExistingVariants();
+        }
+      } else if (prev && !variantEnabled) {
+        // turned OFF
+        pullFirstVariantIntoParent();
+      }
+      prevVariantEnabledRef.current = variantEnabled;
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [variantEnabled]);
+
+    // While variants are enabled, when parent fields change, auto-fill missing fields in variants
+    useEffect(() => {
+      if (!variantEnabled || variants.length === 0) return;
+      copyParentIntoExistingVariants();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [weightMain, weightUnit, dimL, dimW, dimH, dimUnit, retailPrice, sellingPrice, variantEnabled]);
 
     useEffect(() => {
         if (!edit || !open || !productDetail) return;

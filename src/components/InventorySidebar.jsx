@@ -9,38 +9,38 @@ const sections = [
     icon: Package,
     label: "Products",
     items: [
-      { label: "Simple", to: "/inventory/products/simple" }
+      { label: "Listing", to: "/inventory/products/simple" }
     ],
   },
-  {
-    id: "inventory",
-    icon: Boxes,
-    label: "Inventory",
-    items: [
-      { label: "Inventory List", to: "/inventory/list" }, // default
-      { label: "Manual Inbound", to: "/inventory/inbound" },
-      { label: "Manual Outbound", to: "/inventory/outbound" },
-      { label: "Stock Movement", to: "/inventory/movement" },
-    ],
-  },
-  {
-    id: "3pf",
-    icon: Store,
-    label: "3PF",
-    items: [
-      { label: "Amazon FPA", to: "/inventory/3pf/amazon-fpa" },
-      { label: "Walmart WFS", to: "/inventory/3pf/walmart-wfs" },
-    ],
-  },
-  {
-    id: "sync",
-    icon: RefreshCcw,
-    label: "Inventory Sync",
-    items: [
-      { label: "Synchronization Log", to: "/inventory/sync/log" },
-      { label: "Inventory Locking", to: "/inventory/sync/locking" },
-    ],
-  },
+  // {
+  //   id: "inventory",
+  //   icon: Boxes,
+  //   label: "Inventory",
+  //   items: [
+  //     { label: "Inventory List", to: "/inventory/list" }, // default
+  //     { label: "Manual Inbound", to: "/inventory/inbound" },
+  //     { label: "Manual Outbound", to: "/inventory/outbound" },
+  //     { label: "Stock Movement", to: "/inventory/movement" },
+  //   ],
+  // },
+  // {
+  //   id: "3pf",
+  //   icon: Store,
+  //   label: "3PF",
+  //   items: [
+  //     { label: "Amazon FPA", to: "/inventory/3pf/amazon-fpa" },
+  //     { label: "Walmart WFS", to: "/inventory/3pf/walmart-wfs" },
+  //   ],
+  // },
+  // {
+  //   id: "sync",
+  //   icon: RefreshCcw,
+  //   label: "Inventory Sync",
+  //   items: [
+  //     { label: "Synchronization Log", to: "/inventory/sync/log" },
+  //     { label: "Inventory Locking", to: "/inventory/sync/locking" },
+  //   ],
+  // },
 ];
 
 export default function InventorySidebar() {
