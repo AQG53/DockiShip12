@@ -354,3 +354,77 @@ export async function deleteProductImage(productId, imageId) {
   const res = await axiosInstance.delete(`/products/${productId}/images/${imageId}`);
   return res?.data?.ok === true || res?.status === 200 || res?.status === 204;
 }
+
+// =====================
+// Suppliers
+// =====================
+export async function listSuppliers() {
+  const res = await axiosInstance.get('/suppliers');
+  const payload = res?.data ?? {};
+  const rows = payload?.data ?? payload ?? [];
+  return Array.isArray(rows) ? rows : [];
+}
+
+export async function createSupplier(payload) {
+  const res = await axiosInstance.post('/suppliers', payload);
+  return res?.data?.data ?? res?.data ?? {};
+}
+
+export async function updateSupplier(id, payload) {
+  if (!id) throw new Error('Missing supplier id');
+  const res = await axiosInstance.patch(`/suppliers/${id}`, payload);
+  return res?.data?.data ?? res?.data ?? {};
+}
+
+export async function archiveSupplier(id) {
+  if (!id) throw new Error('Missing supplier id');
+  const res = await axiosInstance.patch(`/suppliers/${id}/archive`);
+  return res?.data?.ok === true || res?.status === 200 || res?.status === 204;
+}
+
+/** ---------- Supplier ⇄ Products ---------- **/
+// export async function listSupplierProducts(supplierId, params = {}) {
+//   if (!supplierId) throw new Error('Missing supplierId');
+//   const { q } = params;
+//   const res = await axiosInstance.get(`/suppliers/${supplierId}/products`, { params: { q } });
+//   // normalize for UI
+//   const arr = res?.data?.data ?? res?.data ?? [];
+//   return (Array.isArray(arr) ? arr : []).map(p => ({
+//     id: p.id,
+//     name: p.name,
+//     stock: p.stock ?? 0,
+//     imageUrl: Array.isArray(p.images) && p.images[0]?.url ? p.images[0].url : p.imageUrl ?? null,
+//   }));
+// }
+
+export async function listSupplierProducts(supplierId, params = {}) {
+  if (!supplierId) throw new Error('Missing supplierId');
+  const { q } = params;
+  const res = await axiosInstance.get(`/suppliers/${supplierId}/products`, { params: { q } });
+
+  const arr = res?.data?.data ?? res?.data ?? [];
+  return (Array.isArray(arr) ? arr : []).map(p => {
+    const img0 = Array.isArray(p.images) ? p.images[0] : null;
+    // ensure one leading slash, no doubles
+    const rel = (img0?.url || "").replace(/^\/*/, "/");
+    return {
+      id: p.id,
+      name: p.name,
+      stock: Number.isFinite(p.stock) ? p.stock : (p.stock ?? 0),
+      imagePath: rel || null,        // keep as relative path
+    };
+  });
+}
+
+export async function unlinkSupplierProduct(supplierId, productId) {
+  if (!supplierId || !productId) throw new Error('Missing supplierId or productId');
+  const res = await axiosInstance.delete(`/suppliers/${supplierId}/products/${productId}`);
+  return res?.data ?? { ok: true };
+}
+
+/** Optional: if you really want to LINK products (bulk) */
+export async function linkSupplierProducts(supplierId, productIds = []) {
+  if (!supplierId) throw new Error('Missing supplierId');
+  const res = await axiosInstance.post(`/suppliers/${supplierId}/products`, { productIds });
+  return res?.data ?? { ok: true };
+}

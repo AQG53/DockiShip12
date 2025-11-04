@@ -1,6 +1,7 @@
 import { Fragment, useMemo, useState, useEffect, useRef } from "react";
 import { useAuthCheck } from "../hooks/useAuthCheck";
 import { useProductMetaEnums, useCreateProduct, useGetProduct, useUpdateProductParent, useUpdateVariant, useAddVariant, useUploadProductImages } from "../hooks/useProducts";
+import { useSuppliers } from "../hooks/useSuppliers";
 import toast from "react-hot-toast";
 import {
     Dialog,
@@ -67,7 +68,17 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const groups = useMemo(() => ["Select", "Electronics", "Apparel", "Grocery"], []);
     // const origins = useMemo(() => ["Select"], []);
     const tags = useMemo(() => ["Select", "Featured", "Clearance", "Seasonal"], []);
-    const suppliers = useMemo(() => ["Select", "ABC Traders", "Global Supply Co.", "Local Vendor"], []);
+    // Suppliers for primary supplier link
+    const { data: supplierRows = [], isLoading: suppliersLoading } = useSuppliers({
+        refetchOnWindowFocus: false,
+    });
+    const supplierOptions = useMemo(() => {
+        const base = Array.isArray(supplierRows) ? supplierRows : [];
+        return [
+            "Select",
+            ...base.map((s) => ({ value: s.id, label: s.companyName || s.id })),
+        ];
+    }, [supplierRows]);
 
     // Sizes are now stateful so we can add new ones
     const [sizes, setSizes] = useState([
@@ -123,7 +134,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const [tag, setTag] = useState(tags[0]);
 
     // --- new: supplier & pricing ---
-    const [supplier, setSupplier] = useState(suppliers[0]);
+    const [supplier, setSupplier] = useState("Select");
     const [purchasingPrice, setPurchasingPrice] = useState("");
     const [retailPrice, setRetailPrice] = useState("");
     const [sellingPrice, setSellingPrice] = useState("");
@@ -216,7 +227,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         setTag(tags[0]);
 
         // new
-        setSupplier(suppliers[0]);
+        setSupplier("Select");
         setPurchasingPrice("");
         setRetailPrice("");
         setSellingPrice("");
@@ -414,6 +425,9 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             productDetail.originalPrice != null ? String(productDetail.originalPrice) : ""
         );
 
+        // supplier
+        setSupplier(productDetail.primarySupplier?.id || productDetail.primarySupplierId || "Select");
+
         // variants
         const arr = productDetail.ProductVariant || [];
         if (Array.isArray(arr) && arr.length > 0) {
@@ -546,6 +560,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         brand: isNonEmpty(brand) ? brand.trim() : undefined,
         status: status,
         originCountry: origin !== "Select" ? origin : undefined, // ISO2
+        primarySupplierId: supplier !== "Select" ? supplier : undefined,
         isDraft: !!isDraft,
         publishedAt: isDraft ? null : nowIso(),
         // Backend simple fields (see Postman example)
@@ -601,6 +616,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             brand: isNonEmpty(brand) ? brand.trim() : undefined,
             status,
             originCountry: origin !== "Select" ? origin : undefined,
+            primarySupplierId: supplier !== "Select" ? supplier : undefined,
             isDraft: !!isDraft,
             publishedAt: isDraft ? null : nowIso(),
             variants: mappedVariants,
@@ -629,6 +645,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                     isDraft: !!isDraft,
                     // optional: you can pass originCountry if backend supports in PATCH parent:
                     originCountry: payload.originCountry,
+                    primarySupplierId: supplier !== "Select" ? supplier : undefined,
                 };
                 const effectiveProductId = productDetail?.id || productId;
                 if (!effectiveProductId) throw new Error("Missing product id for update");
@@ -1331,8 +1348,8 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                     </div>
                                     )}
 
-                                    {/* NEW: Supplier */}
-                                    {/* <div className={`${card} mt-3`}>
+                                    {/* Supplier Link */}
+                                    <div className={`${card} mt-3`}>
                                         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100">
                                             <div className="flex h-7 w-7 items-center justify-center rounded-md border border-[#FCD33F]/70 bg-[#FFF9E5]">
                                                 <Truck size={16} className="text-amber-700" />
@@ -1343,27 +1360,21 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                         <div className="p-4">
                                             <div className="grid grid-cols-12 gap-3">
                                                 <div className="col-span-12 md:col-span-6">
-                                                    <label className={label}>Supplier</label>
-                                                    <SelectCompact value={supplier} onChange={setSupplier} options={suppliers} />
+                                                    <label className={label}>Primary Supplier</label>
+                                                    <SelectCompact
+                                                        value={supplier}
+                                                        onChange={setSupplier}
+                                                        options={supplierOptions}
+                                                        disabled={suppliersLoading}
+                                                        filterable
+                                                    />
+                                                    {suppliersLoading && (
+                                                        <p className="mt-1 text-[11px] text-gray-500">Loading suppliers…</p>
+                                                    )}
                                                 </div>
-                                                <Field className="col-span-12 md:col-span-6" label="Purchasing Price">
-                                                    <div className="grid grid-cols-12">
-                                                        <input
-                                                            className={`${input} col-span-9 rounded-r-none border-r`}
-                                                            placeholder="e.g., 250.00"
-                                                            value={purchasingPrice}
-                                                            onChange={(e) => setPurchasingPrice(e.target.value)}
-                                                        />
-                                                        <div className="col-span-3">
-                                                            <div className="h-8 w-full rounded-r-lg border border-gray-300 bg-gray-50 text-[13px] text-gray-700 flex items-center justify-center select-none">
-                                                                {CURRENCY}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </Field>
                                             </div>
                                         </div>
-                                    </div> */}
+                                    </div>
 
                                     {/* NEW: Pricing */}
                                     <div className={`${card} mt-3`}>
