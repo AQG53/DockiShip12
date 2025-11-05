@@ -428,3 +428,144 @@ export async function linkSupplierProducts(supplierId, productIds = []) {
   const res = await axiosInstance.post(`/suppliers/${supplierId}/products`, { productIds });
   return res?.data ?? { ok: true };
 }
+
+
+// =====================
+// Marketplace Channels
+// =====================
+
+/**
+ * Search/list marketplace channels for this tenant.
+ * Filters: q (name contains), provider, page, perPage (optional)
+ */
+export async function searchMarketplaceChannels({ q, provider, page = 1, perPage = 200 } = {}) {
+  const params = {};
+  if (q) params.q = q;
+  if (provider) params.provider = provider;
+  if (page != null) params.page = page;
+  if (perPage != null) params.perPage = perPage;
+
+  const res = await axiosInstance.get('/products/marketplaces/channels', { params });
+  const payload = res?.data ?? {};
+  const inner = payload?.data ?? payload;
+
+  const rows =
+    inner?.data ??
+    inner?.items ??
+    inner?.rows ??
+    inner?.channels ??
+    (Array.isArray(inner) ? inner : []);
+
+  return Array.isArray(rows) ? rows : [];
+}
+
+/**
+ * Create a marketplace channel (name + provider are required).
+ */
+export async function createMarketplaceChannel({ name, provider }) {
+  if (!name?.trim()) throw new Error('Missing channel name');
+  if (!provider?.trim()) throw new Error('Missing provider');
+  const res = await axiosInstance.post('/products/marketplaces/channels', {
+    name: name.trim(),
+    provider: provider.trim(),
+  });
+  return res?.data?.data ?? res?.data ?? {};
+}
+
+// =====================
+// Marketplace Listings (per product)
+// =====================
+
+/**
+ * List all marketplace listings for a product.
+ * Optional: filter by variantId.
+ */
+export async function listProductMarketplaceListings(productId, { variantId } = {}) {
+  if (!productId) throw new Error('Missing productId');
+  const params = {};
+  if (variantId) params.variantId = variantId;
+
+  const res = await axiosInstance.get(`/products/${productId}/marketplaces/listings`, { params });
+  const payload = res?.data?.data ?? res?.data ?? [];
+
+  // Backend returns an object: { productListings: [...], variantListings: [...] }
+  // Normalize to a flat array for UI convenience and back-compat with callers
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  const productListings = Array.isArray(payload?.productListings) ? payload.productListings : [];
+  const variantListings = Array.isArray(payload?.variantListings) ? payload.variantListings : [];
+  const rows = [...productListings, ...variantListings].map((l) => ({
+    ...l,
+    // friendly aliases for UI that previously assumed these keys
+    sku: l.externalSku,
+    variantId: l.productVariantId ?? null,
+  }));
+  return rows;
+}
+
+/**
+ * Add a listing for a product (or a variant if variantId provided).
+ * payload: { channelId, sku, units, variantId? }
+ */
+export async function addProductMarketplaceListing(productId, payload) {
+  if (!productId) throw new Error('Missing productId');
+  const { variantId, ...rest } = payload || {};
+  const path = variantId
+    ? `/products/${productId}/marketplaces/listings/variant`
+    : `/products/${productId}/marketplaces/listings/product`;
+
+  const res = await axiosInstance.post(path, variantId ? { ...rest, variantId } : rest);
+  return res?.data?.data ?? res?.data ?? {};
+}
+
+/**
+ * Update a listing.
+ * payload: { channelId?, sku?, units? }
+ */
+export async function updateProductMarketplaceListing(productId, listingId, payload) {
+  if (!productId) throw new Error('Missing productId');
+  if (!listingId) throw new Error('Missing listingId');
+  const res = await axiosInstance.patch(
+    `/products/${productId}/marketplaces/listings/${listingId}`,
+    payload
+  );
+  return res?.data?.data ?? res?.data ?? {};
+}
+
+/**
+ * Delete a listing.
+ */
+export async function deleteProductMarketplaceListing(productId, listingId) {
+  if (!productId) throw new Error('Missing productId');
+  if (!listingId) throw new Error('Missing listingId');
+  const res = await axiosInstance.delete(
+    `/products/${productId}/marketplaces/listings/${listingId}`
+  );
+  return res?.data?.ok === true || res?.status === 200 || res?.status === 204;
+}
+
+/**
+ * Optional: bulk upsert for variant rows in one go.
+ * rows: Array<{ variantId, channelId, sku, units }>
+ */
+export async function upsertProductVariantMarketplaceListings(productId, rows = []) {
+  if (!productId) throw new Error('Missing productId');
+  const res = await axiosInstance.post(
+    `/products/${productId}/marketplaces/listings/bulk`,
+    { rows }
+  );
+  return res?.data?.data ?? res?.data ?? [];
+}
+
+// Providers list (distinct provider names)
+export async function searchMarketplaceProviders({ q } = {}) {
+  const params = {};
+  if (q) params.q = q;
+  const res = await axiosInstance.get('/products/marketplaces/providers', { params });
+  const payload = res?.data ?? {};
+  const inner = payload?.data ?? payload;
+  const rows = Array.isArray(inner) ? inner : (inner?.providers ?? []);
+  // Normalize to plain provider strings when possible
+  return rows.map((r) => (typeof r === 'string' ? r : (r?.provider ?? ''))).filter(Boolean);
+}

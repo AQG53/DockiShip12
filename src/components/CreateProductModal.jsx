@@ -2,6 +2,15 @@ import { Fragment, useMemo, useState, useEffect, useRef } from "react";
 import { useAuthCheck } from "../hooks/useAuthCheck";
 import { useProductMetaEnums, useCreateProduct, useGetProduct, useUpdateProductParent, useUpdateVariant, useAddVariant, useUploadProductImages } from "../hooks/useProducts";
 import { useSuppliers } from "../hooks/useSuppliers";
+import {
+  useSearchMarketplaceChannels,
+  useSearchMarketplaceProviders,
+  useCreateMarketplaceChannel,
+  useProductMarketplaceListings,
+  useAddProductMarketplaceListing,
+  useDeleteProductMarketplaceListing,
+} from "../hooks/useProducts";
+
 import toast from "react-hot-toast";
 import {
     Dialog,
@@ -15,6 +24,7 @@ import {
 } from "@headlessui/react";
 import { Check, ChevronDown, Package, Plus, Trash2, Truck, DollarSign, Upload } from "lucide-react";
 import { deleteProductImage } from "../lib/api";
+import SelectSearchAdd from "./SelectSearchAdd";
 
 const ADD_SIZE_SENTINEL = "__ADD_SIZE__";
 
@@ -144,6 +154,83 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
 
     const err = (key) => Boolean(missing[key]);   // convenience
     const labelizeErr = (key, fallback) => missing[key] || fallback;
+
+    // --- Marketplaces state ---
+const [selectedProvider, setSelectedProvider] = useState("Select");
+const [selectedChannelId, setSelectedChannelId] = useState(null);
+
+// inline creation is now handled inside dropdowns via SelectSearchAdd
+
+// listing form
+const [listingSku, setListingSku] = useState("");
+const [listingUnits, setListingUnits] = useState("");
+const [selectedVariantForListing, setSelectedVariantForListing] = useState("product");
+
+// UI: focus and hinting for provider→channel flow
+const channelSelectRef = useRef(null);
+const [providerIsCustom, setProviderIsCustom] = useState(false);
+
+// effective product id in edit mode
+const effectiveProductId = (productDetail?.id || productId) ?? null;
+
+// Providers list (edit-only context)
+const { data: providers = [], isLoading: providersLoading } =
+  useSearchMarketplaceProviders({}, { enabled: !!(edit && open) });
+
+// Channels for selected provider
+const { data: allChannels = [], isLoading: channelsLoading, refetch: refetchChannels } =
+  useSearchMarketplaceChannels(
+    { provider: selectedProvider !== "Select" ? selectedProvider : undefined, page: 1, perPage: 200 },
+    { enabled: !!(edit && open && selectedProvider !== "Select") }
+  );
+
+// Listings for this product
+const {
+  data: listings = [],
+  isLoading: listingsLoading,
+  refetch: refetchListings
+} = useProductMarketplaceListings(effectiveProductId ?? undefined, {
+  enabled: !!(edit && open && effectiveProductId)
+});
+
+// Mutations
+const { mutateAsync: createChannel, isPending: creatingChannel } = useCreateMarketplaceChannel();
+const { mutateAsync: addListing, isPending: addingListing } = useAddProductMarketplaceListing(effectiveProductId ?? "");
+const { mutateAsync: deleteListing, isPending: deletingListing } = useDeleteProductMarketplaceListing(effectiveProductId ?? "");
+
+// Derive providers and channels
+const providerOptions = useMemo(() => {
+  const arr = Array.isArray(providers) ? providers : [];
+  return ["Select", ...arr.sort((a, b) => String(a).localeCompare(String(b)))];
+}, [providers]);
+
+const channelOptions = useMemo(() => {
+  const arr = (allChannels || []).filter(c =>
+    selectedProvider === "Select"
+      ? true
+      : String(c?.provider ?? c?.providerName ?? "") === selectedProvider
+  );
+  return arr
+    .map(c => ({
+      value: c.id ?? c.channelId ?? c._id,
+      label: c.name ?? c.channelName ?? `Channel ${c.id ?? c.channelId ?? ""}`,
+    }))
+    .filter(o => o.value && o.label);
+}, [allChannels, selectedProvider]);
+
+// Track whether provider is custom (not in provider list)
+useEffect(() => {
+  const list = providerOptions.filter(p => p !== "Select");
+  setProviderIsCustom(Boolean(selectedProvider && selectedProvider !== "Select" && !list.includes(selectedProvider)));
+}, [selectedProvider, providerOptions]);
+
+
+const findVariantLabel = (vid) => {
+  if (!vid) return "—";
+  const hit = variants.find(v => String(v.id) === String(vid));
+  if (!hit) return String(vid);
+  return hit.sku || hit.sizeText || hit.sizeCode || String(vid);
+};
 
     // Build a flat list of missing fields for the current form
     // mode: { isDraft: boolean }
@@ -532,6 +619,9 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
 
         // supplier
         setSupplier(productDetail.primarySupplier?.id || productDetail.primarySupplierId || "Select");
+        setPurchasingPrice(
+          productDetail.lastPurchasePrice != null ? String(productDetail.lastPurchasePrice) : ""
+        );
 
         // variants
         const arr = productDetail.ProductVariant || [];
@@ -594,6 +684,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                 priceMap[v.id] = {
                     retail: v.retailPrice != null ? String(v.retailPrice) : "",
                     original: v.originalPrice != null ? String(v.originalPrice) : "",
+                    purchase: v.lastPurchasePrice != null ? String(v.lastPurchasePrice) : "",
                 };
             });
             setVariantPrices(priceMap);
@@ -684,6 +775,10 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                 originalPrice: Number(sellingPrice),
                 originalCurrency: CURRENCY,
             }),
+        ...(supplier !== "Select" && purchasingPrice?.trim() ? {
+            lastPurchasePrice: Number(purchasingPrice),
+            lastPurchaseCurr: CURRENCY,
+        } : {}),
         variants: [], // keep empty if no variants
     });
 
@@ -710,6 +805,8 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                         retailCurrency: CURRENCY,
                         originalPrice: Number(priceRow.original),
                         originalCurrency: CURRENCY,
+                        lastPurchasePrice: priceRow.purchase != null && priceRow.purchase !== "" ? Number(priceRow.purchase) : undefined,
+                        lastPurchaseCurr: CURRENCY,
                     }),
                 attributes: {}, // reserved
             };
@@ -751,6 +848,10 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                     // optional: you can pass originCountry if backend supports in PATCH parent:
                     originCountry: payload.originCountry,
                     primarySupplierId: supplier !== "Select" ? supplier : undefined,
+                    ...(!variantEnabled && supplier !== "Select" && purchasingPrice?.trim() ? {
+                        lastPurchasePrice: Number(purchasingPrice),
+                        lastPurchaseCurr: CURRENCY,
+                    } : {}),
                 };
                 const effectiveProductId = productDetail?.id || productId;
                 if (!effectiveProductId) throw new Error("Missing product id for update");
@@ -771,6 +872,8 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                             originalPrice: row.original != null && row.original !== "" ? Number(row.original) : undefined,
                             retailCurrency: CURRENCY,
                             originalCurrency: CURRENCY,
+                            lastPurchasePrice: row.purchase != null && row.purchase !== "" ? Number(row.purchase) : undefined,
+                            lastPurchaseCurr: CURRENCY,
                             weight: v.weight != null && v.weight !== "" ? Number(v.weight) : undefined,
                             weightUnit: v.weightUnit || weightUnit,
                             length: v.length != null && v.length !== "" ? Number(v.length) : undefined,
@@ -1477,6 +1580,23 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                         <p className="mt-1 text-[11px] text-gray-500">Loading suppliers…</p>
                                                     )}
                                                 </div>
+                                                {!variantEnabled && (
+                                                <Field className="col-span-12 md:col-span-6" label="Last Purchase Price">
+                                                    <div className="grid grid-cols-12">
+                                                        <input
+                                                            className={`${input} col-span-9 rounded-r-none border-r`}
+                                                            placeholder="e.g., 120.00"
+                                                            value={purchasingPrice}
+                                                            onChange={(e) => setPurchasingPrice(e.target.value)}
+                                                        />
+                                                        <div className="col-span-3">
+                                                            <div className="h-8 w-full rounded-r-lg border border-gray-300 bg-gray-50 text-[13px] text-gray-700 flex items-center justify-center select-none">
+                                                                {CURRENCY}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </Field>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -1528,10 +1648,11 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                             ) : (
                                                 // --- per-variant pricing table ---
                                                 <div className="rounded-xl border border-gray-200 overflow-hidden">
-                                                    <div className="grid grid-cols-[1fr_160px_160px_90px] text-[12px] font-medium text-gray-700">
+                                                    <div className="grid grid-cols-[1fr_140px_140px_140px_90px] text-[12px] font-medium text-gray-700">
                                                         <div className="bg-gray-50 px-3 py-2">Variant SKU</div>
                                                         <div className="bg-gray-50 px-3 py-2">Retail Price</div>
                                                         <div className="bg-gray-50 px-3 py-2">Original Price</div>
+                                                        <div className="bg-gray-50 px-3 py-2">Last Purchase</div>
                                                         <div className="bg-gray-50 px-3 py-2 text-center">Currency</div>
                                                     </div>
 
@@ -1542,11 +1663,11 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                     ) : (
                                                         <div className="divide-y divide-gray-100">
                                                             {variants.map((v) => {
-                                                                const row = variantPrices[v.id] || { retail: "", original: "" };
+                                                                const row = variantPrices[v.id] || { retail: "", original: "", purchase: "" };
                                                                 return (
                                                                     <div
                                                                         key={v.id}
-                                                                        className="grid grid-cols-[1fr_160px_160px_90px] bg-white"
+                                                                        className="grid grid-cols-[1fr_140px_140px_140px_90px] bg-white"
                                                                     >
                                                                         <div className="px-5 py-2 font-mono font-bold text-[14px] text-gray-800 truncate flex items-center">
                                                                             {v.sku || "(no-sku)"}
@@ -1575,6 +1696,20 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                     setVariantPrices((prev) => ({
                                                                                         ...prev,
                                                                                         [v.id]: { ...(prev[v.id] || {}), original: e.target.value },
+                                                                                    }))
+                                                                                }
+                                                                            />
+                                                                        </div>
+
+                                                                        <div className="px-3 py-2">
+                                                                            <input
+                                                                                className={input}
+                                                                                placeholder="e.g., 120.00"
+                                                                                value={row.purchase}
+                                                                                onChange={(e) =>
+                                                                                    setVariantPrices((prev) => ({
+                                                                                        ...prev,
+                                                                                        [v.id]: { ...(prev[v.id] || {}), purchase: e.target.value },
                                                                                     }))
                                                                                 }
                                                                             />
@@ -1811,7 +1946,232 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                             </div>
                                         </div>
                                     )}
+                                                                    {/* Marketplaces (edit only) */}
+{edit && (
+  <div className="mt-3 rounded-2xl border border-gray-200 bg-white">
+    <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-gray-100 rounded-t-2xl">
+      <div className="flex items-center gap-2">
+        <div className="flex h-7 w-7 items-center justify-center rounded-md border border-[#FCD33F]/70 bg-[#FFF9E5]">
+          <svg width="16" height="16" viewBox="0 0 24 24" className="text-amber-700"><path fill="currentColor" d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>
+        </div>
+        <h3 className="text-sm font-semibold text-gray-900">Marketplaces</h3>
+      </div>
+      {channelsLoading && <span className="text-[12px] text-gray-500">Loading…</span>}
+    </div>
+
+    <div className="p-4 space-y-4">
+      {/* Create listing */}
+      <div className="rounded-xl border border-gray-200">
+        <div className="px-4 py-2 border-b border-gray-100 text-[13px] font-semibold text-gray-800">
+          Add Listing
+        </div>
+
+        <div className={`p-4 grid ${ (Array.isArray(variants) && variants.length > 0) ? 'grid-cols-[1.2fr_1.4fr_1.2fr_1fr_0.7fr_120px]' : 'grid-cols-[1.2fr_1.4fr_1fr_0.7fr_120px]' } gap-3 items-end`}>
+          {/* Provider */}
+          <div>
+            <label className={label}>Provider</label>
+            <SelectSearchAdd
+              value={selectedProvider}
+              onChange={(v) => { setSelectedProvider(v); setSelectedChannelId(null); setTimeout(() => channelSelectRef.current?.open?.(), 0); }}
+              options={providerOptions.filter(p => p !== "Select").map(p => ({ value: p, label: p }))}
+              placeholder="Select provider"
+              loading={providersLoading}
+              allowAdd={true}
+              onAdd={async (prov) => {
+                // For provider alone, we cannot create in DB without a channel.
+                // Accept free text as selected provider; channel dropdown handles actual creation.
+                const res = { value: prov, label: prov };
+                // auto-open channel after selecting custom provider
+                setTimeout(() => channelSelectRef.current?.open?.(), 0);
+                return res;
+              }}
+            />
+          </div>
+
+          {/* Channel Name */}
+          <div>
+            <label className={label}>Channel</label>
+            <SelectSearchAdd
+              ref={channelSelectRef}
+              value={selectedChannelId || ""}
+              onChange={(v) => setSelectedChannelId(v)}
+              options={channelOptions}
+              placeholder={selectedProvider === "Select" ? "Select provider first" : "Select channel"}
+              disabled={selectedProvider === "Select"}
+              loading={channelsLoading}
+              allowAdd={true}
+              onAdd={async (name) => {
+                if (selectedProvider === "Select") return;
+                const ch = await createChannel({ name: name.trim(), provider: selectedProvider });
+                await refetchChannels();
+                setSelectedProvider(ch?.provider || selectedProvider);
+                setSelectedChannelId(ch?.id || null);
+                return { value: ch?.id, label: ch?.name };
+              }}
+            />
+            {providerIsCustom && !selectedChannelId && (
+              <div className="mt-1 text-[12px] text-amber-800">Tip: Type a channel name and click Add to create it for this provider.</div>
+            )}
+          </div>
+
+          {/* Variant pick (only when variants exist) */}
+          {Array.isArray(variants) && variants.length > 0 && (
+            <div>
+              <label className={label}>Attach To</label>
+              <SelectCompact
+                value={selectedVariantForListing}
+                onChange={(v) => setSelectedVariantForListing(v)}
+                options={[
+                  { value: "product", label: "Product (no variant)" },
+                  ...(variants.map(v => ({
+                    value: String(v.id),
+                    label: (v.sku || v.sizeText || v.sizeCode || "Variant")
+                  })))
+                ]}
+                filterable
+              />
+            </div>
+          )}
+
+          {/* SKU */}
+          <div>
+            <Field label="Listing SKU *">
+              <input
+                className={input}
+                placeholder="e.g., AMZ-123-XL"
+                value={listingSku}
+                onChange={(e) => setListingSku(e.target.value)}
+              />
+            </Field>
+          </div>
+
+          {/* Units */}
+          <div>
+            <Field label="Units *">
+              <input
+                className={input}
+                placeholder="e.g., 25"
+                value={listingUnits}
+                onChange={(e) => setListingUnits(e.target.value)}
+              />
+            </Field>
+          </div>
+
+          {/* Inline add moved into the dropdowns above */}
+
+          {/* Add Listing CTA */}
+          <div className="flex justify-end">
+            <button
+              type="button"
+              className={primaryBtn}
+              disabled={
+                addingListing ||
+                !effectiveProductId ||
+                !selectedChannelId ||
+                !listingSku.trim() ||
+                !listingUnits.trim()
+              }
+              onClick={async () => {
+                try {
+                  let channelId = selectedChannelId;
+
+                  if (!channelId) {
+                    toast.error("Select a channel (or add one)");
+                    return;
+                  }
+
+                  // Backend expects provider + channel name + externalSku; resolve from channelId
+                  const channel = (allChannels || []).find(c => String(c.id ?? c.channelId ?? c._id) === String(channelId));
+                  if (!channel) {
+                    toast.error("Channel not found");
+                    return;
+                  }
+
+                  const payload = {
+                    provider: channel.provider,
+                    name: channel.name,
+                    externalSku: listingSku.trim(),
+                    units: Number(listingUnits),
+                  };
+                  if (selectedVariantForListing && selectedVariantForListing !== "product") {
+                    payload.variantId = selectedVariantForListing;
+                  }
+
+                  await addListing(payload);
+                  toast.success("Listing added");
+                  setListingSku("");
+                  setListingUnits("");
+                  await refetchListings();
+                } catch (e) {
+                  toast.error(e?.response?.data?.message || e?.message || "Failed to add listing");
+                }
+              }}
+            >
+              Add Listing
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Existing listings */}
+      <div className="rounded-xl border border-gray-200 overflow-hidden">
+        <div className="grid grid-cols-[1.2fr_1.4fr_1fr_0.7fr_1fr_90px] text-[12px] font-medium text-gray-700">
+          <div className="bg-gray-50 px-3 py-2">Provider</div>
+          <div className="bg-gray-50 px-3 py-2">Marketplace Name</div>
+          <div className="bg-gray-50 px-3 py-2">SKU</div>
+          <div className="bg-gray-50 px-3 py-2 text-center">Units</div>
+          <div className="bg-gray-50 px-3 py-2">Variant</div>
+          <div className="bg-gray-50 px-3 py-2 text-center">Actions</div>
+        </div>
+
+        {listingsLoading ? (
+          <div className="p-3 text-[13px] text-gray-600">Loading…</div>
+        ) : (Array.isArray(listings) && listings.length > 0) ? (
+          <div className="divide-y divide-gray-100">
+            {listings.map((l) => {
+              const provider = l?.channel?.provider ?? l?.provider ?? "";
+              const channelName = l?.channel?.name ?? l?.channelName ?? "";
+              const sku = l?.sku ?? "";
+              const units = Number.isFinite(l?.units) ? l.units : (l?.units ?? "");
+              const variantId = l?.variantId ?? null;
+              return (
+                <div key={l.id} className="grid grid-cols-[1.2fr_1.4fr_1fr_0.7fr_1fr_90px] bg-white">
+                  <div className="px-3 py-2">{provider || "—"}</div>
+                  <div className="px-3 py-2">{channelName || "—"}</div>
+                  <div className="px-3 py-2 font-mono text-[13px]">{sku || "—"}</div>
+                  <div className="px-3 py-2 text-center">{units}</div>
+                  <div className="px-3 py-2">{findVariantLabel(variantId)}</div>
+                  <div className="px-2 py-2 flex items-center justify-center">
+                    <button
+                      type="button"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-50"
+                      disabled={deletingListing}
+                      title="Delete listing"
+                      onClick={async () => {
+                        try {
+                          await deleteListing(l.id);
+                          await refetchListings();
+                        } catch (e) {
+                          toast.error(e?.response?.data?.message || e?.message || "Failed to delete");
+                        }
+                      }}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="p-3 text-[13px] text-gray-600">No listings yet.</div>
+        )}
+      </div>
+    </div>
+  </div>
+)}
                                 </div>
+
 
                                 {/* Footer */}
                                 <div className="border-t border-gray-200 bg-white rounded-b-xl px-4 py-3 flex items-center justify-end gap-2">

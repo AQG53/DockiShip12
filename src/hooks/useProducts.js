@@ -7,7 +7,15 @@ import {
   getProductById,
   updateProductParent,
   updateProductVariant,
-  addProductVariant
+  addProductVariant,
+  searchMarketplaceChannels,
+  searchMarketplaceProviders,
+  createMarketplaceChannel,
+  listProductMarketplaceListings,
+  addProductMarketplaceListing,
+  updateProductMarketplaceListing,
+  deleteProductMarketplaceListing,
+  upsertProductVariantMarketplaceListings,
 } from "../lib/api";
 import { uploadProductImages } from "../lib/api";
 
@@ -90,5 +98,86 @@ export function useUploadProductImages() {
   return useMutation({
     mutationKey: ["products", "images", "upload"],
     mutationFn: ({ productId, files, variantId }) => uploadProductImages(productId, files, { variantId }),
+  });
+}
+
+/**
+ * Typeahead/search over channels. Enable when you pass a query/provider.
+ */
+export function useSearchMarketplaceChannels(params = {}, options = {}) {
+  const { q, provider, page = 1, perPage = 200 } = params || {};
+  const enabledDefault = Boolean(q || provider);
+
+  return useQuery({
+    // use primitives so the key is stable across renders
+    queryKey: ["marketplaces", "channels", "search", provider || null, q || null, page, perPage],
+    queryFn: () => searchMarketplaceChannels({ q, provider, page, perPage }),
+    enabled: options.enabled ?? enabledDefault,
+    staleTime: 5 * 60 * 1000,
+    ...options,
+  });
+}
+
+export function useSearchMarketplaceProviders(params = {}, options = {}) {
+  const { q } = params || {};
+  const enabledDefault = true;
+  return useQuery({
+    queryKey: ["marketplaces", "providers", q || null],
+    queryFn: () => searchMarketplaceProviders({ q }),
+    enabled: options.enabled ?? enabledDefault,
+    staleTime: 5 * 60 * 1000,
+    ...options,
+  });
+}
+
+export function useCreateMarketplaceChannel() {
+  return useMutation({
+    mutationKey: ["marketplaces", "channels", "create"],
+    mutationFn: createMarketplaceChannel,
+  });
+}
+
+/**
+ * List all listings for a product (optionally filter by variant).
+ */
+export function useProductMarketplaceListings(productId, { variantId, ...options } = {}) {
+  return useQuery({
+    queryKey: ["marketplaces", "listings", productId, variantId ?? null],
+    queryFn: () => listProductMarketplaceListings(productId, { variantId }),
+    enabled: !!productId,
+    ...options,
+  });
+}
+
+export function useAddProductMarketplaceListing(productId) {
+  return useMutation({
+    mutationKey: ["marketplaces", "listings", "add", productId],
+    mutationFn: (payload) => addProductMarketplaceListing(productId, payload),
+  });
+}
+
+export function useUpdateProductMarketplaceListing(productId) {
+  return useMutation({
+    mutationKey: ["marketplaces", "listings", "update", productId],
+    mutationFn: ({ listingId, payload }) =>
+      updateProductMarketplaceListing(productId, listingId, payload),
+  });
+}
+
+export function useDeleteProductMarketplaceListing(productId) {
+  return useMutation({
+    mutationKey: ["marketplaces", "listings", "delete", productId],
+    mutationFn: (listingId) => deleteProductMarketplaceListing(productId, listingId),
+  });
+}
+
+/**
+ * Bulk upsert variant listings for a product.
+ * rows: [{ variantId, channelId, sku, units }]
+ */
+export function useBulkUpsertVariantMarketplaceListings(productId) {
+  return useMutation({
+    mutationKey: ["marketplaces", "listings", "bulk", productId],
+    mutationFn: (rows) => upsertProductVariantMarketplaceListings(productId, rows),
   });
 }
