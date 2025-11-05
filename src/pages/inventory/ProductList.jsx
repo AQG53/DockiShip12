@@ -14,6 +14,7 @@ import { useProducts, useDeleteProduct } from "../../hooks/useProducts";
 import { ConfirmModal } from "../../components/ConfirmModal";
 import toast from "react-hot-toast";
 import { useAuthCheck } from "../../hooks/useAuthCheck";
+import { randomId } from "../../lib/id";
 
 export default function ProductList() {
   const { data: auth } = useAuthCheck({ refetchOnWindowFocus: false });
@@ -315,7 +316,7 @@ function mapProductsToRows(apiRows, auth) {
       : "—";
 
     return {
-      id: p?.id || crypto.randomUUID(),
+      id: p?.id || randomId(),
       name: p?.name ?? "—",
       sku: p?.sku ?? "—",
       imageUrl,

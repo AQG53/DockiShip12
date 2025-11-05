@@ -24,6 +24,7 @@ import {
 } from "@headlessui/react";
 import { Check, ChevronDown, Package, Plus, Trash2, Truck, DollarSign, Upload } from "lucide-react";
 import { deleteProductImage } from "../lib/api";
+import { randomId } from "../lib/id";
 import SelectSearchAdd from "./SelectSearchAdd";
 
 const ADD_SIZE_SENTINEL = "__ADD_SIZE__";
@@ -341,7 +342,7 @@ const findVariantLabel = (vid) => {
 
     function seedVariantsFromParent() {
       // create one variant row seeded from parent fields
-      const localId = `local-${crypto.randomUUID()}`;
+      const localId = `local-${randomId()}`;
       const nextVariant = {
         id: localId,
         sizeCode: "",
@@ -419,7 +420,7 @@ const findVariantLabel = (vid) => {
             ...prev,
             {
                 // Use a local-only id to distinguish unsaved rows from server variants
-                id: `local-${crypto.randomUUID()}`,
+                id: `local-${randomId()}`,
                 sizeCode: "",
                 sizeText: "—",
                 sku: computeAutoSku(sku, { sizeCode: "" }, prev.length),
