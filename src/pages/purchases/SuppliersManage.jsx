@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useState, useEffect } from "react";
 import {
   Listbox,
   ListboxButton,
@@ -14,22 +14,29 @@ import {
   Search,
   Plus,
   Store,
-  MoreHorizontal,
   Filter,
   Edit,
   Trash2,
   X,
 } from "lucide-react";
 import AddSupplierModal from "../../components/AddSupplierModal";
+import { ConfirmModal } from "../../components/ConfirmModal";
 import { useSuppliers, useArchiveSupplier } from "../../hooks/useSuppliers";
 import { useSupplierProducts, useUnlinkSupplierProduct } from "../../hooks/useSuppliers";
+import { listProducts, linkSupplierProducts } from "../../lib/api";
 import toast from "react-hot-toast";
+import { useAuthCheck } from "../../hooks/useAuthCheck";
 
 export default function SuppliersManage() {
+  // Permissions
+  const { data: auth } = useAuthCheck({ refetchOnWindowFocus: false });
+  const isOwner = Array.isArray(auth?.roles) && auth.roles.some((r) => String(r).toLowerCase() === 'owner');
+  const permSet = new Set(Array.isArray(auth?.perms) ? auth.perms.map(String) : []);
+  const canManageSuppliers = isOwner || permSet.has('suppliers.manage');
+  const canReadSuppliers = isOwner || canManageSuppliers || permSet.has('suppliers.read');
   const fields = [
-    { id: "company", name: "Company Name" },
+    { id: "company", name: "Display Name" },
     { id: "currency", name: "Currency" },
-    { id: "time", name: "Time" },
   ];
   const [field, setField] = useState(fields[0]);
   const [query, setQuery] = useState("");
@@ -39,6 +46,14 @@ export default function SuppliersManage() {
   // Related products dialog state
   const [relatedOpen, setRelatedOpen] = useState(false);
   const [relatedSupplier, setRelatedSupplier] = useState(null);
+
+  // View supplier dialog state
+  const [viewOpen, setViewOpen] = useState(false);
+  const [viewSupplier, setViewSupplier] = useState(null);
+
+  // Delete confirm modal state
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmItem, setConfirmItem] = useState(null);
 
   const { data: supplierRows = [], isLoading, refetch } = useSuppliers();
   const archiveMut = useArchiveSupplier({
@@ -58,17 +73,22 @@ export default function SuppliersManage() {
     const mapped = (Array.isArray(supplierRows) ? supplierRows : []).map((s) => ({
       id: s.id,
       company: s.companyName || "",
-      productQty: s && s._count && Number.isFinite(s._count.products) ? s._count.products : 0,
+      productQty: (() => {
+        // prefer explicit counts when available
+        if (Number.isFinite(s?.productsCount)) return s.productsCount;
+        if (Number.isFinite(s?.productCount)) return s.productCount;
+        if (s && s._count && Number.isFinite(s._count.products)) return s._count.products;
+        // fallback: length of embedded relation
+        if (Array.isArray(s?.products)) return s.products.length;
+        return 0;
+      })(),
       currency: s.currency || "",
-      createdAt: s.createdAt ? new Date(s.createdAt).toLocaleString() : "",
-      lastPurchase: "--",
       raw: s,
     }));
 
     const q = (query || "").trim().toLowerCase();
     if (!q) return mapped;
     if (field && field.id === "currency") return mapped.filter((r) => (r.currency || "").toLowerCase().includes(q));
-    if (field && field.id === "time") return mapped;
     return mapped.filter((r) => (r.company || "").toLowerCase().includes(q));
   }, [supplierRows, query, field]);
 
@@ -92,7 +112,14 @@ export default function SuppliersManage() {
         </div>
       </div>
 
+      {!canReadSuppliers && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          You don’t have permission to view suppliers. Ask an admin for access.
+        </div>
+      )}
+
       {/* FILTER BAR */}
+      {canReadSuppliers && (
       <div className={card}>
         <div className="px-4 py-3">
           <div className="flex flex-wrap items-center gap-2.5">
@@ -119,28 +146,32 @@ export default function SuppliersManage() {
           </div>
         </div>
       </div>
+      )}
 
       {/* TABLE */}
+      {canReadSuppliers && (
       <div className={card}>
         <div className="px-4 py-2.5 border-b border-gray-200 text-sm text-gray-600 flex items-center justify-end gap-4">
-          <button
-            className={btnPrimary}
-            onClick={() => {
-              setEditSupplier(null);
-              setAddOpen(true);
-            }}
-          >
-            <Plus size={16} /> Add suppliers
-          </button>
+          {canManageSuppliers && (
+            <button
+              className={btnPrimary}
+              onClick={() => {
+                setEditSupplier(null);
+                setAddOpen(true);
+              }}
+            >
+              <Plus size={16} /> Add supplier
+            </button>
+          )}
         </div>
 
         {/* Header row */}
         <div className="grid grid-cols-12 bg-gray-50 px-4 py-2.5 text-[12px] font-semibold text-gray-700">
-          <div className="col-span-3">Company Name</div>
-          <div className="col-span-2">Product Quantity</div>
+          <div className="col-span-4">Display Name</div>
+          <div className="col-span-2">Product Qty</div>
           <div className="col-span-2">Currency</div>
-          <div className="col-span-3">Time</div>
-          <div className="col-span-2 text-right">Action</div>
+          <div className="col-span-2">Related products</div>
+          <div className="col-span-2 text-right">Actions</div>
         </div>
 
         {/* Body */}
@@ -152,8 +183,16 @@ export default function SuppliersManage() {
           <ul className="divide-y divide-gray-100">
             {rows.map((r) => (
               <li key={r.id} className="grid grid-cols-12 px-4 py-2.5 text-[13px] text-gray-800 items-center gap-2">
-                {/* Company */}
-                <div className="col-span-3 truncate">{r.company}</div>
+                {/* Display Name */}
+                <div className="col-span-4 truncate">
+                  <button
+                    className="text-left underline text-amber-700 hover:opacity-80"
+                    title="View supplier"
+                    onClick={() => { setViewSupplier(r.raw); setViewOpen(true); }}
+                  >
+                    {r.company}
+                  </button>
+                </div>
 
                 {/* Product Qty */}
                 <div className="col-span-2">{r.productQty}</div>
@@ -161,71 +200,60 @@ export default function SuppliersManage() {
                 {/* Currency */}
                 <div className="col-span-2">{r.currency || "—"}</div>
 
-                {/* Time */}
-                <div className="col-span-3 leading-5 flex flex-col gap-1">
-                  <div className="flex items-center justify-between w-full">
-                    <div className="text-gray-700">Create</div>
-                    <div className="text-[12px] text-gray-500 whitespace-nowrap">{r.createdAt}</div>
-                  </div>
-                  <div className="flex items-center justify-between w-full">
-                    <div className="text-gray-700">Recent purchase</div>
-                    <div className="text-[12px] text-gray-500 whitespace-nowrap">{r.lastPurchase}</div>
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="col-span-2 flex items-center justify-between gap-2">
+                {/* Related products */}
+                <div className="col-span-2">
                   <button
                     className="text-amber-600 hover:underline text-[13px] whitespace-nowrap"
                     onClick={() => {
                       setRelatedSupplier(r.raw);
                       setRelatedOpen(true);
                     }}
+                    title="Related products"
                   >
                     Related products
                   </button>
+                </div>
 
-                  <div className="relative group">
-                    <button className="inline-flex items-center justify-center text-amber-600 hover:opacity-80 p-1 rounded-md">
-                      <MoreHorizontal className="w-4 h-4" />
-                    </button>
-                    <div className="absolute right-0 z-10 w-28 mt-1 transition-opacity duration-150 ease-out opacity-0 group-hover:opacity-100 group-hover:block hidden">
-                      <div className="rounded-xl border border-gray-200 bg-white py-1 text-xs shadow-lg focus:outline-none">
-                        <button
-                          className="w-full inline-flex items-center gap-2 text-left px-3 py-2 text-gray-800 hover:bg-gray-100"
-                          onClick={() => {
-                            setEditSupplier(r.raw);
-                            setAddOpen(true);
-                          }}
-                        >
-                          <span>
-                            <Edit className="w-3 h-3" />
-                          </span>
-                          Edit
-                        </button>
-                        <button
-                          className="w-full inline-flex items-center gap-2 text-left px-3 py-2 text-gray-800 hover:bg-gray-100"
-                          onClick={async () => {
-                            if (!window.confirm("Archive this supplier?")) return;
-                            try {
-                              await archiveMut.mutateAsync(r.id);
-                            } catch {}
-                          }}
-                        >
-                          <span>
-                            <Trash2 className="w-3 h-3 text-red-700" />
-                          </span>
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                {/* Actions */}
+                <div className="col-span-2 flex items-center justify-end gap-1">
+                  <button
+                    className="rounded-md border border-gray-300 px-1.5 py-0.5 text-[11px] hover:bg-gray-50"
+                    onClick={() => {
+                      setViewSupplier(r.raw);
+                      setViewOpen(true);
+                    }}
+                  >
+                    View
+                  </button>
+                  {canManageSuppliers && (
+                    <>
+                      <button
+                        className="rounded-md border border-gray-300 px-1.5 py-0.5 text-[11px] hover:bg-gray-50"
+                        onClick={() => {
+                          setEditSupplier(r.raw);
+                          setAddOpen(true);
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="rounded-md border border-red-200 text-red-700 px-1.5 py-0.5 text-[11px] hover:bg-red-50"
+                        onClick={() => {
+                          setConfirmItem(r.raw);
+                          setConfirmOpen(true);
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
                 </div>
               </li>
             ))}
           </ul>
         )}
       </div>
+      )}
 
       {/* Add/Edit Supplier Modal */}
       <AddSupplierModal
@@ -250,16 +278,46 @@ export default function SuppliersManage() {
           setRelatedSupplier(null);
         }}
         supplier={relatedSupplier}
+        canManage={canManageSuppliers}
         onUnlinked={async () => {
           await refetch();
         }}
       />
+
+      {/* View Supplier Dialog */}
+      <ViewSupplierDialog
+        open={viewOpen}
+        onClose={() => {
+          setViewOpen(false);
+          setViewSupplier(null);
+        }}
+        supplier={viewSupplier}
+      />
+
+      {/* Delete confirmation */}
+      <ConfirmModal
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        title="Delete Supplier"
+        loading={archiveMut.isPending}
+        onConfirm={async () => {
+          if (!confirmItem?.id) return;
+          try {
+            await archiveMut.mutateAsync(confirmItem.id);
+            setConfirmOpen(false);
+          } catch {}
+        }}
+      >
+        Are you sure you want to delete <span className="font-semibold">{confirmItem?.companyName || "this supplier"}</span>?
+        <br />
+        This action cannot be undone.
+      </ConfirmModal>
     </div>
   );
 }
 
 /* ---------- Related Products Dialog (JSX) ---------- */
-function RelatedProductsDialog({ open, onClose, supplier, onUnlinked }) {
+function RelatedProductsDialog({ open, onClose, supplier, onUnlinked, canManage = false }) {
   const supplierId = supplier?.id || "";
   const { data: items = [], isLoading, error } = useSupplierProducts(supplierId, {
     enabled: open && !!supplierId,
@@ -272,7 +330,7 @@ function RelatedProductsDialog({ open, onClose, supplier, onUnlinked }) {
     onError: (e) => toast.error(e?.message || "Failed to unlink"),
   });
 
-  if (!open) return null;
+  // Do not early-return before hooks; just rely on <Dialog open={open}> to control visibility
 
   const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
   const IMG_PLACEHOLDER =
@@ -291,6 +349,55 @@ function RelatedProductsDialog({ open, onClose, supplier, onUnlinked }) {
   const unlink = async (productId) => {
     if (!supplierId) return;
     await unlinkMut({ supplierId, productId });
+  };
+
+  // Link products UX (basic search + multi-select)
+  const [search, setSearch] = useState("");
+  const [allProducts, setAllProducts] = useState([]);
+  const [loadingProducts, setLoadingProducts] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [linking, setLinking] = useState(false);
+
+  const loadProducts = async () => {
+    try {
+      setLoadingProducts(true);
+      const { rows } = await listProducts({ perPage: 200, search });
+      setAllProducts(Array.isArray(rows) ? rows : []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingProducts(false);
+    }
+  };
+
+  // load once when dialog opens; reload on search blur/enter via button
+  useEffect(() => {
+    if (open) loadProducts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const toggleSel = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const linkSelected = async () => {
+    if (!supplierId || selectedIds.size === 0) return;
+    setLinking(true);
+    try {
+      await linkSupplierProducts(supplierId, Array.from(selectedIds));
+      toast.success("Linked");
+      setSelectedIds(new Set());
+      await loadProducts();
+      if (onUnlinked) await onUnlinked(); // reuse to refresh parent list
+    } catch (e) {
+      toast.error(e?.message || "Failed to link products");
+    } finally {
+      setLinking(false);
+    }
   };
 
   return (
@@ -317,6 +424,82 @@ function RelatedProductsDialog({ open, onClose, supplier, onUnlinked }) {
 
             {/* Body */}
             <div className="p-4">
+              {/* Link products (only when canManage) */}
+              {canManage && (
+              <div className="mb-4 rounded-lg border border-gray-200">
+                <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-200">
+                  <div className="text-[13px] font-semibold text-gray-800">Link products</div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      className="h-8 w-56 rounded-md border border-gray-300 px-2 text-[12px]"
+                      placeholder="Search products"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                    />
+                    <button
+                      className="h-8 px-3 rounded-md border border-gray-300 text-[12px] hover:bg-gray-50"
+                      onClick={loadProducts}
+                      disabled={loadingProducts}
+                    >
+                      {loadingProducts ? "Searching…" : "Search"}
+                    </button>
+                  </div>
+                </div>
+                <div className="p-3 max-h-56 overflow-auto">
+                  {loadingProducts ? (
+                    <ul className="animate-pulse space-y-2">
+                      {Array.from({ length: 6 }).map((_, i) => (
+                        <li key={i} className="flex items-center justify-between py-1.5">
+                          <div className="h-3.5 w-56 bg-gray-200 rounded" />
+                          <div className="h-3.5 w-16 bg-gray-200 rounded" />
+                        </li>
+                      ))}
+                    </ul>
+                  ) : allProducts.length === 0 ? (
+                    <div className="text-xs text-gray-500">No products.</div>
+                  ) : (
+                    <ul className="divide-y divide-gray-100">
+                      {allProducts.map((p) => (
+                        <li key={p.id} className="flex items-center justify-between py-1.5 text-[13px]">
+                          <div className="truncate">
+                            <span className="text-gray-900">{p.name}</span>
+                            <span className="text-gray-500 text-xs ml-2">{p.sku}</span>
+                          </div>
+                          <label className="inline-flex items-center gap-2 text-xs">
+                            <input
+                              type="checkbox"
+                              className="h-3.5 w-3.5"
+                              checked={selectedIds.has(p.id)}
+                              onChange={() => toggleSel(p.id)}
+                            />
+                            Select
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div className="px-3 py-2 text-right border-t border-gray-200">
+                  <button
+                    className="inline-flex items-center gap-2 text-xs px-3 py-1.5 rounded-md border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
+                    onClick={linkSelected}
+                    disabled={linking || selectedIds.size === 0}
+                  >
+                    {linking ? "Linking…" : `Link ${selectedIds.size || ""}`}
+                  </button>
+                </div>
+              </div>
+              )}
+
+              {unlinking && (
+                <div className="mb-3 text-xs text-gray-600 inline-flex items-center gap-2">
+                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z"></path>
+                  </svg>
+                  Unlinking…
+                </div>
+              )}
               {error && (
                 <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-2 mb-3">
                   {String(error?.message || "Failed to load products")}
@@ -324,7 +507,26 @@ function RelatedProductsDialog({ open, onClose, supplier, onUnlinked }) {
               )}
 
               {isLoading ? (
-                <div className="py-10 text-sm text-gray-500 text-center">Loading…</div>
+                <div className="py-3">
+                  <div className="animate-pulse border border-gray-200 rounded-lg overflow-hidden">
+                    <div className="grid grid-cols-4 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-700">
+                      <div className="h-3.5 w-10 bg-gray-200 rounded" />
+                      <div className="h-3.5 w-40 bg-gray-200 rounded" />
+                      <div className="h-3.5 w-20 bg-gray-200 rounded" />
+                      <div className="h-3.5 w-20 bg-gray-200 rounded ml-auto" />
+                    </div>
+                    <div className="p-3 space-y-2">
+                      {Array.from({ length: 6 }).map((_, i) => (
+                        <div key={i} className="grid grid-cols-4 items-center gap-2">
+                          <div className="h-10 w-10 bg-gray-200 rounded" />
+                          <div className="h-3.5 w-52 bg-gray-200 rounded" />
+                          <div className="h-3.5 w-16 bg-gray-200 rounded" />
+                          <div className="h-7 w-16 bg-gray-200 rounded ml-auto" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               ) : items.length === 0 ? (
                 <div className="py-10 text-sm text-gray-500 text-center">No related products.</div>
               ) : (
@@ -357,20 +559,209 @@ function RelatedProductsDialog({ open, onClose, supplier, onUnlinked }) {
                             <td className="text-gray-900">{p.name || "—"}</td>
                             <td className="text-gray-700">{Number.isFinite(p.stock) ? p.stock : "—"}</td>
                             <td className="text-right">
-                              <button
-                                disabled={unlinking}
-                                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50"
-                                onClick={() => unlink(p.id)}
-                                title="Unlink product from supplier"
-                              >
-                                Unlink
-                              </button>
+                              {canManage && (
+                                <button
+                                  disabled={unlinking}
+                                  className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50"
+                                  onClick={() => unlink(p.id)}
+                                  title="Unlink product from supplier"
+                                >
+                                  {unlinking && (
+                                    <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z"></path>
+                                    </svg>
+                                  )}
+                                  <span>{unlinking ? 'Unlinking…' : 'Unlink'}</span>
+                                </button>
+                              )}
                             </td>
                           </tr>
                         );
                       })}
                     </tbody>
                   </table>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-4 py-3 border-t border-gray-200 text-right">
+              <button
+                className="inline-flex items-center px-3 py-2 text-sm rounded-md border hover:bg-gray-50"
+                onClick={onClose}
+              >
+                Close
+              </button>
+            </div>
+          </DialogPanel>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+/* ---------- View Supplier Dialog (JSX) ---------- */
+function ViewSupplierDialog({ open, onClose, supplier }) {
+  if (!open || !supplier) return null;
+
+  const row = supplier || {};
+  const [tab, setTab] = useState('overview'); // 'overview' | 'products' | 'pos'
+
+  const { data: linked = [], isLoading: loadingLinked } = useSupplierProducts(row.id, {
+    enabled: open && !!row.id,
+  });
+
+  const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+  const IMG_PLACEHOLDER =
+    "data:image/svg+xml;utf8," +
+    encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><rect width="100%" height="100%" fill="#f3f4f6"/><g fill="#9ca3af"><circle cx="26" cy="30" r="8"/><path d="M8 60l15-15 10 10 12-12 27 27H8z"/></g></svg>'
+    );
+
+  const absImg = (pathOrUrl) => {
+    if (!pathOrUrl) return IMG_PLACEHOLDER;
+    if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
+    const rel = pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`;
+    return `${API_BASE}${rel}`;
+  };
+
+  const Item = ({ label, value }) => (
+    <div className="grid grid-cols-4 gap-2 py-1 text-sm">
+      <div className="col-span-1 text-gray-600">{label}</div>
+      <div className="col-span-3 text-gray-900">{value || "—"}</div>
+    </div>
+  );
+
+  const TabButton = ({ id, children }) => (
+    <button
+      className={`px-3 py-1.5 text-sm rounded-md border ${tab === id ? 'bg-gray-100 border-gray-300 text-gray-900' : 'border-transparent text-gray-600 hover:bg-gray-50'}`}
+      onClick={() => setTab(id)}
+    >
+      {children}
+    </button>
+  );
+
+  return (
+    <Dialog open={open} onClose={onClose} className="relative z-[70]">
+      <div className="fixed inset-0 bg-black/30" aria-hidden="true" />
+      <div className="fixed inset-0 overflow-y-auto">
+        <div className="flex min-h-full items-center justify-center p-4">
+          <DialogPanel className="w-full max-w-3xl rounded-xl bg-white border border-gray-200 shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+              <div className="text-base font-semibold text-gray-900">Supplier details</div>
+              <button className="p-2 rounded hover:bg-gray-100" onClick={onClose} title="Close">
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Tabs */}
+            <div className="px-4 pt-3">
+              <div className="inline-flex items-center gap-2">
+                <TabButton id="overview">Overview</TabButton>
+                <TabButton id="products">Products</TabButton>
+                <TabButton id="pos">Recent Purchase Orders</TabButton>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-4">
+              {tab === 'overview' && (
+                <div className="rounded-lg border border-gray-200 divide-y divide-gray-100">
+                  <div className="p-3 bg-gray-50 text-[13px] font-semibold text-gray-800">Basic</div>
+                  <div className="p-3">
+                    <Item label="Display Name" value={row.companyName} />
+                    <Item label="Currency" value={row.currency} />
+                    <Item label="Contacts" value={row.contacts} />
+                    <Item label="Email" value={row.email} />
+                    <Item label="Phone" value={row.phone} />
+                  </div>
+                  <div className="p-3 bg-gray-50 text-[13px] font-semibold text-gray-800">Address</div>
+                  <div className="p-3">
+                    <Item label="Country" value={row.country} />
+                    <Item label="Address 1" value={row.address1} />
+                    <Item label="Address 2" value={row.address2} />
+                    <Item label="Zip Code" value={row.zipCode} />
+                    <Item label="City" value={row.city} />
+                    <Item label="State" value={row.state} />
+                  </div>
+                  <div className="p-3 bg-gray-50 text-[13px] font-semibold text-gray-800">Notes</div>
+                  <div className="p-3">
+                    <div className="text-sm text-gray-900 whitespace-pre-wrap">{row.notes || "—"}</div>
+                  </div>
+                </div>
+              )}
+
+              {tab === 'products' && (
+                <div>
+                  {loadingLinked ? (
+                    <div className="py-10 text-sm text-gray-500 text-center">Loading…</div>
+                  ) : linked.length === 0 ? (
+                    <div className="py-10 text-sm text-gray-500 text-center">No linked products.</div>
+                  ) : (
+                    <div className="overflow-x-auto rounded-lg border border-gray-200">
+                      <table className="min-w-full text-sm">
+                        <thead className="bg-gray-50 text-gray-700">
+                          <tr className="[&>th]:px-3 [&>th]:py-2.5 [&>th]:text-left">
+                            <th className="w-16"></th>
+                            <th>Name</th>
+                            <th className="w-24">Stock</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {linked.map((p) => {
+                            const src = absImg(p.imagePath || p.imageUrl || "");
+                            return (
+                              <tr key={p.id} className="[&>td]:px-3 [&>td]:py-2.5">
+                                <td>
+                                  <img
+                                    src={src}
+                                    alt=""
+                                    className="h-12 w-12 rounded-md border border-gray-200 object-cover bg-gray-100"
+                                    onError={(e) => {
+                                      e.currentTarget.onerror = null;
+                                      e.currentTarget.src = IMG_PLACEHOLDER;
+                                    }}
+                                  />
+                                </td>
+                                <td className="text-gray-900">{p.name || "—"}</td>
+                                <td className="text-gray-700">{Number.isFinite(p.stock) ? p.stock : "—"}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {tab === 'pos' && (
+                <div className="rounded-lg border border-gray-200">
+                  <div className="p-3 bg-gray-50 text-[13px] font-semibold text-gray-800">Recent Purchase Orders</div>
+                  <div className="p-3 overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-white text-gray-700">
+                        <tr className="[&>th]:px-3 [&>th]:py-2.5 [&>th]:text-left">
+                          <th>PO #</th>
+                          <th>Date</th>
+                          <th>Status</th>
+                          <th className="text-right">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {[{ id: 'PO-1001', date: '2024-09-12', status: 'Received', total: '$1,240.00' }, { id: 'PO-0998', date: '2024-08-28', status: 'Pending', total: '$560.00' }].map((po) => (
+                          <tr key={po.id} className="[&>td]:px-3 [&>td]:py-2.5">
+                            <td className="text-gray-900">{po.id}</td>
+                            <td className="text-gray-700">{new Date(po.date).toLocaleDateString()}</td>
+                            <td className="text-gray-700">{po.status}</td>
+                            <td className="text-right text-gray-900">{po.total}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </div>

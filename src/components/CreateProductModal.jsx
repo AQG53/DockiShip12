@@ -22,17 +22,18 @@ import {
     ListboxOptions,
     ListboxOption,
 } from "@headlessui/react";
-import { Check, ChevronDown, Package, Plus, Trash2, Truck, DollarSign, Upload } from "lucide-react";
-import { deleteProductImage } from "../lib/api";
+import { Check, ChevronDown, Package, Plus, Trash2, Truck, DollarSign, Upload, Loader2 } from "lucide-react";
+import { deleteProductImage, linkSupplierProducts, unlinkSupplierProduct } from "../lib/api";
 import { randomId } from "../lib/id";
 import SelectSearchAdd from "./SelectSearchAdd";
 
 const ADD_SIZE_SENTINEL = "__ADD_SIZE__";
+const ADD_COLOR_SENTINEL = "__ADD_COLOR__";
 
 export default function CreateProductModal({ open, onClose, onSave, edit = false, productId = null }) {
     const { mutateAsync: createProductMut, isPending: saving } = useCreateProduct();
     const { data: auth } = useAuthCheck({ refetchOnWindowFocus: false });
-    const { data: productDetail, refetch: refetchProductDetail } = useGetProduct(edit && open ? productId : null, {
+    const { data: productDetail, refetch: refetchProductDetail, isLoading: loadingProduct } = useGetProduct(edit && open ? productId : null, {
         refetchOnWindowFocus: false,
     });
     const { mutateAsync: updateParent, isPending: savingParent } = useUpdateProductParent();
@@ -65,6 +66,11 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         () => enums?.WeightUnit || ["g", "kg", "lb"],
         [enums]
     );
+    // Only allow kg/lb in the main unit selector (lowercase labels)
+    const mainWeightOptions = useMemo(
+        () => ([{ value: 'kg', label: 'kg' }, { value: 'lb', label: 'lb' }]),
+        []
+    );
     const dimUnits = useMemo(
         () => enums?.LengthUnit || ["mm", "cm", "inch"],
         [enums]
@@ -79,17 +85,17 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const groups = useMemo(() => ["Select", "Electronics", "Apparel", "Grocery"], []);
     // const origins = useMemo(() => ["Select"], []);
     const tags = useMemo(() => ["Select", "Featured", "Clearance", "Seasonal"], []);
-    // Suppliers for primary supplier link
-    const { data: supplierRows = [], isLoading: suppliersLoading } = useSuppliers({
+    // Suppliers list (for linking in edit mode)
+    const { data: supplierList = [], isLoading: suppliersLoading } = useSuppliers({
         refetchOnWindowFocus: false,
     });
     const supplierOptions = useMemo(() => {
-        const base = Array.isArray(supplierRows) ? supplierRows : [];
+        const base = Array.isArray(supplierList) ? supplierList : [];
         return [
             "Select",
             ...base.map((s) => ({ value: s.id, label: s.companyName || s.id })),
         ];
-    }, [supplierRows]);
+    }, [supplierList]);
 
     // Sizes are now stateful so we can add new ones
     const [sizes, setSizes] = useState([
@@ -99,6 +105,8 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         { code: "L", text: "Large" },
         { code: "XL", text: "X-Large" },
     ]);
+    // Colors are stateful too (simple list of labels; first entry is placeholder "—")
+    const [colors, setColors] = useState(["—", "Red", "Blue", "Green"]);
 
     // --- variants/images state ---
     const [variantEnabled, setVariantEnabled] = useState(false);
@@ -118,6 +126,17 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const [sizeModalOpen, setSizeModalOpen] = useState(false);
     const [newSizeCode, setNewSizeCode] = useState("");
     const [newSizeText, setNewSizeText] = useState("");
+    const [sizeContext, setSizeContext] = useState(null); // null | { kind: 'simple' } | { kind: 'variant', id: string }
+    // Color modal state
+    const [colorModalOpen, setColorModalOpen] = useState(false);
+    const [newColorText, setNewColorText] = useState("");
+    const [colorContext, setColorContext] = useState(null); // null | { kind: 'simple' } | { kind: 'variant', id: string }
+
+    const deriveSizeCode = (label) => {
+        const s = String(label || '').trim();
+        if (!s) return '';
+        return s.toUpperCase().replace(/\s+/g, '');
+    };
 
     // --- form state ---
     const [sku, setSku] = useState("");
@@ -134,20 +153,47 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const [originLoading, setOriginLoading] = useState(false);
 
     const [weightMain, setWeightMain] = useState("");
-    const [weightUnit, setWeightUnit] = useState((enums?.WeightUnit || ["g", "kg", "lb"]).includes("kg") ? "kg" : (enums?.WeightUnit?.[0] || "kg"));
+    // Default weight to lb when available, else first enum
+    const [weightUnit, setWeightUnit] = useState(
+        (enums?.WeightUnit || ["lb", "kg", "g"]).includes("lb") ? "lb" : (enums?.WeightUnit?.[0] || "lb")
+    );
     const [weightSub, setWeightSub] = useState("");
-    const [weightSubUnit, setWeightSubUnit] = useState(resolveSubUnit(weightUnit));
 
     const [dimL, setDimL] = useState("");
     const [dimW, setDimW] = useState("");
     const [dimH, setDimH] = useState("");
-    const [dimUnit, setDimUnit] = useState(enums?.LengthUnit?.[0] || "cm");
+    // Default dimensions to inch when available
+    const [dimUnit, setDimUnit] = useState(
+        (enums?.LengthUnit || ["inch", "cm", "mm"]).includes("inch") ? "inch" : (enums?.LengthUnit?.[0] || "inch")
+    );
 
     const [tag, setTag] = useState(tags[0]);
+    // Simple product-only attributes
+    const [mainSizeText, setMainSizeText] = useState("");
+    const [mainColorText, setMainColorText] = useState("");
 
     // --- new: supplier & pricing ---
     const [supplier, setSupplier] = useState("Select");
+    const [linkingSupplier, setLinkingSupplier] = useState(false);
+    const [linkSelect, setLinkSelect] = useState("Select");
+    const [unlinkingSupplierId, setUnlinkingSupplierId] = useState(null);
+    // Create-mode supplier rows: [{ supplierId, price }]
+    const [supplierRows, setSupplierRows] = useState([{ supplierId: 'Select', price: '' }]);
+    // Edit-mode pending link rows
+    const [pendingLinks, setPendingLinks] = useState([{ supplierId: 'Select', price: '' }]);
+    const selectedSupplierIds = useMemo(() => {
+        const s = new Set();
+        (supplierRows || []).forEach((r) => {
+            if (r && r.supplierId && r.supplierId !== 'Select') s.add(r.supplierId);
+        });
+        return s;
+    }, [supplierRows]);
+    // Edit add row price
+    const [addLinkPrice, setAddLinkPrice] = useState("");
+    const [createLinkIds, setCreateLinkIds] = useState(new Set());
     const [purchasingPrice, setPurchasingPrice] = useState("");
+    const [editLinkPrices, setEditLinkPrices] = useState({});
+    const [editLinkSel, setEditLinkSel] = useState({});
     const [retailPrice, setRetailPrice] = useState("");
     const [sellingPrice, setSellingPrice] = useState("");
 
@@ -156,6 +202,9 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const err = (key) => Boolean(missing[key]);   // convenience
     const labelizeErr = (key, fallback) => missing[key] || fallback;
 
+    // UI-saving blocker to avoid double clicks and show overlay while full save flow runs
+    const [savingUi, setSavingUi] = useState(false);
+
     // --- Marketplaces state ---
 const [selectedProvider, setSelectedProvider] = useState("Select");
 const [selectedChannelId, setSelectedChannelId] = useState(null);
@@ -163,9 +212,10 @@ const [selectedChannelId, setSelectedChannelId] = useState(null);
 // inline creation is now handled inside dropdowns via SelectSearchAdd
 
 // listing form
-const [listingSku, setListingSku] = useState("");
-const [listingUnits, setListingUnits] = useState("");
-const [selectedVariantForListing, setSelectedVariantForListing] = useState("product");
+  const [listingSku, setListingSku] = useState("");
+  const [listingUnits, setListingUnits] = useState("");
+  const [selectedVariantForListing, setSelectedVariantForListing] = useState("product");
+  const [assign, setAssign] = useState("");
 
 // UI: focus and hinting for provider→channel flow
 const channelSelectRef = useRef(null);
@@ -181,7 +231,7 @@ const { data: providers = [], isLoading: providersLoading } =
 // Channels for selected provider
 const { data: allChannels = [], isLoading: channelsLoading, refetch: refetchChannels } =
   useSearchMarketplaceChannels(
-    { provider: selectedProvider !== "Select" ? selectedProvider : undefined, page: 1, perPage: 200 },
+    { productName: selectedProvider !== "Select" ? selectedProvider : undefined, page: 1, perPage: 200 },
     { enabled: !!(edit && open && selectedProvider !== "Select") }
   );
 
@@ -238,16 +288,14 @@ const findVariantLabel = (vid) => {
     function collectMissing({ isDraft }) {
         const m = {};
 
-        // Draft = only SKU + Name
+        // Draft = minimal required fields
         if (isDraft) {
-            if (!isNonEmpty(sku)) m["sku"] = "SKU";
             if (!isNonEmpty(name)) m["name"] = "Product Name";
             return m;
         }
 
         // Normal saves
         // Parent (common)
-        if (!isNonEmpty(sku)) m["sku"] = "SKU";
         if (!isNonEmpty(name)) m["name"] = "Product Name";
         if (!isNonEmpty(status)) m["status"] = "Status";
         if (origin === "Select") m["origin"] = "Place of origin";
@@ -289,6 +337,16 @@ const findVariantLabel = (vid) => {
 
     const skuRef = useRef(null);
 
+    // Helper: generate SKU from product name
+    const makeSkuFromName = (s) => {
+        const str = String(s || '').trim();
+        const initials = str
+            ? str.split(/\s+/).map(w => (w[0] || '').toUpperCase()).join('')
+            : 'PRD';
+        const digits = String(Math.floor(Math.random() * 1e8)).padStart(8, '0');
+        return `${initials || 'PRD'}-${digits}`;
+    };
+
     function resetFormToDefaults() {
         setMissing({});
         setSku("");
@@ -300,6 +358,8 @@ const findVariantLabel = (vid) => {
         setBrand("");
         setStatus(enums?.ProductStatus?.[0] || "active");
         setOrigin("Select");
+        setMainSizeText("");
+        setMainColorText("");
 
         setWeightMain("");
         setWeightUnit(
@@ -320,6 +380,10 @@ const findVariantLabel = (vid) => {
         setPurchasingPrice("");
         setRetailPrice("");
         setSellingPrice("");
+
+        // suppliers: clear any previous selections (create-mode + edit-mode drafts)
+        setSupplierRows([{ supplierId: 'Select', price: '' }]);
+        setPendingLinks([{ supplierId: 'Select', price: '' }]);
 
         setVariantEnabled(false);
         setVariants([]);
@@ -423,6 +487,7 @@ const findVariantLabel = (vid) => {
                 id: `local-${randomId()}`,
                 sizeCode: "",
                 sizeText: "—",
+                colorText: "",
                 sku: computeAutoSku(sku, { sizeCode: "" }, prev.length),
                 barcode: "",
                 weight: "",
@@ -508,9 +573,22 @@ const findVariantLabel = (vid) => {
     }, [open]);
 
 
-    useEffect(() => {
-        setWeightSubUnit(resolveSubUnit(weightUnit));
-    }, [weightUnit]);
+    const weightSubLabel = resolveSubUnit(weightUnit);
+
+    // Helper: decompose numeric weight into main + sub based on unit
+    const decomposeWeight = (val, unit) => {
+        const n = Number(val);
+        if (!Number.isFinite(n) || n < 0) return { main: "", sub: "" };
+        if ((unit || '').toLowerCase() === 'kg') {
+            const main = Math.floor(n);
+            const sub = Math.round((n - main) * 1000);
+            return { main: String(main), sub: String(sub) };
+        }
+        // default to lb → oz
+        const main = Math.floor(n);
+        const sub = Math.round((n - main) * 16);
+        return { main: String(main), sub: String(sub) };
+    };
 
     useEffect(() => {
         if (!variantEnabled) return;
@@ -601,10 +679,16 @@ const findVariantLabel = (vid) => {
         setOrigin(productDetail.originCountry || "Select");
 
         // weight + dims (for simple) – backend simple uses parent fields; variant-style often stores in variant
-        setWeightUnit(productDetail.weightUnit || weightUnit);
-        setWeightMain(
-            productDetail.weight != null ? String(productDetail.weight) : ""
-        );
+        const wu = productDetail.weightUnit || weightUnit;
+        setWeightUnit(wu);
+        if (productDetail.weight != null) {
+            const parts = decomposeWeight(productDetail.weight, wu);
+            setWeightMain(parts.main);
+            setWeightSub(parts.sub);
+        } else {
+            setWeightMain("");
+            setWeightSub("");
+        }
         setDimUnit(productDetail.dimensionUnit || dimUnit);
         setDimL(productDetail.length != null ? String(productDetail.length) : "");
         setDimW(productDetail.width != null ? String(productDetail.width) : "");
@@ -618,8 +702,12 @@ const findVariantLabel = (vid) => {
             productDetail.originalPrice != null ? String(productDetail.originalPrice) : ""
         );
 
-        // supplier
-        setSupplier(productDetail.primarySupplier?.id || productDetail.primarySupplierId || "Select");
+        // simple-only attributes
+        setMainSizeText(productDetail.sizeText || "");
+        setMainColorText(productDetail.colorText || "");
+
+        // supplier (no primary; linking managed below)
+        setSupplier("Select");
         setPurchasingPrice(
           productDetail.lastPurchasePrice != null ? String(productDetail.lastPurchasePrice) : ""
         );
@@ -637,6 +725,7 @@ const findVariantLabel = (vid) => {
                     id: v.id, // important for PATCH
                     sizeCode: String(code || ""),
                     sizeText: String(text || "—"),
+                    colorText: v.colorText || "",
                     sku: v.sku || "",
                     barcode: v.barcode || "",
                     weight: v.weight != null ? String(v.weight) : "",
@@ -677,6 +766,17 @@ const findVariantLabel = (vid) => {
                     });
                     return [placeholder, ...rest, ...add];
                 });
+                // Ensure any colorText from server is present in our colors list
+                setColors(prev => {
+                    const base = Array.isArray(prev) && prev.length ? prev : ["—"];
+                    const set = new Set(base);
+                    const add = [];
+                    rows.forEach(r => {
+                        const c = (r.colorText || "").trim();
+                        if (c && !set.has(c)) { set.add(c); add.push(c); }
+                    });
+                    return add.length ? [...base, ...add] : base;
+                });
             } catch {}
 
             // per-variant pricing table state
@@ -701,9 +801,8 @@ const findVariantLabel = (vid) => {
     const isNonEmpty = (v) => String(v ?? "").trim().length > 0;
 
     const hasRequiredSimple = () => {
-        // Required: * fields (SKU, Name, Condition, Status, Origin) + Pricing (Retail & Selling)
+        // Required: * fields (Name, Condition, Status, Origin) + Pricing (Retail & Selling)
         return (
-            isNonEmpty(sku) &&
             isNonEmpty(name) &&
             isNonEmpty(condition) &&
             isNonEmpty(status) &&
@@ -735,9 +834,8 @@ const findVariantLabel = (vid) => {
         });
     };
 
-    const canSaveDraft = isNonEmpty(sku) && isNonEmpty(name);
+    const canSaveDraft = isNonEmpty(name);
     const canSaveNormal = !variantEnabled ? hasRequiredSimple() : (
-        isNonEmpty(sku) &&
         isNonEmpty(name) &&
         isNonEmpty(status) &&
         origin !== "Select" &&
@@ -746,42 +844,62 @@ const findVariantLabel = (vid) => {
 
     // If user clicked "Save & Add Another" and hasn't started filling a new item yet,
     // allow closing without validation when pressing "Save" (acts as "Done").
-    const isPristineNewEntry = () => !isNonEmpty(sku) && !isNonEmpty(name) && variants.length === 0;
+    const isPristineNewEntry = () => !isNonEmpty(name) && variants.length === 0;
 
     // ----- PAYLOAD BUILDERS (map UI -> backend) -----
     const nowIso = () => new Date().toISOString();
 
-    const buildSimplePayload = ({ isDraft }) => ({
-        sku: sku.trim(),
-        name: name.trim(),
-        brand: isNonEmpty(brand) ? brand.trim() : undefined,
-        status: status,
-        originCountry: origin !== "Select" ? origin : undefined, // ISO2
-        primarySupplierId: supplier !== "Select" ? supplier : undefined,
-        isDraft: !!isDraft,
-        publishedAt: isDraft ? null : nowIso(),
-        // Backend simple fields (see Postman example)
-        condition,
-        weight: isNonEmpty(weightMain) ? Number(weightMain) : undefined,
-        weightUnit,
-        length: isNonEmpty(dimL) ? Number(dimL) : undefined,
-        width: isNonEmpty(dimW) ? Number(dimW) : undefined,
-        height: isNonEmpty(dimH) ? Number(dimH) : undefined,
-        dimensionUnit: dimUnit,
-        ...(isDraft
-            ? {}
-            : {
-                retailPrice: Number(retailPrice),
-                retailCurrency: CURRENCY,
-                originalPrice: Number(sellingPrice),
-                originalCurrency: CURRENCY,
-            }),
-        ...(supplier !== "Select" && purchasingPrice?.trim() ? {
-            lastPurchasePrice: Number(purchasingPrice),
-            lastPurchaseCurr: CURRENCY,
-        } : {}),
-        variants: [], // keep empty if no variants
-    });
+    const buildSimplePayload = ({ isDraft }) => {
+        const wm = Number(weightMain);
+        const ws = Number(weightSub);
+        let totalWeight = undefined;
+        if (Number.isFinite(wm) || Number.isFinite(ws)) {
+            if ((weightUnit || '').toLowerCase() === 'kg') {
+                const main = Number.isFinite(wm) ? wm : 0;
+                const sub = Number.isFinite(ws) ? ws / 1000 : 0;
+                totalWeight = main + sub;
+            } else {
+                const main = Number.isFinite(wm) ? wm : 0;
+                const sub = Number.isFinite(ws) ? ws / 16 : 0;
+                totalWeight = main + sub;
+            }
+        }
+        // Ensure SKU is present if name is given
+        const finalSku = (isNonEmpty(sku) && sku) || (isNonEmpty(name) ? makeSkuFromName(name) : "");
+        return ({
+            sku: isNonEmpty(finalSku) ? finalSku.trim() : undefined,
+            name: name.trim(),
+            brand: isNonEmpty(brand) ? brand.trim() : undefined,
+            status: status,
+            originCountry: origin !== "Select" ? origin : undefined, // ISO2
+            isDraft: !!isDraft,
+            publishedAt: isDraft ? null : nowIso(),
+            // Backend simple fields
+            condition,
+            weight: totalWeight,
+            weightUnit,
+            length: isNonEmpty(dimL) ? Number(dimL) : undefined,
+            width: isNonEmpty(dimW) ? Number(dimW) : undefined,
+            height: isNonEmpty(dimH) ? Number(dimH) : undefined,
+            dimensionUnit: dimUnit,
+            // simple-only attributes (applied to single default variant)
+            sizeText: isNonEmpty(mainSizeText) ? mainSizeText.trim() : undefined,
+            colorText: isNonEmpty(mainColorText) ? mainColorText.trim() : undefined,
+            ...(isDraft
+                ? {}
+                : {
+                    retailPrice: Number(retailPrice),
+                    retailCurrency: CURRENCY,
+                    originalPrice: Number(sellingPrice),
+                    originalCurrency: CURRENCY,
+                }),
+            ...(purchasingPrice?.trim() ? {
+                lastPurchasePrice: Number(purchasingPrice),
+                lastPurchaseCurr: CURRENCY,
+            } : {}),
+            variants: [], // keep empty if no variants
+        });
+    };
 
     const buildVariantPayload = ({ isDraft }) => {
         const mappedVariants = variants.map((v) => {
@@ -790,6 +908,7 @@ const findVariantLabel = (vid) => {
                 sku: (v.sku || "").trim(),
                 sizeId: null, // if you later wire real size IDs, fill here
                 sizeText: v.sizeText || v.sizeCode || "",
+                colorText: v.colorText || "",
                 barcode: isNonEmpty(v.barcode) ? v.barcode.trim() : undefined,
                 status,
                 condition,
@@ -813,13 +932,13 @@ const findVariantLabel = (vid) => {
             };
         });
 
+        const finalSku = (isNonEmpty(sku) && sku) || (isNonEmpty(name) ? makeSkuFromName(name) : "");
         return {
-            sku: sku.trim(),
+            sku: isNonEmpty(finalSku) ? finalSku.trim() : undefined,
             name: name.trim(),
             brand: isNonEmpty(brand) ? brand.trim() : undefined,
             status,
             originCountry: origin !== "Select" ? origin : undefined,
-            primarySupplierId: supplier !== "Select" ? supplier : undefined,
             isDraft: !!isDraft,
             publishedAt: isDraft ? null : nowIso(),
             variants: mappedVariants,
@@ -827,6 +946,8 @@ const findVariantLabel = (vid) => {
     };
 
     const handleSave = async (mode = "single", { isDraft = false } = {}) => {
+        if (savingUi) return;
+        setSavingUi(true);
         const usingVariants = variantEnabled && !isEditSimple;
         const payload = usingVariants
             ? buildVariantPayload({ isDraft })
@@ -837,6 +958,23 @@ const findVariantLabel = (vid) => {
             if (!edit) {
                 createdOrUpdated = await createProductMut(payload);
                 toast.success(isDraft ? "Draft saved" : "Product created");
+                // Link any selected suppliers after create with per-supplier price
+                try {
+                  const pid = createdOrUpdated?.id;
+                  if (pid) {
+                    const linked = new Set();
+                    for (const row of supplierRows) {
+                      const sid = row?.supplierId;
+                      if (!sid || sid === 'Select' || linked.has(sid)) continue;
+                      linked.add(sid);
+                      const priceNum = row.price && row.price.trim() !== '' ? Number(row.price) : undefined;
+                      await linkSupplierProducts(sid, [pid], { lastPurchasePrice: priceNum, currency: CURRENCY });
+                    }
+                  }
+                } catch (e) {
+                  console.error(e);
+                  toast.error('Product created but failed to link some suppliers');
+                }
             } else {
                 // 1) always patch parent-level fields first
                 const parentPayload = {
@@ -848,15 +986,24 @@ const findVariantLabel = (vid) => {
                     isDraft: !!isDraft,
                     // optional: you can pass originCountry if backend supports in PATCH parent:
                     originCountry: payload.originCountry,
-                    primarySupplierId: supplier !== "Select" ? supplier : undefined,
-                    ...(!variantEnabled && supplier !== "Select" && purchasingPrice?.trim() ? {
-                        lastPurchasePrice: Number(purchasingPrice),
-                        lastPurchaseCurr: CURRENCY,
-                    } : {}),
+                    // For simple product, pass size/color to sync single variant
+                    sizeText: !usingVariants ? (isNonEmpty(mainSizeText) ? mainSizeText.trim() : undefined) : undefined,
+                    colorText: !usingVariants ? (isNonEmpty(mainColorText) ? mainColorText.trim() : undefined) : undefined,
+                    // per-supplier pricing handled via links
                 };
                 const effectiveProductId = productDetail?.id || productId;
                 if (!effectiveProductId) throw new Error("Missing product id for update");
                 await updateParent({ productId: effectiveProductId, payload: parentPayload });
+
+                // If editing a simple product, also sync its single variant SKU
+                if (isEditSimple && parentPayload.sku && productDetail?.variantId) {
+                    try {
+                        await updateVariant({ productId: effectiveProductId, variantId: productDetail.variantId, payload: { sku: parentPayload.sku } });
+                    } catch (e) {
+                        console.error(e);
+                        toast.error('Failed to sync variant SKU');
+                    }
+                }
 
                 // 2) if variants enabled, patch each row separately
                 if (usingVariants && Array.isArray(variants) && variants.length) {
@@ -865,6 +1012,7 @@ const findVariantLabel = (vid) => {
                         const common = {
                             sku: (v.sku || "").trim(),
                             sizeText: v.sizeText || v.sizeCode || "",
+                            colorText: v.colorText || "",
                             barcode: v.barcode || undefined,
                             status: v.active ? "active" : "inactive",
                             isDraft: !!isDraft,
@@ -896,6 +1044,46 @@ const findVariantLabel = (vid) => {
                 }
 
                 createdOrUpdated = { id: effectiveProductId };
+                // 3) Sync suppliers draft (save-only)
+                try {
+                    const pid = effectiveProductId;
+                    const original = Array.isArray(productDetail?.supplierLinks) ? productDetail.supplierLinks : [];
+                    const origIds = new Set(original.map(lnk => lnk?.supplier?.id).filter(Boolean));
+
+                    // Build desired from existing rows (possibly changed) + pending
+                    const desiredMap = new Map(); // supplierId -> price
+                    for (const lnk of original) {
+                        const oldId = lnk?.supplier?.id;
+                        if (!oldId) continue;
+                        const newId = (editLinkSel && editLinkSel[oldId]) || oldId;
+                        if (newId === 'Select') continue; // removed
+                        const raw = editLinkPrices ? editLinkPrices[oldId] : undefined;
+                        const price = raw != null && String(raw).trim() !== '' ? Number(raw) : (lnk?.lastPurchasePrice != null ? Number(lnk.lastPurchasePrice) : undefined);
+                        desiredMap.set(newId, price);
+                    }
+                    for (const row of (pendingLinks || [])) {
+                        const sid = row?.supplierId;
+                        if (!sid || sid === 'Select') continue;
+                        const price = row?.price != null && String(row.price).trim() !== '' ? Number(row.price) : undefined;
+                        desiredMap.set(sid, price);
+                    }
+
+                    const desiredIds = new Set(desiredMap.keys());
+                    // Link/Update all desired (idempotent: updates price if exists)
+                    for (const [sid, price] of desiredMap.entries()) {
+                        await linkSupplierProducts(sid, [pid], { lastPurchasePrice: price, currency: CURRENCY });
+                    }
+                    // Unlink removed
+                    for (const oldId of origIds) {
+                        if (!desiredIds.has(oldId)) {
+                            await unlinkSupplierProduct(oldId, pid);
+                        }
+                    }
+                } catch (e) {
+                    console.error(e);
+                    toast.error('Failed to save supplier links');
+                }
+
                 toast.success(isDraft ? "Draft updated" : "Product updated");
             }
 
@@ -955,6 +1143,10 @@ const findVariantLabel = (vid) => {
                 setVariantImages({});
                 setImages([]);
 
+                // Clear suppliers for the next entry
+                setSupplierRows([{ supplierId: 'Select', price: '' }]);
+                setPendingLinks([{ supplierId: 'Select', price: '' }]);
+
                 // Keep supplier and pricing by default (common in bulk entry)
                 // setSupplier(suppliers[0]); // intentionally preserved
                 // setPurchasingPrice("");   // intentionally preserved
@@ -971,6 +1163,8 @@ const findVariantLabel = (vid) => {
             }
         } catch (e) {
             toast.error(e?.response?.data?.message || e?.message || "Failed to save");
+        } finally {
+            setSavingUi(false);
         }
     };
 
@@ -987,6 +1181,8 @@ const findVariantLabel = (vid) => {
 
     if (!open) return null;
 
+    const savingBusy = savingUi || saving || savingParent || savingVariant || addingVariant || uploadingImages;
+
     const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
     const IMG_PLACEHOLDER =
         "data:image/svg+xml;utf8," +
@@ -1001,6 +1197,7 @@ const findVariantLabel = (vid) => {
                 as="div"
                 className="relative z-[70]"
                 onClose={() => {
+                    if (savingBusy) return; // prevent closing while saving
                     resetFormToDefaults();
                     onClose?.();
                 }}
@@ -1028,7 +1225,15 @@ const findVariantLabel = (vid) => {
                             leaveFrom="opacity-100 scale-100"
                             leaveTo="opacity-0 scale-95"
                         >
-                            <DialogPanel className="w-full max-w-[1100px] max-h-[90vh] rounded-xl bg-[#f6f7fb] border border-gray-200 shadow-2xl flex flex-col">
+                            <DialogPanel className="relative w-full max-w-[1100px] max-h-[90vh] rounded-xl bg-[#f6f7fb] border border-gray-200 shadow-2xl flex flex-col">
+                                {savingBusy && (
+                                    <div className="absolute inset-0 z-[500] bg-white/70 backdrop-blur-[1px] flex items-center justify-center">
+                                        <div className="flex items-center gap-2 text-gray-700 text-sm font-semibold">
+                                            <Loader2 className="h-5 w-5 animate-spin" />
+                                            Saving…
+                                        </div>
+                                    </div>
+                                )}
                                 {/* Header */}
                                 <div className="flex items-center justify-between bg-white px-4 py-3 border-b rounded-t-xl border-gray-200 ">
                                     <div className="flex items-center gap-2">
@@ -1073,21 +1278,41 @@ const findVariantLabel = (vid) => {
                                         <div className="p-4">
                                             {/* Hide variant toggle/info entirely when editing a simple product */}
                                             <div className="grid grid-cols-12 gap-3">
+                                                {/* Product Name */}
+                                                <Field className="col-span-12 md:col-span-5" label="Product Name *">
+                                                    <input
+                                                        className={`${input} ${err("name") ? "border-red-400 ring-1 ring-red-200" : ""}`}
+                                                        placeholder="Enter"
+                                                        value={name}
+                                                        onChange={(e) => setName(e.target.value)}
+                                                        onBlur={() => {
+                                                            if (String(name || '').trim().length > 0) {
+                                                                const initials = String(name).trim().split(/\s+/).map(w => (w[0] || '').toUpperCase()).join('') || 'PRD';
+                                                                const digits = String(Math.floor(Math.random() * 1e8)).padStart(8, '0');
+                                                                setSku(`${initials}-${digits}`);
+                                                            }
+                                                        }}
+                                                    />
+                                                </Field>
+
+                                                {/* SKU (auto) */}
                                                 <Field
-                                                    className="col-span-12 md:col-span-6"
-                                                    label={variantEnabled ? "Parent Product SKU *" : "Stock SKU *"}
+                                                    className="col-span-12 md:col-span-3"
+                                                    label={variantEnabled ? "Parent SKU (auto)" : "Stock SKU (auto)"}
                                                 >
                                                     <input
                                                         ref={skuRef}
                                                         className={`${input} ${err("sku") ? "border-red-400 ring-1 ring-red-200" : ""}`}
-                                                        placeholder="Enter"
+                                                        placeholder="Auto-generated from name"
                                                         value={sku}
-                                                        onChange={(e) => setSku(e.target.value)}
+                                                        readOnly
                                                     />
+                                                    
                                                 </Field>
 
-                                                <div className="col-span-12 md:col-span-6 grid grid-cols-12 items-end">
-                                                    <Field className="col-span-3 relative overflow-visible" label="Barcode Type">
+                                                {/* Barcode type + input */}
+                                                <div className="col-span-12 md:col-span-4 grid grid-cols-12 items-end">
+                                                    <Field className="col-span-4 relative overflow-visible" label="Barcode Type">
                                                         <SelectCompact
                                                             value={barcodeType}
                                                             onChange={setBarcodeType}
@@ -1095,7 +1320,7 @@ const findVariantLabel = (vid) => {
                                                             buttonClassName="rounded-r-none border-r"
                                                         />
                                                     </Field>
-                                                    <Field className="col-span-9" label="Barcode (Optional)">
+                                                    <Field className="col-span-8" label="Barcode">
                                                         <input
                                                             className={`${input} rounded-l-none border-l-0`}
                                                             placeholder="Enter"
@@ -1105,14 +1330,47 @@ const findVariantLabel = (vid) => {
                                                     </Field>
                                                 </div>
 
-                                                <Field className="col-span-12" label="Product Name *">
-                                                    <input
-                                                        className={`${input} ${err("name") ? "border-red-400 ring-1 ring-red-200" : ""}`}
-                                                        placeholder="Enter"
-                                                        value={name}
-                                                        onChange={(e) => setName(e.target.value)}
-                                                    />
-                                                </Field>
+                                                {/* Simple product: Size & Color (dropdowns with Add…) */}
+                                                {!variantEnabled && (
+                                                    <>
+                                                        <Field className="col-span-12 md:col-span-6" label="Size">
+                                                            <SelectCompact
+                                                                value={mainSizeText || "—"}
+                                                                onChange={(val) => {
+                                                                    if (val === ADD_SIZE_SENTINEL) {
+                                                                        setSizeContext({ kind: 'simple' });
+                                                                        setTimeout(() => setSizeModalOpen(true), 0);
+                                                                        return;
+                                                                    }
+                                                                    setMainSizeText(val === "—" ? "" : String(val));
+                                                                }}
+                                                                options={[...sizes.map(s => s.text), ADD_SIZE_SENTINEL]}
+                                                                renderOption={(opt) => opt === ADD_SIZE_SENTINEL ? (
+                                                                    <span className="flex items-center gap-2 text-amber-700"><Plus size={14} />Add new size…</span>
+                                                                ) : opt}
+                                                                filterable
+                                                            />
+                                                        </Field>
+                                                        <Field className="col-span-12 md:col-span-6" label="Color">
+                                                            <SelectCompact
+                                                                value={mainColorText || "—"}
+                                                                onChange={(val) => {
+                                                                    if (val === ADD_COLOR_SENTINEL) {
+                                                                        setColorContext({ kind: 'simple' });
+                                                                        setTimeout(() => setColorModalOpen(true), 0);
+                                                                        return;
+                                                                    }
+                                                                    setMainColorText(val === "—" ? "" : String(val));
+                                                                }}
+                                                                options={[...colors, ADD_COLOR_SENTINEL]}
+                                                                renderOption={(opt) => opt === ADD_COLOR_SENTINEL ? (
+                                                                    <span className="flex items-center gap-2 text-amber-700"><Plus size={14} />Add new color…</span>
+                                                                ) : opt}
+                                                                filterable
+                                                            />
+                                                        </Field>
+                                                    </>
+                                                )}
 
                                                 <div className="col-span-12 md:col-span-6">
                                                 <label className={label}>Condition <span className="text-red-500">*</span></label>
@@ -1122,7 +1380,7 @@ const findVariantLabel = (vid) => {
                                                         options={(enums?.ProductCondition || ["NEW", "USED", "RECONDITIONED"]).map(c => ({ value: c, label: labelize(c) }))}
                                                     />
                                                 </div>
-                                                <Field className="col-span-12 md:col-span-6" label="Brand (Optional)">
+                                                <Field className="col-span-12 md:col-span-6" label="Brand">
                                                     <input
                                                         className={input}
                                                         placeholder="Enter"
@@ -1158,21 +1416,34 @@ const findVariantLabel = (vid) => {
                                                     {!variantEnabled && (
                                                     <div className="col-span-12 md:col-span-6 ">
                                                         <label className={label}>Weight <span className="text-red-500">*</span></label>
-                                                        <div className="grid grid-cols-12">
+                                                        <div className="grid grid-cols-12 gap-0">
                                                             <input
                                                                 className={`${input} col-span-6 ${err("weightMain") ? "border-red-400 ring-1 ring-red-200" : ""} rounded-r-none border-r`}
                                                                 placeholder="Enter"
                                                                 value={weightMain}
                                                                 onChange={(e) => setWeightMain(e.target.value)}
                                                             />
-                                                            <div className="col-span-2">
+                                                            <div className="col-span-3">
                                                                 <SelectCompact
                                                                     value={weightUnit}
                                                                     onChange={setWeightUnit}
-                                                                    options={(weightUnits || []).map(u => ({ value: u, label: u }))}
+                                                                    options={mainWeightOptions}
                                                                     buttonClassName="rounded-l-none border-l-0"
                                                                 />
                                                             </div>
+                                                            <div className="col-span-2">
+                                                                <input
+                                                                  className={`${input} rounded-r-none border-r`}
+                                                                  placeholder={weightSubLabel === 'g' ? 'Gram' : 'Oz'}
+                                                                  value={weightSub}
+                                                                  onChange={(e) => setWeightSub(e.target.value)}
+                                                                />
+                                                            </div>
+                                                             <div className="col-span-1">
+                                                              <div className="h-8 w-full rounded-r-lg border border-gray-300 bg-gray-50 text-[13px] text-gray-700 flex items-center justify-center select-none">
+                                                                {weightSubLabel}
+                                                              </div>
+                                                             </div>
                                                         </div>
                                                     </div>
                                                 )}
@@ -1212,12 +1483,21 @@ const findVariantLabel = (vid) => {
                                                 )}
 
                                                 <div className="col-span-12">
-                                                    <label className={label}>Tag (Optional)</label>
+                                                    <label className={label}>Tag</label>
                                                     <SelectCompact value={tag} onChange={setTag} options={tags} />
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
+
+                                    {edit && open && loadingProduct && (
+                                      <div className="mt-3 space-y-3 animate-pulse">
+                                        <div className="h-5 w-48 bg-gray-200 rounded" />
+                                        <div className="h-24 bg-gray-200 rounded" />
+                                        <div className="h-5 w-64 bg-gray-200 rounded" />
+                                        <div className="h-24 bg-gray-200 rounded" />
+                                      </div>
+                                    )}
 
                                     {/* Variants Section (only when enabled and not editing a simple product) */}
                                     {variantEnabled && !isEditSimple && (
@@ -1289,7 +1569,11 @@ const findVariantLabel = (vid) => {
                                                                                         <SelectCompact
                                                                                             value={sizeLabel}
                                                                                             onChange={(val) => {
-                                                                                                if (val === ADD_SIZE_SENTINEL) { setSizeModalOpen(true); return; }
+                                                                                                if (val === ADD_SIZE_SENTINEL) {
+                                                                                                    setSizeContext({ kind: 'variant', id: v.id });
+                                                                                                    setTimeout(() => setSizeModalOpen(true), 0);
+                                                                                                    return;
+                                                                                                }
                                                                                                 const found = sizes.find((s) => s.text === val || s.code === val) || { code: "", text: "—" };
                                                                                                 const next = { sizeCode: found.code, sizeText: found.text };
                                                                                                 if (v.autoSku) next.sku = computeAutoSku(sku, { sizeCode: found.code }, idx);
@@ -1301,10 +1585,28 @@ const findVariantLabel = (vid) => {
                                                                                             ) : opt}
                                                                                         />
                                                                                     </Field>
-                                                                                    <Field className="col-span-12 md:col-span-5" label="Variant SKU *">
+                                                                                    <Field className="col-span-12 md:col-span-3" label="Color">
+                                                                                        <SelectCompact
+                                                                                            value={v.colorText || "—"}
+                                                                                            onChange={(val) => {
+                                                                                                if (val === ADD_COLOR_SENTINEL) {
+                                                                                                    setColorContext({ kind: 'variant', id: v.id });
+                                                                                                    setTimeout(() => setColorModalOpen(true), 0);
+                                                                                                    return;
+                                                                                                }
+                                                                                                patchVariant(v.id, { colorText: val === "—" ? "" : String(val) });
+                                                                                            }}
+                                                                                            options={[...colors, ADD_COLOR_SENTINEL]}
+                                                                                            renderOption={(opt) => opt === ADD_COLOR_SENTINEL ? (
+                                                                                                <span className="flex items-center gap-2 text-amber-700"><Plus size={14} />Add new color…</span>
+                                                                                            ) : opt}
+                                                                                            filterable
+                                                                                        />
+                                                                                    </Field>
+                                                                                    <Field className="col-span-12 md:col-span-4" label="Variant SKU *">
                                                                                         <input className={`${input} ${err(`v:${v.id}:sku`) ? "border-red-400 ring-1 ring-red-200" : ""}`} placeholder="e.g., 123-XL" value={v.sku} onChange={(e) => patchVariant(v.id, { sku: e.target.value, autoSku: false })} />
                                                                                     </Field>
-                                                                                    <Field className="col-span-12 md:col-span-4" label="Barcode (optional)">
+                                                                                    <Field className="col-span-12 md:col-span-2" label="Barcode">
                                                                                         <input className={input} placeholder="Optional" value={v.barcode} onChange={(e) => patchVariant(v.id, { barcode: e.target.value })} />
                                                                                     </Field>
                                                                                 </div>
@@ -1314,7 +1616,7 @@ const findVariantLabel = (vid) => {
                                                                                         <div className="grid grid-cols-12">
                                                                                             <input className={`${input} col-span-7 ${err(`v:${v.id}:weight`) ? "border-red-400 ring-1 ring-red-200" : ""} rounded-r-none border-r`} placeholder="e.g., 1.0" value={v.weight} onChange={(e) => patchVariant(v.id, { weight: e.target.value })} />
                                                                                             <div className="col-span-5">
-                                                                                                <SelectCompact value={v.weightUnit || weightUnit} onChange={(val) => patchVariant(v.id, { weightUnit: val })} options={(weightUnits || []).map(u => ({ value: u, label: u }))} buttonClassName="rounded-l-none border-l-0" />
+                                                                                <SelectCompact value={v.weightUnit || weightUnit} onChange={(val) => patchVariant(v.id, { weightUnit: val })} options={mainWeightOptions} buttonClassName="rounded-l-none border-l-0" />
                                                                                             </div>
                                                                                         </div>
                                                                                     </Field>
@@ -1439,7 +1741,7 @@ const findVariantLabel = (vid) => {
                                                                                     <SelectCompact
                                                                                         value={v.weightUnit || weightUnit}
                                                                                         onChange={(val) => patchVariant(v.id, { weightUnit: val })}
-                                                                                        options={(weightUnits || []).map(u => ({ value: u, label: u }))}
+                                                                                        options={mainWeightOptions}
                                                                                         buttonClassName="rounded-l-none border-l-0"
                                                                                     />
                                                                                 </div>
@@ -1568,35 +1870,182 @@ const findVariantLabel = (vid) => {
 
                                         <div className="p-4">
                                             <div className="grid grid-cols-12 gap-3">
-                                                <div className="col-span-12 md:col-span-6">
-                                                    <label className={label}>Primary Supplier</label>
-                                                    <SelectCompact
-                                                        value={supplier}
-                                                        onChange={setSupplier}
-                                                        options={supplierOptions}
-                                                        disabled={suppliersLoading}
-                                                        filterable
-                                                    />
-                                                    {suppliersLoading && (
-                                                        <p className="mt-1 text-[11px] text-gray-500">Loading suppliers…</p>
-                                                    )}
-                                                </div>
-                                                {!variantEnabled && (
-                                                <Field className="col-span-12 md:col-span-6" label="Last Purchase Price">
-                                                    <div className="grid grid-cols-12">
-                                                        <input
-                                                            className={`${input} col-span-9 rounded-r-none border-r`}
-                                                            placeholder="e.g., 120.00"
-                                                            value={purchasingPrice}
-                                                            onChange={(e) => setPurchasingPrice(e.target.value)}
-                                                        />
-                                                        <div className="col-span-3">
-                                                            <div className="h-8 w-full rounded-r-lg border border-gray-300 bg-gray-50 text-[13px] text-gray-700 flex items-center justify-center select-none">
-                                                                {CURRENCY}
+                                                {(edit && productDetail) ? (
+                                                  <div className="col-span-12">
+                                                    <div className="mt-2 pt-1">
+                                                      <div className="text-[13px] font-semibold text-gray-900 mb-2">Suppliers</div>
+
+                                                      {/* Existing links first */}
+                                                      <div className="space-y-2">
+                                                        {(productDetail?.supplierLinks || []).map((lnk) => (
+                                                          <div key={lnk?.supplier?.id} className="grid grid-cols-12 items-center gap-2">
+                                                            <div className="col-span-5">
+                                                              <SelectCompact
+                                                                value={editLinkSel[lnk?.supplier?.id] ?? lnk?.supplier?.id}
+                                                                onChange={(newId) => setEditLinkSel(prev => ({ ...prev, [lnk?.supplier?.id]: newId }))}
+                                                                options={(() => {
+                                                                  const existingIds = new Set((productDetail?.supplierLinks || []).map((ls) => ls?.supplier?.id).filter(Boolean));
+                                                                  return supplierOptions.filter((opt) => typeof opt === 'string' ? true : (opt.value === (editLinkSel[lnk?.supplier?.id] ?? lnk?.supplier?.id) || !existingIds.has(opt.value)));
+                                                                })()}
+                                                                disabled={suppliersLoading || linkingSupplier}
+                                                                filterable
+                                                              />
                                                             </div>
-                                                        </div>
+                                                            <div className="col-span-5">
+                                                              <div className="grid grid-cols-12">
+                                                                <input
+                                                                  className={`${input} col-span-9 rounded-r-none border-r`}
+                                                                  placeholder="Last purchase e.g., 120.00"
+                                                                  value={(editLinkPrices[lnk?.supplier?.id] ?? (lnk?.lastPurchasePrice != null ? String(lnk.lastPurchasePrice) : ''))}
+                                                                  onChange={(e) => setEditLinkPrices(prev => ({ ...prev, [lnk?.supplier?.id]: e.target.value }))}
+                                                                />
+                                                                <div className="col-span-3">
+                                                                  <div className="h-8 w-full rounded-r-lg border border-gray-300 bg-gray-50 text-[13px] text-gray-700 flex items-center justify-center select-none">
+                                                                    {CURRENCY}
+                                                                  </div>
+                                                                </div>
+                                                              </div>
+                                                            </div>
+                                                            <div className="col-span-2 text-right flex items-center justify-end">
+                                                              <button
+                                                                type="button"
+                                                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-50"
+                                                                title="Remove"
+                                                                onClick={() => {
+                                                                  const sid = lnk?.supplier?.id;
+                                                                  setEditLinkSel(prev => ({ ...prev, [sid]: 'Select' }));
+                                                                }}
+                                                              >
+                                                                <Trash2 size={16} />
+                                                              </button>
+                                                            </div>
+                                                          </div>
+                                                        ))}
+                                                      </div>
+
+                                                      {/* Pending rows (new links) */}
+                                                      {(() => {
+                                                        const existingIds = new Set((productDetail?.supplierLinks || []).map((ls) => ls?.supplier?.id).filter(Boolean));
+                                                        const pendingSelected = new Set((pendingLinks || []).map((r) => r.supplierId).filter((v) => v && v !== 'Select'));
+                                                        const filteredOptions = (rowSupplierId) => supplierOptions.filter((opt) =>
+                                                          typeof opt === 'string'
+                                                            ? true
+                                                            : (opt.value === rowSupplierId || (!existingIds.has(opt.value) && !pendingSelected.has(opt.value)))
+                                                        );
+                                                        return (
+                                                          <>
+                                                            <div className="mt-2 space-y-2">
+                                                              {pendingLinks.map((row, idx) => (
+                                                                <div key={`pending-${idx}`} className="grid grid-cols-12 items-center gap-2">
+                                                                  <div className="col-span-5">
+                                                                    <SelectCompact
+                                                                      value={row.supplierId}
+                                                                      onChange={(v) => setPendingLinks(prev => prev.map((r,i)=> i===idx ? { ...r, supplierId: v } : r))}
+                                                                      options={filteredOptions(row.supplierId)}
+                                                                      disabled={suppliersLoading || linkingSupplier}
+                                                                      filterable
+                                                                    />
+                                                                  </div>
+                                                                  <div className="col-span-5">
+                                                                    <div className="grid grid-cols-12">
+                                                                      <input
+                                                                        className={`${input} col-span-9 rounded-r-none border-r`}
+                                                                        placeholder="Last purchase e.g., 120.00"
+                                                                        value={row.price}
+                                                                        onChange={(e) => setPendingLinks(prev => prev.map((r,i)=> i===idx ? { ...r, price: e.target.value } : r))}
+                                                                      />
+                                                                      <div className="col-span-3">
+                                                                        <div className="h-8 w-full rounded-r-lg border border-gray-300 bg-gray-50 text-[13px] text-gray-700 flex items-center justify-center select-none">
+                                                                          {CURRENCY}
+                                                                        </div>
+                                                                      </div>
+                                                                    </div>
+                                                                  </div>
+                                                                  <div className="col-span-2 text-right flex items-center justify-end">
+                                                                    <button
+                                                                      type="button"
+                                                                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-50"
+                                                                      title="Remove"
+                                                                      onClick={() => setPendingLinks(prev => prev.filter((_,i)=> i!==idx))}
+                                                                    >
+                                                                      <Trash2 size={16} />
+                                                                    </button>
+                                                                  </div>
+                                                                </div>
+                                                              ))}
+                                                            </div>
+                                                          </>
+                                                        );
+                                                      })()}
+
+                                                      {/* Add button at the end */}
+                                                      <div className="mt-3">
+                                                        <button
+                                                          type="button"
+                                                          className={outlineBtn}
+                                                          onClick={() => setPendingLinks(prev => [...prev, { supplierId: 'Select', price: '' }])}
+                                                        >
+                                                          Add another supplier
+                                                        </button>
+                                                      </div>
+                                                        {/* (Existing links rendered above) */}
                                                     </div>
-                                                </Field>
+                                                  </div>
+                                                ) : (
+                                                  <div className="col-span-12">
+                                                    <div className="mt-2 border-t border-gray-100 pt-3">
+                                                      <div className="text-[13px] font-semibold text-gray-900 mb-2">Suppliers</div>
+                                                      <div className="space-y-2">
+                                                        {supplierRows.map((row, idx) => (
+                                                          <div key={idx} className="grid grid-cols-12 items-center gap-2">
+                                                            <div className="col-span-5">
+                                                              <SelectCompact
+                                                                value={row.supplierId}
+                                                                onChange={(v) => setSupplierRows(prev => prev.map((r,i)=> i===idx ? { ...r, supplierId: v } : r))}
+                                                                options={supplierOptions.filter((opt) =>
+                                                                  typeof opt === 'string'
+                                                                    ? true
+                                                                    : (opt.value === row.supplierId || !selectedSupplierIds.has(opt.value))
+                                                                )}
+                                                                disabled={suppliersLoading}
+                                                                filterable
+                                                              />
+                                                            </div>
+                                                            <div className="col-span-5">
+                                                              <div className="grid grid-cols-12">
+                                                                <input
+                                                                  className={`${input} col-span-9 rounded-r-none border-r`}
+                                                                  placeholder="Last purchase e.g., 120.00"
+                                                                  value={row.price}
+                                                                  onChange={(e) => setSupplierRows(prev => prev.map((r,i)=> i===idx ? { ...r, price: e.target.value } : r))}
+                                                                />
+                                                                <div className="col-span-3">
+                                                                  <div className="h-8 w-full rounded-r-lg border border-gray-300 bg-gray-50 text-[13px] text-gray-700 flex items-center justify-center select-none">
+                                                                    {CURRENCY}
+                                                                  </div>
+                                                                </div>
+                                                              </div>
+                                                            </div>
+                                                            <div className="col-span-2 text-right">
+                                                              {supplierRows.length > 1 && (
+                                                                <button type="button" className="text-red-700 hover:underline text-[12px]" onClick={() => setSupplierRows(prev => prev.filter((_,i)=> i!==idx))}>Remove</button>
+                                                              )}
+                                                            </div>
+                                                          </div>
+                                                        ))}
+                                                      </div>
+                                                      <div className="mt-2">
+                                                        <button
+                                                          type="button"
+                                                          className={outlineBtn}
+                                                          disabled={supplierOptions.filter((opt) => typeof opt !== 'string' && !selectedSupplierIds.has(opt.value)).length === 0}
+                                                          onClick={() => setSupplierRows(prev => [...prev, { supplierId: 'Select', price: '' }])}
+                                                        >
+                                                          Add another supplier
+                                                        </button>
+                                                      </div>
+                                                    </div>
+                                                  </div>
                                                 )}
                                             </div>
                                         </div>
@@ -1967,52 +2416,40 @@ const findVariantLabel = (vid) => {
           Add Listing
         </div>
 
-        <div className={`p-4 grid ${ (Array.isArray(variants) && variants.length > 0) ? 'grid-cols-[1.2fr_1.4fr_1.2fr_1fr_0.7fr_120px]' : 'grid-cols-[1.2fr_1.4fr_1fr_0.7fr_120px]' } gap-3 items-end`}>
-          {/* Provider */}
+        <div className={`p-4 grid ${ (Array.isArray(variants) && variants.length > 0) ? 'grid-cols-[1.2fr_1.4fr_1.2fr_1fr_0.7fr_0.7fr_120px]' : 'grid-cols-[1.2fr_1.4fr_1fr_0.7fr_0.7fr_120px]' } gap-3 items-end`}>
+          {/* Product Name (was Provider) */}
           <div>
-            <label className={label}>Provider</label>
-            <SelectSearchAdd
-              value={selectedProvider}
-              onChange={(v) => { setSelectedProvider(v); setSelectedChannelId(null); setTimeout(() => channelSelectRef.current?.open?.(), 0); }}
-              options={providerOptions.filter(p => p !== "Select").map(p => ({ value: p, label: p }))}
-              placeholder="Select provider"
-              loading={providersLoading}
-              allowAdd={true}
-              onAdd={async (prov) => {
-                // For provider alone, we cannot create in DB without a channel.
-                // Accept free text as selected provider; channel dropdown handles actual creation.
-                const res = { value: prov, label: prov };
-                // auto-open channel after selecting custom provider
-                setTimeout(() => channelSelectRef.current?.open?.(), 0);
-                return res;
-              }}
+            <label className={label}>Product Name</label>
+            <input
+              className={input}
+              placeholder="Enter product name"
+              value={selectedProvider === 'Select' ? '' : selectedProvider}
+              onChange={(e) => { setSelectedProvider(e.target.value || 'Select'); setSelectedChannelId(null); }}
             />
           </div>
 
-          {/* Channel Name */}
+          {/* Marketplace Name (was Channel) */}
           <div>
-            <label className={label}>Channel</label>
+            <label className={label}>Marketplace</label>
             <SelectSearchAdd
               ref={channelSelectRef}
               value={selectedChannelId || ""}
               onChange={(v) => setSelectedChannelId(v)}
               options={channelOptions}
-              placeholder={selectedProvider === "Select" ? "Select provider first" : "Select channel"}
-              disabled={selectedProvider === "Select"}
+              placeholder="Select marketplace"
+              disabled={false}
               loading={channelsLoading}
               allowAdd={true}
               onAdd={async (name) => {
                 if (selectedProvider === "Select") return;
-                const ch = await createChannel({ name: name.trim(), provider: selectedProvider });
+                const ch = await createChannel({ name: name.trim(), productName: selectedProvider });
                 await refetchChannels();
                 setSelectedProvider(ch?.provider || selectedProvider);
                 setSelectedChannelId(ch?.id || null);
                 return { value: ch?.id, label: ch?.name };
               }}
             />
-            {providerIsCustom && !selectedChannelId && (
-              <div className="mt-1 text-[12px] text-amber-800">Tip: Type a channel name and click Add to create it for this provider.</div>
-            )}
+            {/* Helper tip removed as requested */}
           </div>
 
           {/* Variant pick (only when variants exist) */}
@@ -2034,9 +2471,9 @@ const findVariantLabel = (vid) => {
             </div>
           )}
 
-          {/* SKU */}
+          {/* SKU (optional) */}
           <div>
-            <Field label="Listing SKU *">
+            <Field label="Listing SKU">
               <input
                 className={input}
                 placeholder="e.g., AMZ-123-XL"
@@ -2058,6 +2495,21 @@ const findVariantLabel = (vid) => {
             </Field>
           </div>
 
+          {/* Assign (dummy) */}
+          <div>
+            <Field label="Assign">
+              <input
+                className={input}
+                placeholder="e.g., 5"
+                value={assign || ''}
+                onChange={(e) => {
+                  const v = e.target.value.replace(/[^0-9]/g, '');
+                  setAssign(v);
+                }}
+              />
+            </Field>
+          </div>
+
           {/* Inline add moved into the dropdowns above */}
 
           {/* Add Listing CTA */}
@@ -2069,7 +2521,6 @@ const findVariantLabel = (vid) => {
                 addingListing ||
                 !effectiveProductId ||
                 !selectedChannelId ||
-                !listingSku.trim() ||
                 !listingUnits.trim()
               }
               onClick={async () => {
@@ -2089,11 +2540,13 @@ const findVariantLabel = (vid) => {
                   }
 
                   const payload = {
-                    provider: channel.provider,
+                    productName: channel.provider,
                     name: channel.name,
-                    externalSku: listingSku.trim(),
                     units: Number(listingUnits),
                   };
+                  if (listingSku && listingSku.trim()) {
+                    payload.externalSku = listingSku.trim();
+                  }
                   if (selectedVariantForListing && selectedVariantForListing !== "product") {
                     payload.variantId = selectedVariantForListing;
                   }
@@ -2117,8 +2570,8 @@ const findVariantLabel = (vid) => {
       {/* Existing listings */}
       <div className="rounded-xl border border-gray-200 overflow-hidden">
         <div className="grid grid-cols-[1.2fr_1.4fr_1fr_0.7fr_1fr_90px] text-[12px] font-medium text-gray-700">
-          <div className="bg-gray-50 px-3 py-2">Provider</div>
-          <div className="bg-gray-50 px-3 py-2">Marketplace Name</div>
+          <div className="bg-gray-50 px-3 py-2">Product Name</div>
+          <div className="bg-gray-50 px-3 py-2">Marketplace</div>
           <div className="bg-gray-50 px-3 py-2">SKU</div>
           <div className="bg-gray-50 px-3 py-2 text-center">Units</div>
           <div className="bg-gray-50 px-3 py-2">Variant</div>
@@ -2188,7 +2641,7 @@ const findVariantLabel = (vid) => {
 
                                     <button
                                         className={outlineBtn}
-                                        disabled={saving}
+                                        disabled={savingBusy}
                                         onClick={() => {
                                             const m = collectMissing({ isDraft: true });
                                             setMissing(m);
@@ -2204,7 +2657,7 @@ const findVariantLabel = (vid) => {
 
                                     <button
                                         className={primaryBtn}
-                                        disabled={saving}
+                                        disabled={savingBusy}
                                         onClick={() => {
                                             const m = collectMissing({ isDraft: false });
                                             setMissing(m);
@@ -2220,7 +2673,7 @@ const findVariantLabel = (vid) => {
 
                                     <button
                                         className={primaryBtn}
-                                        disabled={saving}
+                                        disabled={savingBusy}
                                         onClick={() => {
                                             // If previous product was saved via "Save & Add Another" and the user
                                             // hasn't started a new entry (pristine), treat this as "Done": just close.
@@ -2250,7 +2703,7 @@ const findVariantLabel = (vid) => {
 
             {/* Add Size Modal */}
             <Transition appear show={sizeModalOpen} as={Fragment}>
-                <Dialog as="div" className="relative z-[80]" onClose={() => setSizeModalOpen(false)}>
+                <Dialog as="div" className="relative z-[300]" onClose={() => setSizeModalOpen(false)}>
                     <TransitionChild as={Fragment} enter="transition-opacity ease-out duration-150" enterFrom="opacity-0" enterTo="opacity-100" leave="transition-opacity ease-in duration-100" leaveFrom="opacity-100" leaveTo="opacity-0">
                         <div className="fixed inset-0 bg-black/30" />
                     </TransitionChild>
@@ -2274,48 +2727,13 @@ const findVariantLabel = (vid) => {
 
                                     <div className="space-y-3">
                                         <div>
-                                            <label className={label}>Size Code *</label>
-                                            <input
-                                                className={input}
-                                                placeholder="e.g., XXL"
-                                                value={newSizeCode}
-                                                onChange={(e) => setNewSizeCode(e.target.value.toUpperCase())}
-                                            />
-                                        </div>
-                                        <div>
                                             <label className={label}>Size Label *</label>
                                             <input
                                                 className={input}
-                                                placeholder="e.g., 2X-Large"
+                                                placeholder="e.g., Medium"
                                                 value={newSizeText}
                                                 onChange={(e) => setNewSizeText(e.target.value)}
                                             />
-                                            {/* Existing images (edit mode) */}
-                                            {edit && productDetail?.images && productDetail.images.length > 0 && (
-                                                <div className="mt-4">
-                                                    <p className="text-[12px] text-gray-600 mb-2">Existing Images</p>
-                                                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
-                                                        {productDetail.images.map((img) => (
-                                                            <div key={img.id} className="relative group">
-                                                                <img src={img.url} className="h-20 w-20 object-cover rounded-md border border-gray-200" />
-                                                                <button
-                                                                    type="button"
-                                                                    className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white border border-red-200 text-red-600 rounded-full h-6 w-6 text-xs"
-                                                                    title="Delete"
-                                                                    onClick={async () => {
-                                                                        try {
-                                                                            await deleteProductImage(productDetail.id, img.id);
-                                                                            await refetchProductDetail();
-                                                                        } catch (e) { console.error(e); }
-                                                                    }}
-                                                                >
-                                                                    ×
-                                                                </button>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            )}
                                         </div>
                                     </div>
 
@@ -2325,26 +2743,89 @@ const findVariantLabel = (vid) => {
                                         </button>
                                         <button
                                             className={primaryBtn}
-                                            disabled={!newSizeCode.trim() || !newSizeText.trim()}
+                                            disabled={!newSizeText.trim()}
                                             onClick={() => {
-                                                const code = newSizeCode.trim();
                                                 const text = newSizeText.trim();
+                                                const code = deriveSizeCode(text);
                                                 if (!code || !text) return;
                                                 setSizes((prev) => {
-                                                    const exists = prev.some((s) => s.code.toUpperCase() === code.toUpperCase());
+                                                    const exists = prev.some((s) => s.code.toUpperCase() === code.toUpperCase() || s.text === text);
                                                     const next = exists ? prev : [...prev, { code, text }];
                                                     return [
                                                         next.find((s) => s.code === "") || { code: "", text: "—" },
                                                         ...next.filter((s) => s.code !== ""),
                                                     ];
                                                 });
-                                                setNewSizeCode("");
+                                                if (sizeContext && sizeContext.kind === 'simple') {
+                                                    setMainSizeText(text);
+                                                } else if (sizeContext && sizeContext.kind === 'variant' && sizeContext.id) {
+                                                    const found = { code, text };
+                                                    const idx = variants.findIndex(x => x.id === sizeContext.id);
+                                                    const v = variants.find(x => x.id === sizeContext.id);
+                                                    const patch = { sizeCode: found.code, sizeText: found.text };
+                                                    if (v && v.autoSku) patch.sku = computeAutoSku(sku, { sizeCode: found.code }, idx);
+                                                    patchVariant(sizeContext.id, patch);
+                                                }
                                                 setNewSizeText("");
+                                                setNewSizeCode("");
+                                                setSizeContext(null);
                                                 setSizeModalOpen(false);
                                             }}
                                         >
                                             Add Size
                                         </button>
+                                    </div>
+                                </DialogPanel>
+                            </TransitionChild>
+                        </div>
+                    </div>
+                </Dialog>
+            </Transition>
+
+            {/* Add Color Modal */}
+            <Transition appear show={colorModalOpen} as={Fragment}>
+                <Dialog as="div" className="relative z-[300]" onClose={() => setColorModalOpen(false)}>
+                    <TransitionChild as={Fragment} enter="transition-opacity ease-out duration-150" enterFrom="opacity-0" enterTo="opacity-100" leave="transition-opacity ease-in duration-100" leaveFrom="opacity-100" leaveTo="opacity-0">
+                        <div className="fixed inset-0 bg-black/30" />
+                    </TransitionChild>
+
+                    <div className="fixed inset-0">
+                        <div className="flex min-h-full items-center justify-center p-4">
+                            <TransitionChild
+                                as={Fragment}
+                                enter="transition ease-out duration-150"
+                                enterFrom="opacity-0 scale-95"
+                                enterTo="opacity-100 scale-100"
+                                leave="transition ease-in duration-100"
+                                leaveFrom="opacity-100 scale-100"
+                                leaveTo="opacity-0 scale-95"
+                            >
+                                <DialogPanel className="w-full max-w-sm rounded-xl bg-white p-4 border border-gray-200 shadow-xl">
+                                    <h3 className="text-base font-semibold text-gray-900 mb-2">Add New Color</h3>
+                                    <div className="space-y-2">
+                                        <label className={label}>Color Label *</label>
+                                        <input className={input} placeholder="e.g., Red" value={newColorText} onChange={(e) => setNewColorText(e.target.value)} />
+                                    </div>
+                                    <div className="mt-3 flex items-center justify-end gap-2">
+                                        <button className={ghostBtn} onClick={() => setColorModalOpen(false)}>Cancel</button>
+                                        <button className={primaryBtn} disabled={!newColorText.trim()} onClick={() => {
+                                            const txt = newColorText.trim();
+                                            setColors((prev) => {
+                                                const base = Array.isArray(prev) && prev.length ? prev : ["—"];
+                                                if (base.includes(txt)) return base;
+                                                return [...base, txt];
+                                            });
+        
+                                            if (colorContext && colorContext.kind === 'simple') {
+                                                setMainColorText(txt);
+                                            } else if (colorContext && colorContext.kind === 'variant' && colorContext.id) {
+                                                patchVariant(colorContext.id, { colorText: txt });
+                                            }
+        
+                                            setNewColorText("");
+                                            setColorContext(null);
+                                            setColorModalOpen(false);
+                                        }}>Add Color</button>
                                     </div>
                                 </DialogPanel>
                             </TransitionChild>

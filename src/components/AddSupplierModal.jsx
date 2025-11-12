@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { Dialog, Transition, TransitionChild, DialogPanel, Listbox, ListboxButton, ListboxOption, ListboxOptions } from "@headlessui/react";
-import { Building2, MapPin, Mail, Phone, Globe2, Check } from "lucide-react";
+import { Building2, MapPin, Mail, Phone, Globe2, Check, ChevronDown } from "lucide-react";
 import toast from "react-hot-toast";
 import { useCreateSupplier, useUpdateSupplier } from "../hooks/useSuppliers";
 
@@ -23,6 +23,7 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
   const [saving, setSaving] = useState(false);
   const [countries, setCountries] = useState(["Select"]);
   const [countryLoading, setCountryLoading] = useState(false);
+  const [zipLoading, setZipLoading] = useState(false);
 
   const currencies = [
     { value: 'USD', label: 'US Dollar ($)' },
@@ -45,7 +46,7 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
       if (supplier) {
         setForm({
           companyName: supplier.companyName || "",
-          currency: supplier.currency || "",
+          currency: supplier.currency || "USD",
           contacts: supplier.contacts || "",
           email: supplier.email || "",
           phone: supplier.phone || "",
@@ -60,7 +61,7 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
       } else {
         setForm({
           companyName: "",
-          currency: "",
+          currency: "USD",
           contacts: "",
           email: "",
           phone: "",
@@ -114,23 +115,87 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
   const handleChange = (key, value) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
+  // Free ZIP lookup using Zippopotam.us with timeout + HTTP(S) fallback
+  async function lookupPostal(country, postal) {
+    if (!country || !postal) return null;
+    const cc = String(country).trim().toUpperCase();
+    const pc = String(postal).trim();
+
+    const fetchWithTimeout = async (url, ms = 6000) => {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), ms);
+      try {
+        const res = await fetch(url, { signal: ctrl.signal });
+        return res;
+      } finally {
+        clearTimeout(t);
+      }
+    };
+
+    // try HTTPS first, then HTTP
+    const urls = [
+      `https://api.zippopotam.us/${encodeURIComponent(cc)}/${encodeURIComponent(pc)}`,
+      `http://api.zippopotam.us/${encodeURIComponent(cc)}/${encodeURIComponent(pc)}`,
+    ];
+
+    for (const url of urls) {
+      try {
+        const res = await fetchWithTimeout(url, 6000);
+        if (!res || !res.ok) continue;
+        const data = await res.json();
+        const p = Array.isArray(data?.places) ? data.places[0] : null;
+        if (!p) continue;
+        const city = p["place name"] || p["place"] || "";
+        const state = p["state abbreviation"] || p["state"] || "";
+        if (!city && !state) continue;
+        return { city, state };
+      } catch (_) {
+        // try next url
+        continue;
+      }
+    }
+    return null;
+  }
+
+  const handleZipBlur = async () => {
+    if (!form.zipCode || !form.country || form.country === "Select") return;
+    setZipLoading(true);
+    try {
+      const res = await lookupPostal(form.country, form.zipCode);
+      if (!res) return; // silent fail
+      setForm((prev) => ({
+        ...prev,
+        city: res.city || prev.city,
+        state: res.state || prev.state,
+      }));
+    } finally {
+      setZipLoading(false);
+    }
+  };
+
   const emailValid = !form.email || /.+@.+\..+/.test(form.email);
-  const countryValid = !form.country || /^[A-Z]{2}$/.test(form.country.toUpperCase());
-  const canSave = !!form.companyName && !!form.currency && emailValid && countryValid && !saving;
+  const countryValid = !!form.country && /^[A-Z]{2}$/.test(form.country.toUpperCase());
+  // Enforce all required fields before enabling Save
+  const requiredOk =
+    !!form.companyName &&
+    !!form.currency &&
+    countryValid &&
+    !!form.address1 &&
+    !!form.zipCode &&
+    !!form.city &&
+    !!form.state;
+  const canSave = requiredOk && emailValid && !saving;
 
   const handleSave = async () => {
-    if (!form.companyName || !form.currency) {
-      toast.error("Please fill required fields");
+    if (!requiredOk) {
+      toast.error("Please fill all required fields");
       return;
     }
     if (!emailValid) {
       toast.error("Email must be a valid email");
       return;
     }
-    if (!countryValid) {
-      toast.error("Country must be a valid ISO-3166 alpha-2 code");
-      return;
-    }
+    // countryValid is already part of requiredOk
     setSaving(true);
     try {
       if (isEdit) {
@@ -260,7 +325,7 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
                       <h3 className="text-sm font-semibold text-gray-900">Address information</h3>
                     </div>
                     <div className="p-4 grid grid-cols-12 gap-3">
-                      <Field className="col-span-12 md:col-span-6" label="Country">
+                      <Field className="col-span-12 md:col-span-6" label="Country *">
                         <SelectCompact
                           value={form.country || "Select"}
                           onChange={(v) => handleChange("country", v === "Select" ? "" : v)}
@@ -301,7 +366,11 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
                           placeholder="Please enter Zip Code"
                           value={form.zipCode}
                           onChange={(e) => handleChange("zipCode", e.target.value)}
+                          onBlur={handleZipBlur}
                         />
+                        {zipLoading && (
+                          <div className="text-[11px] text-gray-500 mt-1">Looking up city and state…</div>
+                        )}
                       </Field>
 
                       <Field className="col-span-12 md:col-span-4" label="City *">
@@ -363,7 +432,18 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
 function Field({ label, children, className = "" }) {
   return (
     <div className={className}>
-      {label && <label className="text-[12px] text-gray-600">{label}</label>}
+      {label && (
+        <label className="text-[12px] text-gray-600">
+          {typeof label === "string" && label.includes("*") ? (
+            <>
+              {label.slice(0, label.lastIndexOf("*"))}
+              <span className="text-red-600">*</span>
+            </>
+          ) : (
+            label
+          )}
+        </label>
+      )}
       {children}
     </div>
   );
@@ -402,8 +482,8 @@ function SelectCompact({
           className={`relative w-full h-8 rounded-lg border border-gray-300 bg-white pl-2 pr-7 text-left text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10 ${disabled ? "opacity-60 cursor-not-allowed" : ""} ${buttonClassName}`}
         >
           <span className="block truncate">{currentLabel}</span>
-          <span className="pointer-events-none absolute inset-y-0 right-1.5 flex items-center">
-            <Check size={14} className="opacity-0" />
+          <span className="pointer-events-none absolute inset-y-0 right-1.5 flex items-center text-gray-500">
+            <ChevronDown size={14} />
           </span>
         </ListboxButton>
 

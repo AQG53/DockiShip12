@@ -21,8 +21,10 @@ export function AddRoleModal({ open, onClose, onSave, mode = "create", role = nu
         const map = new Map();
         for (const full of permissionNames) {
             if (typeof full !== "string") continue;
-            const [resource, action] = full.split(".");
-            if (!resource || !action) continue;
+            const parts = full.split(".").filter(Boolean);
+            if (parts.length < 2) continue;
+            const resource = parts.slice(0, -1).join(".");
+            const action = parts[parts.length - 1];
             if (!map.has(resource)) map.set(resource, new Set());
             map.get(resource).add(action);
         }
@@ -43,8 +45,10 @@ export function AddRoleModal({ open, onClose, onSave, mode = "create", role = nu
         const next = {};
         for (const p of perms) {
             if (typeof p !== "string") continue;
-            const [res, act] = p.split(".");
-            if (!res || !act) continue;
+            const parts = p.split(".").filter(Boolean);
+            if (parts.length < 2) continue;
+            const res = parts.slice(0, -1).join(".");
+            const act = parts[parts.length - 1];
             if (!next[res]) next[res] = new Set();
             next[res].add(act);
         }

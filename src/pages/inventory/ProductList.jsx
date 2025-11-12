@@ -18,6 +18,16 @@ import { randomId } from "../../lib/id";
 
 export default function ProductList() {
   const { data: auth } = useAuthCheck({ refetchOnWindowFocus: false });
+  const isOwner = useMemo(
+    () => Array.isArray(auth?.roles) && auth.roles.some((r) => String(r).toLowerCase() === 'owner'),
+    [auth]
+  );
+  const permsSet = useMemo(
+    () => new Set(Array.isArray(auth?.perms) ? auth.perms.map(String) : []),
+    [auth]
+  );
+  const canManage = isOwner || permsSet.has('inventory.product.manage');
+  const canRead = isOwner || canManage || permsSet.has('inventory.product.read');
   const groups = useMemo(() => [{ id: "all", name: "All" }], []);
   const keyTypes = useMemo(
     () => [
@@ -109,7 +119,14 @@ export default function ProductList() {
         </div>
       </div>
 
+      {!canRead && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          You don’t have permission to view products. Ask an admin for access.
+        </div>
+      )}
+
       {/* FILTERS */}
+      {canRead && (
       <div className={card}>
         <div className="px-4 py-3">
           <div className="flex flex-wrap items-center gap-2.5">
@@ -128,15 +145,19 @@ export default function ProductList() {
           </div>
         </div>
       </div>
+      )}
 
       {/* ACTIONS + TABLE */}
+      {canRead && (
       <div className={card}>
         <div className="px-4 py-2.5 border-b border-gray-200 flex items-center justify-between">
           <div />
           <div>
+            {canManage && (
             <button className={btnPrimary} onClick={() => setOpenCreate(true)}>
               <Plus size={16} /> Add Product
             </button>
+            )}
           </div>
         </div>
 
@@ -205,12 +226,15 @@ export default function ProductList() {
                     >
                       View
                     </button>
+                    {canManage && (
                     <button
                       className="rounded-md border border-gray-300 px-1.5 py-0.5 text-[11px] hover:bg-gray-50"
                       onClick={() => { setEditingId(r.raw?.id || r.id); setEditOpen(true); }}
                     >
                       Edit
                     </button>
+                    )}
+                    {canManage && (
                     <button
                       className="rounded-md border border-red-200 text-red-700 px-1.5 py-0.5 text-[11px] hover:bg-red-50"
                       onClick={() => {
@@ -220,6 +244,7 @@ export default function ProductList() {
                     >
                       Delete
                     </button>
+                    )}
                   </div>
                 </div>
               </li>
@@ -227,22 +252,27 @@ export default function ProductList() {
           </ul>
         )}
       </div>
+      )}
 
       {/* Create modal */}
-      <CreateProductModal
-        open={openCreate}
-        onClose={() => setOpenCreate(false)}
-        onSave={() => fetchProducts()}
-      />
+      {canManage && (
+        <CreateProductModal
+          open={openCreate}
+          onClose={() => setOpenCreate(false)}
+          onSave={() => fetchProducts()}
+        />
+      )}
 
       {/* Edit modal */}
-      <CreateProductModal
-        open={editOpen}
-        onClose={() => { setEditOpen(false); setEditingId(null); }}
-        onSave={() => fetchProducts()}
-        edit
-        productId={editingId}
-      />
+      {canManage && (
+        <CreateProductModal
+          open={editOpen}
+          onClose={() => { setEditOpen(false); setEditingId(null); }}
+          onSave={() => fetchProducts()}
+          edit
+          productId={editingId}
+        />
+      )}
 
       {/* View modal (frontend only) */}
       <ViewProductModal

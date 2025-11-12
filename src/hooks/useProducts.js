@@ -105,13 +105,14 @@ export function useUploadProductImages() {
  * Typeahead/search over channels. Enable when you pass a query/provider.
  */
 export function useSearchMarketplaceChannels(params = {}, options = {}) {
-  const { q, provider, page = 1, perPage = 200 } = params || {};
-  const enabledDefault = Boolean(q || provider);
+  const { q, productName, provider, page = 1, perPage = 200 } = params || {};
+  const name = productName || provider;
+  const enabledDefault = Boolean(q || name);
 
   return useQuery({
     // use primitives so the key is stable across renders
-    queryKey: ["marketplaces", "channels", "search", provider || null, q || null, page, perPage],
-    queryFn: () => searchMarketplaceChannels({ q, provider, page, perPage }),
+    queryKey: ["marketplaces", "channels", "search", name || null, q || null, page, perPage],
+    queryFn: () => searchMarketplaceChannels({ q, productName: name, page, perPage }),
     enabled: options.enabled ?? enabledDefault,
     staleTime: 5 * 60 * 1000,
     ...options,

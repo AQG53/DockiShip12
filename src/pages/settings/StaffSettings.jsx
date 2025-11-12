@@ -122,29 +122,21 @@ export default function StaffSettings() {
                                     <div className="break-words whitespace-pre-line">{roleNames}</div>
 
                                     {/* Status */}
-                                    <div className="flex items-center gap-2">
-                                        <div
-                                            className={`w-2 h-2 rounded-full ${m.status === "active"
-                                                ? "bg-green-500"
-                                                : m.status === "invited"
-                                                    ? "bg-yellow-500"
-                                                    : "bg-gray-400"
-                                                }`}
-                                        />
-                                        <span
-                                            className={
-                                                m.status === "active"
-                                                    ? "text-green-600"
-                                                    : m.status === "invited"
-                                                        ? "text-yellow-600"
-                                                        : "text-gray-500"
-                                            }
-                                        >
-                                            {m.status
-                                                ? m.status[0].toUpperCase() + m.status.slice(1)
-                                                : "—"}
-                                        </span>
-                                    </div>
+                                    {(() => {
+                                        const now = Date.now();
+                                        const invitedAt = m.invitedAt ? new Date(m.invitedAt).getTime() : null;
+                                        const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+                                        const isExpired = m.status === 'invited' && invitedAt != null && (now - invitedAt) > sevenDaysMs;
+                                        const dotColor = m.status === 'active' ? 'bg-green-500' : (isExpired ? 'bg-red-500' : (m.status === 'invited' ? 'bg-yellow-500' : 'bg-gray-400'));
+                                        const textColor = m.status === 'active' ? 'text-green-600' : (isExpired ? 'text-red-600' : (m.status === 'invited' ? 'text-yellow-600' : 'text-gray-500'));
+                                        const label = isExpired ? 'Expired' : (m.status ? m.status[0].toUpperCase() + m.status.slice(1) : '—');
+                                        return (
+                                            <div className="flex items-center gap-2">
+                                                <div className={`w-2 h-2 rounded-full ${dotColor}`} />
+                                                <span className={textColor}>{label}</span>
+                                            </div>
+                                        );
+                                    })()}
 
                                     {/* Active */}
                                     <div className="break-words whitespace-pre-line">

@@ -155,6 +155,7 @@ export async function listUsers() {
     createdAt: u.createdAt,
     membershipId: u.membershipId || "",
     status: u.status || (u.isActive ? "active" : "inactive"),
+    invitedAt: u.invitedAt || u.invited_at || null,
     roles: (Array.isArray(u.roles) ? u.roles : []).map((name) => ({
       id: name,
       name,
@@ -423,9 +424,14 @@ export async function unlinkSupplierProduct(supplierId, productId) {
 }
 
 /** Optional: if you really want to LINK products (bulk) */
-export async function linkSupplierProducts(supplierId, productIds = []) {
+export async function linkSupplierProducts(supplierId, productIds = [], opts = {}) {
   if (!supplierId) throw new Error('Missing supplierId');
-  const res = await axiosInstance.post(`/suppliers/${supplierId}/products`, { productIds });
+  const body = { productIds };
+  if (opts && typeof opts === 'object') {
+    if (opts.lastPurchasePrice != null) body.lastPurchasePrice = opts.lastPurchasePrice;
+    if (opts.currency) body.currency = opts.currency;
+  }
+  const res = await axiosInstance.post(`/suppliers/${supplierId}/products`, body);
   return res?.data ?? { ok: true };
 }
 
@@ -438,10 +444,11 @@ export async function linkSupplierProducts(supplierId, productIds = []) {
  * Search/list marketplace channels for this tenant.
  * Filters: q (name contains), provider, page, perPage (optional)
  */
-export async function searchMarketplaceChannels({ q, provider, page = 1, perPage = 200 } = {}) {
+export async function searchMarketplaceChannels({ q, provider, productName, page = 1, perPage = 200 } = {}) {
   const params = {};
   if (q) params.q = q;
-  if (provider) params.provider = provider;
+  if (productName) params.productName = productName;
+  else if (provider) params.provider = provider;
   if (page != null) params.page = page;
   if (perPage != null) params.perPage = perPage;
 
@@ -462,12 +469,12 @@ export async function searchMarketplaceChannels({ q, provider, page = 1, perPage
 /**
  * Create a marketplace channel (name + provider are required).
  */
-export async function createMarketplaceChannel({ name, provider }) {
+export async function createMarketplaceChannel({ name, provider, productName }) {
   if (!name?.trim()) throw new Error('Missing channel name');
-  if (!provider?.trim()) throw new Error('Missing provider');
+  if (!(productName?.trim() || provider?.trim())) throw new Error('Missing product name');
   const res = await axiosInstance.post('/products/marketplaces/channels', {
     name: name.trim(),
-    provider: provider.trim(),
+    productName: (productName || provider).trim(),
   });
   return res?.data?.data ?? res?.data ?? {};
 }

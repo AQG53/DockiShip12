@@ -8,8 +8,10 @@ export function ViewPermissionsModal({ open, onClose, memberName, roleName, perm
 
         for (const perm of permissions) {
             if (typeof perm !== "string") continue;
-            const [resource, action] = perm.split(".");
-            if (!resource || !action) continue;
+            const parts = perm.split('.').filter(Boolean);
+            if (parts.length < 2) continue;
+            const resource = parts.slice(0, -1).join('.');
+            const action = parts[parts.length - 1];
 
             if (!map.has(resource)) {
                 map.set(resource, []);
@@ -30,6 +32,7 @@ export function ViewPermissionsModal({ open, onClose, memberName, roleName, perm
 
     const formatResourceName = (resource) => {
         return resource
+            .replaceAll('.', ' · ')
             .split('_')
             .map(word => word.charAt(0).toUpperCase() + word.slice(1))
             .join(' ');

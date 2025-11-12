@@ -80,20 +80,24 @@ const Navbar = () => {
   };
 
   const moduleSet = useMemo(() => {
-    const perms = Array.isArray(claims?.perms) ? claims.perms : [];
+    const perms = Array.isArray(data?.perms)
+      ? data.perms
+      : (Array.isArray(claims?.perms) ? claims.perms : []);
     return new Set(
       perms
         .filter(Boolean)
         .map((p) => String(p).toLowerCase())
         .map((p) => p.split('.')[0])
     );
-  }, [claims]);
+  }, [data, claims]);
+  const isOwner = (Array.isArray(data?.roles) ? data.roles : claims?.roles || [])
+    .some((r) => String(r).toLowerCase() === 'owner');
 
-  const canSeeInventory = moduleSet.has('inventory');
-  const canSeePurchases = moduleSet.has('purchases');
-  const canManageUsers = moduleSet.has('user');
-  const canManageRoles = moduleSet.has('role');
-  console.log(claims);
+  const canSeeInventory = isOwner || moduleSet.has('inventory');
+  const canSeePurchases = isOwner || moduleSet.has('purchases') || moduleSet.has('suppliers');
+  const canManageUsers = isOwner || moduleSet.has('user');
+  const canManageRoles = isOwner || moduleSet.has('role');
+  
 
   const visibleLinks = useMemo(() => {
     return navLinks.filter((link) => {
