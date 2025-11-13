@@ -4,6 +4,23 @@ import { Building2, MapPin, Mail, Phone, Globe2, Check, ChevronDown } from "luci
 import toast from "react-hot-toast";
 import { useCreateSupplier, useUpdateSupplier } from "../hooks/useSuppliers";
 
+const sanitizePostalInput = (value) => {
+  if (value === undefined || value === null) return "";
+  return String(value).replace(/[^0-9]/g, "");
+};
+
+const sanitizePhoneInput = (value) => {
+  if (value === undefined || value === null) return "";
+  let cleaned = String(value).replace(/[^0-9+]/g, "");
+  if (!cleaned) return "";
+  if (cleaned.startsWith("+")) {
+    cleaned = "+" + cleaned.slice(1).replace(/\+/g, "");
+  } else {
+    cleaned = cleaned.replace(/\+/g, "");
+  }
+  return cleaned;
+};
+
 export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
   const [form, setForm] = useState({
     companyName: "",
@@ -49,11 +66,11 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
           currency: supplier.currency || "USD",
           contacts: supplier.contacts || "",
           email: supplier.email || "",
-          phone: supplier.phone || "",
+          phone: sanitizePhoneInput(supplier.phone || ""),
           country: supplier.country || "",
           address1: supplier.address1 || "",
           address2: supplier.address2 || "",
-          zipCode: supplier.zipCode || "",
+          zipCode: sanitizePostalInput(supplier.zipCode || ""),
           city: supplier.city || "",
           state: supplier.state || "",
           notes: supplier.notes || "",
@@ -112,8 +129,15 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
   const ghostBtn =
     "inline-flex items-center justify-center h-9 px-3 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-100";
 
-  const handleChange = (key, value) =>
-    setForm((prev) => ({ ...prev, [key]: value }));
+  const handleChange = (key, value) => {
+    let next = value;
+    if (key === "zipCode") {
+      next = sanitizePostalInput(value);
+    } else if (key === "phone") {
+      next = sanitizePhoneInput(value);
+    }
+    setForm((prev) => ({ ...prev, [key]: next }));
+  };
 
   // Free ZIP lookup using Zippopotam.us with timeout + HTTP(S) fallback
   async function lookupPostal(country, postal) {
@@ -310,10 +334,12 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
 
                       <Field className="col-span-12 md:col-span-6" label="Phone">
                         <input
+                          type="tel"
                           className={input}
                           placeholder="Please enter Phone"
                           value={form.phone}
                           onChange={(e) => handleChange("phone", e.target.value)}
+                          inputMode="tel"
                         />
                       </Field>
                     </div>
@@ -367,6 +393,8 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
                           value={form.zipCode}
                           onChange={(e) => handleChange("zipCode", e.target.value)}
                           onBlur={handleZipBlur}
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                         />
                         {zipLoading && (
                           <div className="text-[11px] text-gray-500 mt-1">Looking up city and state…</div>

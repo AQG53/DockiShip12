@@ -30,6 +30,22 @@ import SelectSearchAdd from "./SelectSearchAdd";
 const ADD_SIZE_SENTINEL = "__ADD_SIZE__";
 const ADD_COLOR_SENTINEL = "__ADD_COLOR__";
 
+const sanitizeDecimalInput = (value) => {
+    if (value === undefined || value === null) return "";
+    const cleaned = String(value).replace(/[^0-9.]/g, "");
+    if (!cleaned) return "";
+    const parts = cleaned.split(".");
+    const head = parts.shift() || "";
+    const decimals = parts.join("");
+    const safeHead = head || (decimals ? "0" : "");
+    return safeHead + (decimals ? "." + decimals : "");
+};
+
+const sanitizeIntegerInput = (value) => {
+    if (value === undefined || value === null) return "";
+    return String(value).replace(/[^0-9]/g, "");
+};
+
 export default function CreateProductModal({ open, onClose, onSave, edit = false, productId = null }) {
     const { mutateAsync: createProductMut, isPending: saving } = useCreateProduct();
     const { data: auth } = useAuthCheck({ refetchOnWindowFocus: false });
@@ -75,6 +91,21 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         () => enums?.LengthUnit || ["mm", "cm", "inch"],
         [enums]
     );
+    const packagingOptions = useMemo(() => {
+        const allowed = enums?.PackagingType || ["PAIR", "UNITS", "PIECES_PER_PACK"];
+        const friendly = (type) => {
+            if (type === "PAIR") return "Pairs (2 items)";
+            if (type === "UNITS") return "Units (custom count)";
+            if (type === "PIECES_PER_PACK") return "Pieces per pack";
+            return labelize(type);
+        };
+        return [
+            { value: "", label: "Sold individually" },
+            ...allowed.map((type) => ({ value: type, label: friendly(type) })),
+        ];
+    }, [enums]);
+    const packagingNeedsQuantity = (type) => type === "UNITS" || type === "PIECES_PER_PACK";
+    const packagingIsPair = (type) => type === "PAIR";
     const resolveSubUnit = (unit) => {
         if (unit === "kg") return "g";
         if (unit === "lb") return "oz";
@@ -171,6 +202,8 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     // Simple product-only attributes
     const [mainSizeText, setMainSizeText] = useState("");
     const [mainColorText, setMainColorText] = useState("");
+    const [mainPackagingType, setMainPackagingType] = useState("");
+    const [mainPackagingQty, setMainPackagingQty] = useState("");
 
     // --- new: supplier & pricing ---
     const [supplier, setSupplier] = useState("Select");
@@ -309,6 +342,9 @@ const findVariantLabel = (vid) => {
             if (!isNonEmpty(dimL)) m["dimL"] = "Length";
             if (!isNonEmpty(dimW)) m["dimW"] = "Width";
             if (!isNonEmpty(dimH)) m["dimH"] = "Height";
+            if (packagingNeedsQuantity(mainPackagingType) && (!isNonEmpty(mainPackagingQty) || Number(mainPackagingQty) < 1)) {
+                m["packagingQuantity"] = "Packaging quantity";
+            }
         } else {
             // Variants: for each row → size, sku, weight/dims/unit + pricing
             if (!variants.length) {
@@ -328,6 +364,9 @@ const findVariantLabel = (vid) => {
                     if (!isNonEmpty(v.unit)) m[rowPrefix + "unit"] = `${humanRow}: Unit`;
                     if (!isNonEmpty(row.retail)) m[rowPrefix + "retail"] = `${humanRow}: Retail Price`;
                     if (!isNonEmpty(row.original)) m[rowPrefix + "original"] = `${humanRow}: Original Price`;
+                    if (packagingNeedsQuantity(v.packagingType) && (!isNonEmpty(v.packagingQuantity) || Number(v.packagingQuantity) < 1)) {
+                        m[rowPrefix + "packaging"] = `${humanRow}: Packaging quantity`;
+                    }
                 });
             }
         }
@@ -360,6 +399,8 @@ const findVariantLabel = (vid) => {
         setOrigin("Select");
         setMainSizeText("");
         setMainColorText("");
+        setMainPackagingType("");
+        setMainPackagingQty("");
 
         setWeightMain("");
         setWeightUnit(
@@ -407,6 +448,8 @@ const findVariantLabel = (vid) => {
     function seedVariantsFromParent() {
       // create one variant row seeded from parent fields
       const localId = `local-${randomId()}`;
+      const parentPkgType = (mainPackagingType || "").trim();
+      const parentPkgQty = parentPkgType === "PAIR" ? "2" : sanitizeIntegerInput(mainPackagingQty || "");
       const nextVariant = {
         id: localId,
         sizeCode: "",
@@ -421,6 +464,8 @@ const findVariantLabel = (vid) => {
         unit: dimUnit,
         active: true,
         autoSku: true,
+        packagingType: parentPkgType,
+        packagingQuantity: parentPkgQty,
       };
 
       setVariants([nextVariant]);
@@ -436,17 +481,28 @@ const findVariantLabel = (vid) => {
     }
 
     function copyParentIntoExistingVariants() {
+      const parentPkgType = (mainPackagingType || "").trim();
+      const parentPkgQty = parentPkgType === "PAIR" ? "2" : sanitizeIntegerInput(mainPackagingQty || "");
       // push down parent fields only where variant fields are empty
       setVariants((prev) =>
-        prev.map((v) => ({
-          ...v,
-          weight: isNonEmpty(v.weight) ? v.weight : (isNonEmpty(weightMain) ? String(weightMain) : v.weight),
-          weightUnit: v.weightUnit || weightUnit,
-          length: isNonEmpty(v.length) ? v.length : (isNonEmpty(dimL) ? String(dimL) : v.length),
-          width: isNonEmpty(v.width) ? v.width : (isNonEmpty(dimW) ? String(dimW) : v.width),
-          height: isNonEmpty(v.height) ? v.height : (isNonEmpty(dimH) ? String(dimH) : v.height),
-          unit: v.unit || dimUnit,
-        }))
+        prev.map((v) => {
+          const next = {
+            ...v,
+            weight: isNonEmpty(v.weight) ? v.weight : (isNonEmpty(weightMain) ? String(weightMain) : v.weight),
+            weightUnit: v.weightUnit || weightUnit,
+            length: isNonEmpty(v.length) ? v.length : (isNonEmpty(dimL) ? String(dimL) : v.length),
+            width: isNonEmpty(v.width) ? v.width : (isNonEmpty(dimW) ? String(dimW) : v.width),
+            height: isNonEmpty(v.height) ? v.height : (isNonEmpty(dimH) ? String(dimH) : v.height),
+            unit: v.unit || dimUnit,
+          };
+          if (!isNonEmpty(v.packagingType) && parentPkgType) {
+            next.packagingType = parentPkgType;
+            next.packagingQuantity = parentPkgType === "PAIR" ? "2" : parentPkgQty;
+          } else if ((v.packagingType || "") === "PAIR") {
+            next.packagingQuantity = "2";
+          }
+          return next;
+        })
       );
 
       // If variant has no prices, seed from parent
@@ -472,6 +528,13 @@ const findVariantLabel = (vid) => {
       setDimW(isNonEmpty(first.width) ? String(first.width) : "");
       setDimH(isNonEmpty(first.height) ? String(first.height) : "");
       setDimUnit(first.unit || dimUnit);
+      const firstPkgType = (first.packagingType || "").trim();
+      setMainPackagingType(firstPkgType);
+      if (firstPkgType === "PAIR") {
+        setMainPackagingQty("2");
+      } else {
+        setMainPackagingQty(first.packagingQuantity != null ? sanitizeIntegerInput(String(first.packagingQuantity)) : "");
+      }
 
       // copy pricing back from first variant if exists
       const row = variantPrices[first.id] || {};
@@ -498,6 +561,8 @@ const findVariantLabel = (vid) => {
                 unit: dimUnit,
                 active: true,
                 autoSku: true,
+                packagingType: "",
+                packagingQuantity: "",
             },
         ]);
     };
@@ -665,7 +730,7 @@ const findVariantLabel = (vid) => {
       if (!variantEnabled || variants.length === 0) return;
       copyParentIntoExistingVariants();
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [weightMain, weightUnit, dimL, dimW, dimH, dimUnit, retailPrice, sellingPrice, variantEnabled]);
+    }, [weightMain, weightUnit, dimL, dimW, dimH, dimUnit, retailPrice, sellingPrice, mainPackagingType, mainPackagingQty, variantEnabled]);
 
     useEffect(() => {
         if (!edit || !open || !productDetail) return;
@@ -705,6 +770,17 @@ const findVariantLabel = (vid) => {
         // simple-only attributes
         setMainSizeText(productDetail.sizeText || "");
         setMainColorText(productDetail.colorText || "");
+        const parentPkgType = productDetail.packagingType || "";
+        setMainPackagingType(parentPkgType || "");
+        if (parentPkgType === "PAIR") {
+            setMainPackagingQty("2");
+        } else {
+            setMainPackagingQty(
+                productDetail.packagingQuantity != null
+                    ? sanitizeIntegerInput(String(productDetail.packagingQuantity))
+                    : ""
+            );
+        }
 
         // supplier (no primary; linking managed below)
         setSupplier("Select");
@@ -736,6 +812,11 @@ const findVariantLabel = (vid) => {
                     unit: v.dimensionUnit || dimUnit,
                     active: (v.status || "active") === "active",
                     autoSku: false,
+                    packagingType: v.packagingType || "",
+                    packagingQuantity:
+                        v.packagingType === "PAIR"
+                            ? "2"
+                            : (v.packagingQuantity != null ? sanitizeIntegerInput(String(v.packagingQuantity)) : ""),
                 };
             });
             setVariants(rows);
@@ -848,6 +929,20 @@ const findVariantLabel = (vid) => {
 
     // ----- PAYLOAD BUILDERS (map UI -> backend) -----
     const nowIso = () => new Date().toISOString();
+    const buildPackagingPayload = (type, quantity) => {
+        const normalizedType = (type || "").trim();
+        if (!normalizedType) {
+            return { packagingType: null, packagingQuantity: null };
+        }
+        if (normalizedType === "PAIR") {
+            return { packagingType: normalizedType, packagingQuantity: 2 };
+        }
+        const parsed = Number(quantity);
+        if (!Number.isFinite(parsed) || parsed < 1) {
+            return { packagingType: normalizedType, packagingQuantity: null };
+        }
+        return { packagingType: normalizedType, packagingQuantity: Math.floor(parsed) };
+    };
 
     const buildSimplePayload = ({ isDraft }) => {
         const wm = Number(weightMain);
@@ -866,6 +961,7 @@ const findVariantLabel = (vid) => {
         }
         // Ensure SKU is present if name is given
         const finalSku = (isNonEmpty(sku) && sku) || (isNonEmpty(name) ? makeSkuFromName(name) : "");
+        const packagingPayload = buildPackagingPayload(mainPackagingType, mainPackagingQty);
         return ({
             sku: isNonEmpty(finalSku) ? finalSku.trim() : undefined,
             name: name.trim(),
@@ -885,6 +981,8 @@ const findVariantLabel = (vid) => {
             // simple-only attributes (applied to single default variant)
             sizeText: isNonEmpty(mainSizeText) ? mainSizeText.trim() : undefined,
             colorText: isNonEmpty(mainColorText) ? mainColorText.trim() : undefined,
+            packagingType: packagingPayload.packagingType,
+            packagingQuantity: packagingPayload.packagingQuantity,
             ...(isDraft
                 ? {}
                 : {
@@ -904,6 +1002,7 @@ const findVariantLabel = (vid) => {
     const buildVariantPayload = ({ isDraft }) => {
         const mappedVariants = variants.map((v) => {
             const priceRow = variantPrices[v.id] || {};
+            const packagingPayload = buildPackagingPayload(v.packagingType, v.packagingQuantity);
             return {
                 sku: (v.sku || "").trim(),
                 sizeId: null, // if you later wire real size IDs, fill here
@@ -918,6 +1017,8 @@ const findVariantLabel = (vid) => {
                 width: Number(v.width),
                 height: Number(v.height),
                 dimensionUnit: v.unit || dimUnit,
+                packagingType: packagingPayload.packagingType,
+                packagingQuantity: packagingPayload.packagingQuantity,
                 ...(isDraft
                     ? {}
                     : {
@@ -977,6 +1078,7 @@ const findVariantLabel = (vid) => {
                 }
             } else {
                 // 1) always patch parent-level fields first
+                const parentPackaging = buildPackagingPayload(mainPackagingType, mainPackagingQty);
                 const parentPayload = {
                     // Minimal safe parent fields (see Postman: name, brand, status, isDraft)
                     name: payload.name,
@@ -989,6 +1091,8 @@ const findVariantLabel = (vid) => {
                     // For simple product, pass size/color to sync single variant
                     sizeText: !usingVariants ? (isNonEmpty(mainSizeText) ? mainSizeText.trim() : undefined) : undefined,
                     colorText: !usingVariants ? (isNonEmpty(mainColorText) ? mainColorText.trim() : undefined) : undefined,
+                    packagingType: !usingVariants ? parentPackaging.packagingType : undefined,
+                    packagingQuantity: !usingVariants ? parentPackaging.packagingQuantity : undefined,
                     // per-supplier pricing handled via links
                 };
                 const effectiveProductId = productDetail?.id || productId;
@@ -1009,6 +1113,7 @@ const findVariantLabel = (vid) => {
                 if (usingVariants && Array.isArray(variants) && variants.length) {
                     for (const v of variants) {
                         const row = variantPrices[v.id] || {};
+                        const packagingPayload = buildPackagingPayload(v.packagingType, v.packagingQuantity);
                         const common = {
                             sku: (v.sku || "").trim(),
                             sizeText: v.sizeText || v.sizeCode || "",
@@ -1029,6 +1134,8 @@ const findVariantLabel = (vid) => {
                             width: v.width != null && v.width !== "" ? Number(v.width) : undefined,
                             height: v.height != null && v.height !== "" ? Number(v.height) : undefined,
                             dimensionUnit: v.unit || dimUnit,
+                            packagingType: packagingPayload.packagingType,
+                            packagingQuantity: packagingPayload.packagingQuantity,
                             attributes: {}, // reserved
                         };
 
@@ -1369,6 +1476,43 @@ const findVariantLabel = (vid) => {
                                                                 filterable
                                                             />
                                                         </Field>
+                                                        <Field className="col-span-12" label="Packaging (optional)">
+                                                            <div className="grid grid-cols-12 gap-2">
+                                                                <div className="col-span-12 md:col-span-6">
+                                                                    <SelectCompact
+                                                                        value={mainPackagingType || ""}
+                                                                        onChange={(val) => {
+                                                                            setMainPackagingType(val || "");
+                                                                            if (val === "PAIR") {
+                                                                                setMainPackagingQty("2");
+                                                                            } else if (!packagingNeedsQuantity(val)) {
+                                                                                setMainPackagingQty("");
+                                                                            }
+                                                                        }}
+                                                                        options={packagingOptions}
+                                                                        filterable
+                                                                    />
+                                                                </div>
+                                                                {packagingNeedsQuantity(mainPackagingType) && (
+                                                                    <div className="col-span-12 md:col-span-6">
+                                                                        <input
+                                                                            type="number"
+                                                                            min={1}
+                                                                            className={`${input} ${err("packagingQuantity") ? "border-red-400 ring-1 ring-red-200" : ""}`}
+                                                                            placeholder="Units per pack"
+                                                                            value={mainPackagingQty}
+                                                                            onChange={(e) => setMainPackagingQty(sanitizeIntegerInput(e.target.value))}
+                                                                            inputMode="numeric"
+                                                                        />
+                                                                    </div>
+                                                                )}
+                                                                {packagingIsPair(mainPackagingType) && (
+                                                                    <div className="col-span-12 text-[11px] text-gray-500">
+                                                                        Pairs automatically count as 2 units.
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </Field>
                                                     </>
                                                 )}
 
@@ -1421,7 +1565,8 @@ const findVariantLabel = (vid) => {
                                                                 className={`${input} col-span-6 ${err("weightMain") ? "border-red-400 ring-1 ring-red-200" : ""} rounded-r-none border-r`}
                                                                 placeholder="Enter"
                                                                 value={weightMain}
-                                                                onChange={(e) => setWeightMain(e.target.value)}
+                                                                onChange={(e) => setWeightMain(sanitizeDecimalInput(e.target.value))}
+                                                                inputMode="decimal"
                                                             />
                                                             <div className="col-span-3">
                                                                 <SelectCompact
@@ -1435,8 +1580,9 @@ const findVariantLabel = (vid) => {
                                                                 <input
                                                                   className={`${input} rounded-r-none border-r`}
                                                                   placeholder={weightSubLabel === 'g' ? 'Gram' : 'Oz'}
-                                                                  value={weightSub}
-                                                                  onChange={(e) => setWeightSub(e.target.value)}
+                                                                value={weightSub}
+                                                                  onChange={(e) => setWeightSub(sanitizeDecimalInput(e.target.value))}
+                                                                  inputMode="decimal"
                                                                 />
                                                             </div>
                                                              <div className="col-span-1">
@@ -1456,19 +1602,22 @@ const findVariantLabel = (vid) => {
                                                                 className={`${input} ${err("dimL") ? "border-red-400 ring-1 ring-red-200" : ""} col-span-3 mx-2`}
                                                                 placeholder="Length"
                                                                 value={dimL}
-                                                                onChange={(e) => setDimL(e.target.value)}
+                                                                onChange={(e) => setDimL(sanitizeDecimalInput(e.target.value))}
+                                                                inputMode="decimal"
                                                             />
                                                             <input
                                                                 className={`${input} ${err("dimW") ? "border-red-400 ring-1 ring-red-200" : ""} col-span-3 mx-2`}
                                                                 placeholder="Width"
                                                                 value={dimW}
-                                                                onChange={(e) => setDimW(e.target.value)}
+                                                                onChange={(e) => setDimW(sanitizeDecimalInput(e.target.value))}
+                                                                inputMode="decimal"
                                                             />
                                                             <input
                                                                 className={`${input} ${err("dimH") ? "border-red-400 ring-1 ring-red-200" : ""} col-span-3 mx-2 rounded-r-none`}
                                                                 placeholder="Height"
                                                                 value={dimH}
-                                                                onChange={(e) => setDimH(e.target.value)}
+                                                                onChange={(e) => setDimH(sanitizeDecimalInput(e.target.value))}
+                                                                inputMode="decimal"
                                                             />
                                                             <div className="col-span-3">
                                                                 <SelectCompact
@@ -1614,7 +1763,7 @@ const findVariantLabel = (vid) => {
                                                                                 <div className="grid grid-cols-12 gap-2">
                                                                                     <Field className="col-span-12 md:col-span-4" label="Weight">
                                                                                         <div className="grid grid-cols-12">
-                                                                                            <input className={`${input} col-span-7 ${err(`v:${v.id}:weight`) ? "border-red-400 ring-1 ring-red-200" : ""} rounded-r-none border-r`} placeholder="e.g., 1.0" value={v.weight} onChange={(e) => patchVariant(v.id, { weight: e.target.value })} />
+                                                                                            <input className={`${input} col-span-7 ${err(`v:${v.id}:weight`) ? "border-red-400 ring-1 ring-red-200" : ""} rounded-r-none border-r`} placeholder="e.g., 1.0" value={v.weight} onChange={(e) => patchVariant(v.id, { weight: sanitizeDecimalInput(e.target.value) })} inputMode="decimal" />
                                                                                             <div className="col-span-5">
                                                                                 <SelectCompact value={v.weightUnit || weightUnit} onChange={(val) => patchVariant(v.id, { weightUnit: val })} options={mainWeightOptions} buttonClassName="rounded-l-none border-l-0" />
                                                                                             </div>
@@ -1622,14 +1771,54 @@ const findVariantLabel = (vid) => {
                                                                                     </Field>
                                                                                     <Field className="col-span-12 md:col-span-8" label="Dimensions (L × W × H) + Unit">
                                                                                         <div className="grid grid-cols-12 gap-2">
-                                                                                            <input className={`${input} col-span-3 ${err(`v:${v.id}:length`) ? "border-red-400 ring-1 ring-red-200" : ""}`} placeholder="Length" value={v.length} onChange={(e) => patchVariant(v.id, { length: e.target.value })} />
-                                                                                            <input className={`${input} col-span-3 ${err(`v:${v.id}:width`) ? "border-red-400 ring-1 ring-red-200" : ""}`} placeholder="Width" value={v.width} onChange={(e) => patchVariant(v.id, { width: e.target.value })} />
-                                                                                            <input className={`${input} col-span-3 ${err(`v:${v.id}:height`) ? "border-red-400 ring-1 ring-red-200" : ""}`} placeholder="Height" value={v.height} onChange={(e) => patchVariant(v.id, { height: e.target.value })} />
+                                                                                            <input className={`${input} col-span-3 ${err(`v:${v.id}:length`) ? "border-red-400 ring-1 ring-red-200" : ""}`} placeholder="Length" value={v.length} onChange={(e) => patchVariant(v.id, { length: sanitizeDecimalInput(e.target.value) })} inputMode="decimal" />
+                                                                                            <input className={`${input} col-span-3 ${err(`v:${v.id}:width`) ? "border-red-400 ring-1 ring-red-200" : ""}`} placeholder="Width" value={v.width} onChange={(e) => patchVariant(v.id, { width: sanitizeDecimalInput(e.target.value) })} inputMode="decimal" />
+                                                                                            <input className={`${input} col-span-3 ${err(`v:${v.id}:height`) ? "border-red-400 ring-1 ring-red-200" : ""}`} placeholder="Height" value={v.height} onChange={(e) => patchVariant(v.id, { height: sanitizeDecimalInput(e.target.value) })} inputMode="decimal" />
                                                                                             <div className="col-span-3">
-                                                                                                <SelectCompact value={v.unit || dimUnit} onChange={(val) => patchVariant(v.id, { unit: val })} options={(dimUnits || []).map(u => ({ value: u, label: u }))} />
+                                                                                               <SelectCompact value={v.unit || dimUnit} onChange={(val) => patchVariant(v.id, { unit: val })} options={(dimUnits || []).map(u => ({ value: u, label: u }))} />
                                                                                             </div>
                                                                                         </div>
                                                                                     </Field>
+                                                                                    <Field className="col-span-12 md:col-span-5" label="Packaging Type">
+                                                                                        <SelectCompact
+                                                                                            value={v.packagingType || ""}
+                                                                                            onChange={(val) => {
+                                                                                                let nextQty = v.packagingQuantity || "";
+                                                                                                if (val === "PAIR") {
+                                                                                                    nextQty = "2";
+                                                                                                } else if (!packagingNeedsQuantity(val)) {
+                                                                                                    nextQty = "";
+                                                                                                } else if ((v.packagingType || "") === "PAIR") {
+                                                                                                    nextQty = "";
+                                                                                                }
+                                                                                                nextQty = sanitizeIntegerInput(nextQty);
+                                                                                                patchVariant(v.id, {
+                                                                                                    packagingType: val || "",
+                                                                                                    packagingQuantity: nextQty,
+                                                                                                });
+                                                                                            }}
+                                                                                            options={packagingOptions}
+                                                                                            filterable
+                                                                                        />
+                                                                                    </Field>
+                                                                                    {packagingNeedsQuantity(v.packagingType) && (
+                                                                                        <Field className="col-span-12 md:col-span-4" label="Units per pack *">
+                                                                                            <input
+                                                                                                type="number"
+                                                                                                min={1}
+                                                                                                className={`${input} ${err(`v:${v.id}:packaging`) ? "border-red-400 ring-1 ring-red-200" : ""}`}
+                                                                                                placeholder="e.g., 5"
+                                                                                                value={v.packagingQuantity || ""}
+                                                                                                onChange={(e) => patchVariant(v.id, { packagingQuantity: sanitizeIntegerInput(e.target.value) })}
+                                                                                                inputMode="numeric"
+                                                                                            />
+                                                                                        </Field>
+                                                                                    )}
+                                                                                    {packagingIsPair(v.packagingType) && (
+                                                                                        <div className="col-span-12 text-[11px] text-gray-500">
+                                                                                            Pairs automatically count as 2 units.
+                                                                                        </div>
+                                                                                    )}
                                                                                     {variantImages[v.id] && variantImages[v.id].length > 0 && (
                                                                                         <div className="col-span-12 mt-1">
                                                                                             <p className="text-[11px] text-gray-600 mb-1">Selected images (will upload on save)</p>
@@ -1897,7 +2086,8 @@ const findVariantLabel = (vid) => {
                                                                   className={`${input} col-span-9 rounded-r-none border-r`}
                                                                   placeholder="Last purchase e.g., 120.00"
                                                                   value={(editLinkPrices[lnk?.supplier?.id] ?? (lnk?.lastPurchasePrice != null ? String(lnk.lastPurchasePrice) : ''))}
-                                                                  onChange={(e) => setEditLinkPrices(prev => ({ ...prev, [lnk?.supplier?.id]: e.target.value }))}
+                                                                  onChange={(e) => setEditLinkPrices(prev => ({ ...prev, [lnk?.supplier?.id]: sanitizeDecimalInput(e.target.value) }))}
+                                                                  inputMode="decimal"
                                                                 />
                                                                 <div className="col-span-3">
                                                                   <div className="h-8 w-full rounded-r-lg border border-gray-300 bg-gray-50 text-[13px] text-gray-700 flex items-center justify-center select-none">
@@ -1951,8 +2141,9 @@ const findVariantLabel = (vid) => {
                                                                       <input
                                                                         className={`${input} col-span-9 rounded-r-none border-r`}
                                                                         placeholder="Last purchase e.g., 120.00"
-                                                                        value={row.price}
-                                                                        onChange={(e) => setPendingLinks(prev => prev.map((r,i)=> i===idx ? { ...r, price: e.target.value } : r))}
+                                                                      value={row.price}
+                                                                      onChange={(e) => setPendingLinks(prev => prev.map((r,i)=> i===idx ? { ...r, price: sanitizeDecimalInput(e.target.value) } : r))}
+                                                                      inputMode="decimal"
                                                                       />
                                                                       <div className="col-span-3">
                                                                         <div className="h-8 w-full rounded-r-lg border border-gray-300 bg-gray-50 text-[13px] text-gray-700 flex items-center justify-center select-none">
@@ -2017,8 +2208,9 @@ const findVariantLabel = (vid) => {
                                                                   className={`${input} col-span-9 rounded-r-none border-r`}
                                                                   placeholder="Last purchase e.g., 120.00"
                                                                   value={row.price}
-                                                                  onChange={(e) => setSupplierRows(prev => prev.map((r,i)=> i===idx ? { ...r, price: e.target.value } : r))}
-                                                                />
+                                                                  onChange={(e) => setSupplierRows(prev => prev.map((r,i)=> i===idx ? { ...r, price: sanitizeDecimalInput(e.target.value) } : r))}
+                                                                  inputMode="decimal"
+                                                               />
                                                                 <div className="col-span-3">
                                                                   <div className="h-8 w-full rounded-r-lg border border-gray-300 bg-gray-50 text-[13px] text-gray-700 flex items-center justify-center select-none">
                                                                     {CURRENCY}
@@ -2065,12 +2257,13 @@ const findVariantLabel = (vid) => {
                                                 <div className="grid grid-cols-12 gap-3">
                                                     <Field className="col-span-12 md:col-span-6" label="Retail Price *">
                                                         <div className="grid grid-cols-12">
-                                                            <input
-                                                                className={`${input} col-span-9 ${err("retailPrice") ? "border-red-400 ring-1 ring-red-200" : ""} rounded-r-none border-r`}
-                                                                placeholder="e.g., 299.00"
-                                                                value={retailPrice}
-                                                                onChange={(e) => setRetailPrice(e.target.value)}
-                                                            />
+                                                                <input
+                                                                    className={`${input} col-span-9 ${err("retailPrice") ? "border-red-400 ring-1 ring-red-200" : ""} rounded-r-none border-r`}
+                                                                    placeholder="e.g., 299.00"
+                                                                    value={retailPrice}
+                                                                    onChange={(e) => setRetailPrice(sanitizeDecimalInput(e.target.value))}
+                                                                    inputMode="decimal"
+                                                                />
                                                             <div className="col-span-3">
                                                                 <div className="h-8 w-full rounded-r-lg border border-gray-300 bg-gray-50 text-[13px] text-gray-700 flex items-center justify-center select-none">
                                                                     {CURRENCY}
@@ -2081,12 +2274,13 @@ const findVariantLabel = (vid) => {
 
                                                     <Field className="col-span-12 md:col-span-6" label="Selling Price *">
                                                         <div className="grid grid-cols-12">
-                                                            <input
-                                                                className={`${input} col-span-9 ${err("sellingPrice") ? "border-red-400 ring-1 ring-red-200" : ""} rounded-r-none border-r`}
-                                                                placeholder="e.g., 279.00"
-                                                                value={sellingPrice}
-                                                                onChange={(e) => setSellingPrice(e.target.value)}
-                                                            />
+                                                                <input
+                                                                    className={`${input} col-span-9 ${err("sellingPrice") ? "border-red-400 ring-1 ring-red-200" : ""} rounded-r-none border-r`}
+                                                                    placeholder="e.g., 279.00"
+                                                                    value={sellingPrice}
+                                                                    onChange={(e) => setSellingPrice(sanitizeDecimalInput(e.target.value))}
+                                                                    inputMode="decimal"
+                                                                />
                                                             <div className="col-span-3">
                                                                 <div className="h-8 w-full rounded-r-lg border border-gray-300 bg-gray-50 text-[13px] text-gray-700 flex items-center justify-center select-none">
                                                                     {CURRENCY}
@@ -2131,9 +2325,10 @@ const findVariantLabel = (vid) => {
                                                                                 onChange={(e) =>
                                                                                     setVariantPrices((prev) => ({
                                                                                         ...prev,
-                                                                                        [v.id]: { ...(prev[v.id] || {}), retail: e.target.value },
+                                                                                        [v.id]: { ...(prev[v.id] || {}), retail: sanitizeDecimalInput(e.target.value) },
                                                                                     }))
                                                                                 }
+                                                                                inputMode="decimal"
                                                                             />
                                                                         </div>
 
@@ -2145,9 +2340,10 @@ const findVariantLabel = (vid) => {
                                                                                 onChange={(e) =>
                                                                                     setVariantPrices((prev) => ({
                                                                                         ...prev,
-                                                                                        [v.id]: { ...(prev[v.id] || {}), original: e.target.value },
+                                                                                        [v.id]: { ...(prev[v.id] || {}), original: sanitizeDecimalInput(e.target.value) },
                                                                                     }))
                                                                                 }
+                                                                                inputMode="decimal"
                                                                             />
                                                                         </div>
 
@@ -2159,9 +2355,10 @@ const findVariantLabel = (vid) => {
                                                                                 onChange={(e) =>
                                                                                     setVariantPrices((prev) => ({
                                                                                         ...prev,
-                                                                                        [v.id]: { ...(prev[v.id] || {}), purchase: e.target.value },
+                                                                                        [v.id]: { ...(prev[v.id] || {}), purchase: sanitizeDecimalInput(e.target.value) },
                                                                                     }))
                                                                                 }
+                                                                                inputMode="decimal"
                                                                             />
                                                                         </div>
 

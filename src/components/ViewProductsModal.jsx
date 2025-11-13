@@ -119,6 +119,18 @@ export default function ViewProductModal({ open, onClose, product }) {
       return `${currency} ${num.toFixed(2)}`;
     }
   };
+  const formatPackaging = (type, qty) => {
+    if (!type) return "Sold individually";
+    const normalized = String(type).toUpperCase();
+    if (normalized === "PAIR") return "Pairs (2 units)";
+    if (normalized === "UNITS") {
+      return qty ? `${qty} units per set` : "Units (set)";
+    }
+    if (normalized === "PIECES_PER_PACK") {
+      return qty ? `${qty} pcs per pack` : "Pieces per pack";
+    }
+    return normalized.replace(/_/g, " ");
+  };
 
   const card = "rounded-xl border border-gray-200 bg-white shadow-sm";
   const label = "text-xs font-medium text-gray-600";
@@ -296,6 +308,16 @@ export default function ViewProductModal({ open, onClose, product }) {
                                 <div>
                                   <p className={label}>Color</p>
                                   <p className={value}>{p.colorText || "—"}</p>
+                                </div>
+
+                                <div>
+                                  <p className={label}>Packaging</p>
+                                  <p className={value}>
+                                    {formatPackaging(
+                                      p.packagingType,
+                                      p.packagingQuantity
+                                    )}
+                                  </p>
                                 </div>
 
                                 <div>
@@ -506,6 +528,9 @@ export default function ViewProductModal({ open, onClose, product }) {
                                               </div>
                                               <div>{formatPrice(variant.retailPrice)}</div>
                                               <div>{variant.stockOnHand ?? "—"}</div>
+                                            </div>
+                                            <div className="mt-1 text-xs text-gray-600">
+                                              Packaging: {formatPackaging(variant.packagingType, variant.packagingQuantity)}
                                             </div>
                                             <div className="mt-2">
                                               {imgs.length === 0 ? (
