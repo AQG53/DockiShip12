@@ -171,7 +171,7 @@ export default function SuppliersManage() {
           <div className="col-span-2">Product Qty</div>
           <div className="col-span-2">Currency</div>
           <div className="col-span-2">Related products</div>
-          <div className="col-span-2 text-right">Actions</div>
+          <div className="col-span-2 text-center">Actions</div>
         </div>
 
         {/* Body */}
@@ -182,11 +182,11 @@ export default function SuppliersManage() {
         ) : (
           <ul className="divide-y divide-gray-100">
             {rows.map((r) => (
-              <li key={r.id} className="grid grid-cols-12 px-4 py-2.5 text-[13px] text-gray-800 items-center gap-2">
+              <li key={r.id} className="grid grid-cols-12 px-4 py-2.5 text-[13px] text-gray-800 items-center gap-y-2 gap-x-0">
                 {/* Display Name */}
                 <div className="col-span-4 truncate">
                   <button
-                    className="text-left underline text-amber-700 hover:opacity-80"
+                    className="text-left text-amber-700 font-medium hover:opacity-80"
                     title="View supplier"
                     onClick={() => { setViewSupplier(r.raw); setViewOpen(true); }}
                   >
@@ -319,7 +319,7 @@ export default function SuppliersManage() {
 /* ---------- Related Products Dialog (JSX) ---------- */
 function RelatedProductsDialog({ open, onClose, supplier, onUnlinked, canManage = false }) {
   const supplierId = supplier?.id || "";
-  const { data: items = [], isLoading, error } = useSupplierProducts(supplierId, {
+  const { data: items = [], isLoading, error, refetch } = useSupplierProducts(supplierId, {
     enabled: open && !!supplierId,
   });
   const { mutateAsync: unlinkMut, isPending: unlinking } = useUnlinkSupplierProduct({
@@ -349,6 +349,7 @@ function RelatedProductsDialog({ open, onClose, supplier, onUnlinked, canManage 
   const unlink = async (productId) => {
     if (!supplierId) return;
     await unlinkMut({ supplierId, productId });
+    await refetch?.();
   };
 
   // Link products UX (basic search + multi-select)
@@ -384,6 +385,11 @@ function RelatedProductsDialog({ open, onClose, supplier, onUnlinked, canManage 
     });
   };
 
+  const availableProducts = useMemo(() => {
+    const linkedIds = new Set((items || []).map((p) => p.id));
+    return (Array.isArray(allProducts) ? allProducts : []).filter((p) => !linkedIds.has(p.id));
+  }, [allProducts, items]);
+
   const linkSelected = async () => {
     if (!supplierId || selectedIds.size === 0) return;
     setLinking(true);
@@ -392,6 +398,7 @@ function RelatedProductsDialog({ open, onClose, supplier, onUnlinked, canManage 
       toast.success("Linked");
       setSelectedIds(new Set());
       await loadProducts();
+      await refetch?.();
       if (onUnlinked) await onUnlinked(); // reuse to refresh parent list
     } catch (e) {
       toast.error(e?.message || "Failed to link products");
@@ -455,11 +462,13 @@ function RelatedProductsDialog({ open, onClose, supplier, onUnlinked, canManage 
                         </li>
                       ))}
                     </ul>
-                  ) : allProducts.length === 0 ? (
-                    <div className="text-xs text-gray-500">No products.</div>
+                  ) : availableProducts.length === 0 ? (
+                    <div className="text-xs text-gray-500">
+                      {allProducts.length === 0 ? "No products." : "All matching products already linked."}
+                    </div>
                   ) : (
                     <ul className="divide-y divide-gray-100">
-                      {allProducts.map((p) => (
+                      {availableProducts.map((p) => (
                         <li key={p.id} className="flex items-center justify-between py-1.5 text-[13px]">
                           <div className="truncate">
                             <span className="text-gray-900">{p.name}</span>
@@ -489,6 +498,16 @@ function RelatedProductsDialog({ open, onClose, supplier, onUnlinked, canManage 
                   </button>
                 </div>
               </div>
+              )}
+
+              {linking && (
+                <div className="mb-3 text-xs text-gray-600 inline-flex items-center gap-2">
+                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z"></path>
+                  </svg>
+                  Linking…
+                </div>
               )}
 
               {unlinking && (
@@ -549,14 +568,23 @@ function RelatedProductsDialog({ open, onClose, supplier, onUnlinked, canManage 
                               <img
                                 src={src}
                                 alt=""
-                                className="h-12 w-12 rounded-md border border-gray-200 object-cover bg-gray-100"
+                                className="h-12 w-12 rounded-md border border-gray-200 object-contain bg-gray-100"
                                 onError={(e) => {
                                   e.currentTarget.onerror = null;
                                   e.currentTarget.src = IMG_PLACEHOLDER;
                                 }}
                               />
                             </td>
-                            <td className="text-gray-900">{p.name || "—"}</td>
+                            <td className="text-gray-900">
+                              <div className="flex flex-wrap items-baseline gap-2">
+                                <span>{p.name || "—"}</span>
+                                {p.sku && (
+                                  <span className="text-[11px] uppercase tracking-wider text-gray-500">
+                                    {p.sku}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
                             <td className="text-gray-700">{Number.isFinite(p.stock) ? p.stock : "—"}</td>
                             <td className="text-right">
                               {canManage && (
@@ -718,7 +746,7 @@ function ViewSupplierDialog({ open, onClose, supplier }) {
                                   <img
                                     src={src}
                                     alt=""
-                                    className="h-12 w-12 rounded-md border border-gray-200 object-cover bg-gray-100"
+                                    className="h-12 w-12 rounded-md border border-gray-200 object-contain bg-gray-100"
                                     onError={(e) => {
                                       e.currentTarget.onerror = null;
                                       e.currentTarget.src = IMG_PLACEHOLDER;

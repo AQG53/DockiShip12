@@ -406,13 +406,13 @@ export async function listSupplierProducts(supplierId, params = {}) {
   const arr = res?.data?.data ?? res?.data ?? [];
   return (Array.isArray(arr) ? arr : []).map(p => {
     const img0 = Array.isArray(p.images) ? p.images[0] : null;
-    // ensure one leading slash, no doubles
     const rel = (img0?.url || "").replace(/^\/*/, "/");
     return {
       id: p.id,
       name: p.name,
+      sku: p.sku || "",
       stock: Number.isFinite(p.stock) ? p.stock : (p.stock ?? 0),
-      imagePath: rel || null,        // keep as relative path
+      imagePath: rel || null,
     };
   });
 }

@@ -34,11 +34,19 @@ const sanitizeDecimalInput = (value) => {
     if (value === undefined || value === null) return "";
     const cleaned = String(value).replace(/[^0-9.]/g, "");
     if (!cleaned) return "";
+    const hasTrailingDot = cleaned.endsWith(".");
     const parts = cleaned.split(".");
     const head = parts.shift() || "";
     const decimals = parts.join("");
     const safeHead = head || (decimals ? "0" : "");
-    return safeHead + (decimals ? "." + decimals : "");
+    let result = safeHead;
+    if (decimals) {
+        result += "." + decimals;
+    }
+    if (hasTrailingDot && !decimals) {
+        result += ".";
+    }
+    return result;
 };
 
 const sanitizeIntegerInput = (value) => {
@@ -404,15 +412,18 @@ const findVariantLabel = (vid) => {
 
         setWeightMain("");
         setWeightUnit(
-            (enums?.WeightUnit || ["g", "kg", "lb"]).includes("kg") ? "kg"
-                : (enums?.WeightUnit?.[0] || "kg")
+            (enums?.WeightUnit || ["lb", "kg", "g"]).includes("lb") ? "lb"
+                : (enums?.WeightUnit?.[0] || "lb")
         );
         setWeightSub("");
 
         setDimL("");
         setDimW("");
         setDimH("");
-        setDimUnit(enums?.LengthUnit?.[0] || "cm");
+        setDimUnit(
+            (enums?.LengthUnit || ["inch", "cm", "mm"]).includes("inch") ? "inch"
+                : (enums?.LengthUnit?.[0] || "inch")
+        );
 
         setTag(tags[0]);
 
@@ -2404,7 +2415,9 @@ const findVariantLabel = (vid) => {
                                                 <div className="mt-3 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
                                                     {imagePreviews.map((p, idx) => (
                                                         <div key={idx} className="relative group">
-                                                            <img src={p.url} className="h-20 w-20 object-cover rounded-md border border-gray-200" />
+                                                            <div className="h-20 w-full overflow-hidden rounded-md border border-gray-200 bg-gray-100">
+                                                                <img src={p.url} className="h-full w-full object-contain" />
+                                                            </div>
                                                             <button
                                                                 type="button"
                                                                 className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white border border-red-200 text-red-600 rounded-full h-6 w-6 text-xs"
@@ -2423,35 +2436,37 @@ const findVariantLabel = (vid) => {
                                                 <div className="mt-4">
                                                     <p className="text-[12px] text-gray-600 mb-2">Existing Product Images</p>
                                                     <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
-                                                        {productDetail.images
-                                                            .filter(img => {
-                                                                const u = String(img.url || "");
-                                                                const rest = u.split('/uploads/')[1] || '';
-                                                                // product-level images have exactly 2 segments: <tenant-product>/<file>
-                                                                return rest.split('/').length === 2;
-                                                            })
-                                                            .map(img => (
-                                                                <div key={img.id} className="relative group">
-                                                                    <img
-                                                                        src={absImg(img.url)}
-                                                                        className="h-20 w-20 object-cover rounded-md border border-gray-200 bg-gray-100"
-                                                                        onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = IMG_PLACEHOLDER; }}
-                                                                    />
-                                                                    <button
-                                                                        type="button"
-                                                                        className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white border border-red-200 text-red-600 rounded-full h-6 w-6 text-xs"
-                                                                        title="Delete"
-                                                                        onClick={async () => {
-                                                                            try {
-                                                                                await deleteProductImage(productDetail.id, img.id);
-                                                                                await refetchProductDetail();
-                                                                            } catch (e) { console.error(e); }
-                                                                        }}
-                                                                    >
-                                                                        ×
-                                                                    </button>
-                                                                </div>
-                                                            ))}
+                                                                {productDetail.images
+                                                                    .filter(img => {
+                                                                        const u = String(img.url || "");
+                                                                        const rest = u.split('/uploads/')[1] || '';
+                                                                        // product-level images have exactly 2 segments: <tenant-product>/<file>
+                                                                        return rest.split('/').length === 2;
+                                                                    })
+                                                                    .map(img => (
+                                                                        <div key={img.id} className="relative group">
+                                                                            <div className="h-20 w-full overflow-hidden rounded-md border border-gray-200 bg-gray-100">
+                                                                                <img
+                                                                                    src={absImg(img.url)}
+                                                                                    className="h-full w-full object-contain"
+                                                                                    onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = IMG_PLACEHOLDER; }}
+                                                                                />
+                                                                            </div>
+                                                                            <button
+                                                                                type="button"
+                                                                                className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white border border-red-200 text-red-600 rounded-full h-6 w-6 text-xs"
+                                                                                title="Delete"
+                                                                                onClick={async () => {
+                                                                                    try {
+                                                                                        await deleteProductImage(productDetail.id, img.id);
+                                                                                        await refetchProductDetail();
+                                                                                    } catch (e) { console.error(e); }
+                                                                                }}
+                                                                            >
+                                                                                ×
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
                                                     </div>
                                                 </div>
                                             )}
@@ -2475,11 +2490,13 @@ const findVariantLabel = (vid) => {
                                                                     <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
                                                                         {imgs.map(img => (
                                                                             <div key={img.id} className="relative group">
-                                                                                <img
-                                                                                    src={absImg(img.url)}
-                                                                                    className="h-20 w-20 object-cover rounded-md border border-gray-200 bg-gray-100"
-                                                                                    onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = IMG_PLACEHOLDER; }}
-                                                                                />
+                                                                                <div className="h-20 w-full overflow-hidden rounded-md border border-gray-200 bg-gray-100">
+                                                                                    <img
+                                                                                        src={absImg(img.url)}
+                                                                                        className="h-full w-full object-contain"
+                                                                                        onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = IMG_PLACEHOLDER; }}
+                                                                                    />
+                                                                                </div>
                                                                                 <button
                                                                                     type="button"
                                                                                     className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white border border-red-200 text-red-600 rounded-full h-6 w-6 text-xs"

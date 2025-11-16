@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useState, useEffect } from "react";
 import {
   Dialog,
   Transition,
@@ -152,6 +152,12 @@ export default function ViewProductModal({ open, onClose, product }) {
       ...base.map((s) => ({ value: s.id, label: s.companyName || s.id })),
     ];
   }, [supplierRows]);
+
+  useEffect(() => {
+    if (open) {
+      setTab("details");
+    }
+  }, [open]);
 
   return (
     <Transition appear show={open} as={Fragment}>
@@ -595,70 +601,65 @@ export default function ViewProductModal({ open, onClose, product }) {
                               </div>
                             ) : (
                               <div className="rounded-lg border border-gray-200 overflow-hidden">
-                                <div className="grid grid-cols-[1.2fr_1.4fr_1fr_0.7fr_1fr] bg-gray-50 text-[12px] font-semibold text-gray-700">
-                                  <div className="px-3 py-2">
-                                    Product Name
-                                  </div>
-                                  <div className="px-3 py-2">
-                                    Marketplace
-                                  </div>
-                                  <div className="px-3 py-2">SKU</div>
-                                  <div className="px-3 py-2 text-center">
-                                    Units
-                                  </div>
-                                  <div className="px-3 py-2">Variant</div>
-                                </div>
-                                <div className="divide-y divide-gray-100">
-                                  {listings.map((l) => {
-                                    const provider =
-                                      l?.channel?.provider ??
-                                      l?.provider ??
-                                      "";
-                                    const channelName =
-                                      l?.channel?.name ??
-                                      l?.channelName ??
-                                      "";
-                                    const sku =
-                                      l?.sku ?? l?.externalSku ?? "";
-                                    const units = Number.isFinite(l?.units)
-                                      ? l.units
-                                      : l?.units ?? "";
-                                    const variantId =
-                                      l?.productVariantId ??
-                                      l?.variantId ??
-                                      null;
-                                    return (
-                                      <div
-                                        key={
-                                          l.id ||
-                                          provider + channelName + sku
-                                        }
-                                        className="grid grid-cols-[1.2fr_1.4fr_1fr_0.7fr_1fr] bg-white"
-                                      >
-                                        <div className="px-3 py-2">
-                                          {provider || "—"}
-                                        </div>
-                                        <div className="px-3 py-2">
-                                          {channelName || "—"}
-                                        </div>
-                                        <div className="px-3 py-2 font-mono text-[13px]">
-                                          {sku || "—"}
-                                        </div>
-                                        <div className="px-3 py-2 text-center">
-                                          {units}
-                                        </div>
-                                        <div className="px-3 py-2">
-                                          {variantList.find(
-                                            (v) => v.id === variantId
-                                          )?.sku ||
-                                            (variantId
-                                              ? String(variantId)
-                                              : "—")}
-                                        </div>
-                                      </div>
+                              <div className="grid grid-cols-[minmax(0,1.2fr)_1.4fr_1fr_0.7fr_minmax(0,1fr)] bg-gray-50 text-sm font-semibold text-gray-700">
+                                <div className="px-3 py-2">Product Name</div>
+                                <div className="px-3 py-2">Marketplace</div>
+                                <div className="px-3 py-2">SKU</div>
+                                <div className="px-3 py-2 text-center">Units</div>
+                                <div className="px-3 py-2">Variant SKU</div>
+                              </div>
+                              <div className="divide-y divide-gray-100">
+                                {listings.map((l) => {
+                                  const provider =
+                                    l?.channel?.provider ??
+                                    l?.provider ??
+                                    "";
+                                  const channelName =
+                                    l?.channel?.name ??
+                                    l?.channelName ??
+                                    "";
+                                  const units = Number.isFinite(l?.units)
+                                    ? l.units
+                                    : l?.units ?? "";
+                                  const variantId =
+                                    l?.productVariantId ??
+                                    l?.variantId ??
+                                    null;
+                                  const marketplaceSku =
+                                    (l?.externalSku || "").trim();
+                                  const resolvedVariant =
+                                    variantList.find(
+                                      (v) => v.id === variantId
                                     );
-                                  })}
-                                </div>
+                                  return (
+                                    <div
+                                      key={
+                                        l.id ||
+                                        provider +
+                                          channelName +
+                                          marketplaceSku
+                                      }
+                                      className="grid grid-cols-[minmax(0,1.2fr)_1.4fr_1fr_0.7fr_minmax(0,1fr)] bg-white text-sm text-gray-900"
+                                    >
+                                      <div className="px-3 py-2 font-medium">
+                                        {provider || "—"}
+                                      </div>
+                                      <div className="px-3 py-2 font-medium">
+                                        {channelName || "—"}
+                                      </div>
+                                      <div className="px-3 py-2 font-medium whitespace-normal break-words">
+                                        {marketplaceSku || "—"}
+                                      </div>
+                                      <div className="px-3 py-2 text-center font-medium">
+                                        {units}
+                                      </div>
+                                      <div className="px-3 py-2 font-medium whitespace-normal break-words">
+                                        {resolvedVariant?.sku || "—"}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
                               </div>
                             )}
                           </div>
@@ -731,17 +732,19 @@ export default function ViewProductModal({ open, onClose, product }) {
 
 function Thumb({ img, onDelete, absImg, placeholder }) {
   return (
-    <div className="relative group">
+    <div className="relative group w-full max-w-[180px]">
       <a href={absImg(img.url)} target="_blank" rel="noreferrer">
-        <img
-          src={absImg(img.url)}
-          alt={img.alt || "Image"}
-          className="h-20 w-20 object-cover rounded-md border border-gray-200 bg-gray-100"
-          onError={(e) => {
-            e.currentTarget.onerror = null;
-            e.currentTarget.src = placeholder;
-          }}
-        />
+        <div className="h-32 w-full overflow-hidden rounded-md border border-gray-200 bg-gray-100">
+          <img
+            src={absImg(img.url)}
+            alt={img.alt || "Image"}
+            className="h-full w-full object-contain"
+            onError={(e) => {
+              e.currentTarget.onerror = null;
+              e.currentTarget.src = placeholder;
+            }}
+          />
+        </div>
       </a>
       <button
         onClick={onDelete}

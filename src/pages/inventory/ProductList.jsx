@@ -195,7 +195,7 @@ export default function ProductList() {
                   <img
                     src={absImg(r.imageUrl)}
                     alt=""
-                    className="h-10 w-10 object-cover rounded-md border border-gray-200 bg-gray-100"
+                    className="h-10 w-10 object-contain rounded-md border border-gray-200 bg-gray-100"
                     onError={(e) => {
                       e.currentTarget.onerror = null;
                       e.currentTarget.src = IMG_PLACEHOLDER;

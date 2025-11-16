@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useState, useRef } from "react";
 import { Dialog, Transition, TransitionChild, DialogPanel, Listbox, ListboxButton, ListboxOption, ListboxOptions } from "@headlessui/react";
 import { Building2, MapPin, Mail, Phone, Globe2, Check, ChevronDown } from "lucide-react";
 import toast from "react-hot-toast";
@@ -41,6 +41,7 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
   const [countries, setCountries] = useState(["Select"]);
   const [countryLoading, setCountryLoading] = useState(false);
   const [zipLoading, setZipLoading] = useState(false);
+  const contactsRef = useRef(null);
 
   const currencies = [
     { value: 'USD', label: 'US Dollar ($)' },
@@ -129,6 +130,13 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
   const ghostBtn =
     "inline-flex items-center justify-center h-9 px-3 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-100";
 
+  const adjustContactsHeight = () => {
+    const el = contactsRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  };
+
   const handleChange = (key, value) => {
     let next = value;
     if (key === "zipCode") {
@@ -139,24 +147,27 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
     setForm((prev) => ({ ...prev, [key]: next }));
   };
 
-  // Free ZIP lookup using Zippopotam.us with timeout + HTTP(S) fallback
-  async function lookupPostal(country, postal) {
+  useEffect(() => {
+    adjustContactsHeight();
+  }, [form.contacts]);
+
+  const fetchWithTimeout = async (url, ms = 6000) => {
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), ms);
+    try {
+      const res = await fetch(url, { signal: ctrl.signal });
+      return res;
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+
+  async function lookupPostalByCountry(country, postal) {
     if (!country || !postal) return null;
     const cc = String(country).trim().toUpperCase();
     const pc = String(postal).trim();
+    if (!cc || !pc) return null;
 
-    const fetchWithTimeout = async (url, ms = 6000) => {
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), ms);
-      try {
-        const res = await fetch(url, { signal: ctrl.signal });
-        return res;
-      } finally {
-        clearTimeout(t);
-      }
-    };
-
-    // try HTTPS first, then HTTP
     const urls = [
       `https://api.zippopotam.us/${encodeURIComponent(cc)}/${encodeURIComponent(pc)}`,
       `http://api.zippopotam.us/${encodeURIComponent(cc)}/${encodeURIComponent(pc)}`,
@@ -165,7 +176,7 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
     for (const url of urls) {
       try {
         const res = await fetchWithTimeout(url, 6000);
-        if (!res || !res.ok) continue;
+        if (!res?.ok) continue;
         const data = await res.json();
         const p = Array.isArray(data?.places) ? data.places[0] : null;
         if (!p) continue;
@@ -174,23 +185,78 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
         if (!city && !state) continue;
         return { city, state };
       } catch (_) {
-        // try next url
         continue;
       }
     }
     return null;
   }
 
+  async function lookupPostalByGeo(postal) {
+    if (!postal) return null;
+    const pc = String(postal).trim();
+    if (!pc) return null;
+    const params = new URLSearchParams({
+      format: "json",
+      addressdetails: "1",
+      limit: "1",
+      q: pc,
+    });
+    try {
+      const res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?${params}`, 6000);
+      if (!res?.ok) return null;
+      const data = await res.json();
+      const first = Array.isArray(data) && data.length ? data[0] : null;
+      if (!first) return null;
+      const address = first.address || {};
+      const city =
+        address.city ||
+        address.town ||
+        address.village ||
+        address.hamlet ||
+        address.county ||
+        "";
+      const state = address.state || address.region || address.state_district || "";
+      const countryCode = address.country_code ? address.country_code.toUpperCase() : "";
+      if (!city && !state && !countryCode) return null;
+      return { city, state, countryCode };
+    } catch (e) {
+      console.error("Geolocation lookup failed", e);
+      return null;
+    }
+  }
+
   const handleZipBlur = async () => {
-    if (!form.zipCode || !form.country || form.country === "Select") return;
+    if (!form.zipCode) return;
     setZipLoading(true);
     try {
-      const res = await lookupPostal(form.country, form.zipCode);
-      if (!res) return; // silent fail
+      let city = "";
+      let state = "";
+      let countryCode = "";
+
+      const geoResult = await lookupPostalByGeo(form.zipCode);
+      if (geoResult) {
+        city = geoResult.city || "";
+        state = geoResult.state || "";
+        countryCode = geoResult.countryCode || "";
+      }
+
+      const hasManualCountry = !!form.country && form.country !== "Select";
+      if ((!city || !state) && hasManualCountry) {
+        const countryResult = await lookupPostalByCountry(form.country, form.zipCode);
+        if (countryResult) {
+          city = city || countryResult.city || "";
+          state = state || countryResult.state || "";
+          countryCode = countryCode || form.country.toUpperCase();
+        }
+      }
+
+      if (!city && !state && !countryCode) return;
+
       setForm((prev) => ({
         ...prev,
-        city: res.city || prev.city,
-        state: res.state || prev.state,
+        city: city || prev.city,
+        state: state || prev.state,
+        country: countryCode || prev.country,
       }));
     } finally {
       setZipLoading(false);
@@ -224,7 +290,6 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
     try {
       if (isEdit) {
         const payload = { ...form };
-        delete payload.contacts;
         if (payload.country === "Select") delete payload.country;
         if (!payload.country) delete payload.country;
         const res = await updateMutate({ id: supplier.id, payload });
@@ -232,7 +297,6 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
         onSave?.(res);
       } else {
         const payload = { ...form };
-        delete payload.contacts;
         if (payload.country === "Select") delete payload.country;
         if (!payload.country) delete payload.country;
         const res = await createMutate(payload);
@@ -311,8 +375,10 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
                       </Field>
 
                       <Field className="col-span-12 md:col-span-6" label="Contacts">
-                        <input
-                          className={input}
+                        <textarea
+                          ref={contactsRef}
+                          rows={1}
+                          className={`${input} min-h-[34px] resize-none`}
                           placeholder="Please enter Contacts"
                           value={form.contacts}
                           onChange={(e) => handleChange("contacts", e.target.value)}
@@ -351,7 +417,22 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
                       <h3 className="text-sm font-semibold text-gray-900">Address information</h3>
                     </div>
                     <div className="p-4 grid grid-cols-12 gap-3">
-                      <Field className="col-span-12 md:col-span-6" label="Country *">
+                      <Field className="col-span-12 md:col-span-3" label="Zip Code *">
+                        <input
+                          className={input}
+                          placeholder="Please enter Zip Code"
+                          value={form.zipCode}
+                          onChange={(e) => handleChange("zipCode", e.target.value)}
+                          onBlur={handleZipBlur}
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                        />
+                        {zipLoading && (
+                          <div className="text-[11px] text-gray-500 mt-1">Looking up city and state…</div>
+                        )}
+                      </Field>
+
+                      <Field className="col-span-12 md:col-span-3" label="Country *">
                         <SelectCompact
                           value={form.country || "Select"}
                           onChange={(v) => handleChange("country", v === "Select" ? "" : v)}
@@ -366,6 +447,24 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
                         {form.country && !countryValid && (
                           <div className="text-[11px] text-red-600 mt-1">Country must be ISO two-letter code</div>
                         )}
+                      </Field>
+
+                      <Field className="col-span-12 md:col-span-3" label="City *">
+                        <input
+                          className={input}
+                          placeholder="Please enter City"
+                          value={form.city}
+                          onChange={(e) => handleChange("city", e.target.value)}
+                        />
+                      </Field>
+
+                      <Field className="col-span-12 md:col-span-3" label="State *">
+                        <input
+                          className={input}
+                          placeholder="Please enter State"
+                          value={form.state}
+                          onChange={(e) => handleChange("state", e.target.value)}
+                        />
                       </Field>
 
                       <Field className="col-span-12" label="Address1 *">
@@ -383,39 +482,6 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
                           placeholder="Please enter Address2"
                           value={form.address2}
                           onChange={(e) => handleChange("address2", e.target.value)}
-                        />
-                      </Field>
-
-                      <Field className="col-span-12 md:col-span-4" label="Zip Code *">
-                        <input
-                          className={input}
-                          placeholder="Please enter Zip Code"
-                          value={form.zipCode}
-                          onChange={(e) => handleChange("zipCode", e.target.value)}
-                          onBlur={handleZipBlur}
-                          inputMode="numeric"
-                          pattern="[0-9]*"
-                        />
-                        {zipLoading && (
-                          <div className="text-[11px] text-gray-500 mt-1">Looking up city and state…</div>
-                        )}
-                      </Field>
-
-                      <Field className="col-span-12 md:col-span-4" label="City *">
-                        <input
-                          className={input}
-                          placeholder="Please enter City"
-                          value={form.city}
-                          onChange={(e) => handleChange("city", e.target.value)}
-                        />
-                      </Field>
-
-                      <Field className="col-span-12 md:col-span-4" label="State *">
-                        <input
-                          className={input}
-                          placeholder="Please enter State"
-                          value={form.state}
-                          onChange={(e) => handleChange("state", e.target.value)}
                         />
                       </Field>
 
