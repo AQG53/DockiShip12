@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Pencil, Trash2, Loader } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader, Users, Search } from "lucide-react";
 import { NoData } from "../../components/NoData.jsx";
 import { AddMemberModal } from "../../components/AddMemberModal";
 import { useMembers, useDeleteMember } from "../../hooks/useMembers"
@@ -13,6 +13,7 @@ export default function StaffSettings() {
     const [editingMember, setEditingMember] = useState(null);
     const [confirmDelete, setConfirmDelete] = useState(null);
     const { mutate: deleteMember, isPending: isDeleting } = useDeleteMember();
+    const [search, setSearch] = useState("");
 
     const openAddModal = () => {
         setEditingMember(null);
@@ -60,25 +61,44 @@ export default function StaffSettings() {
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between">
-                <h1 className="text-xl font-semibold">Staff Settings</h1>
-                <button
-                    onClick={openAddModal}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-[#ffd026] text-blue-600 text-sm font-bold hover:opacity-90 cursor-pointer"
-                >
-                    <Plus size={16} />
-                    Add Member
-                </button>
+                <div className="flex items-center gap-3">
+                    <div className="h-9 w-9 rounded-md bg-amber-100 border border-gray-200 flex items-center justify-center">
+                        <Users size={18} className="text-amber-700" />
+                    </div>
+                    <div>
+                        <h1 className="text-lg font-semibold text-gray-900">Staff Settings</h1>
+                        <p className="text-sm text-gray-500">Manage team members and permissions</p>
+                    </div>
+                </div>
             </div>
 
-            <div className="rounded-xl border border-gray-200 bg-white">
-                <div className="grid grid-cols-7 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700">
+            <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-gray-200 flex items-center justify-between">
+                    <div className="relative">
+                        <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
+                        <input
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder="Search members"
+                            className="h-9 rounded-lg border border-gray-300 px-3 pl-8 text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10 w-[240px]"
+                        />
+                    </div>
+                    <button
+                        onClick={openAddModal}
+                        className="inline-flex items-center gap-2 rounded-lg bg-[#ffd026] px-4 py-2 text-sm font-semibold text-blue-700 hover:opacity-90"
+                    >
+                        <Plus size={16} />
+                        Add Member
+                    </button>
+                </div>
+                <div className="grid grid-cols-[1fr_1.5fr_1fr_0.8fr_0.6fr_1fr_100px] bg-gray-50 px-4 py-3 text-xs font-semibold text-gray-700">
                     <div>Name</div>
                     <div>Email</div>
                     <div>Roles</div>
                     <div>Status</div>
                     <div>Active</div>
                     <div>Created At</div>
-                    <div>Action</div>
+                    <div className="text-center">Action</div>
                 </div>
 
                 {isLoading ? (
@@ -106,7 +126,7 @@ export default function StaffSettings() {
                             return (
                                 <li
                                     key={m.id || m.email}
-                                    className="grid grid-cols-7 px-4 py-3 text-sm text-gray-700 items-start gap-2"
+                                    className="grid grid-cols-[1fr_1.5fr_1fr_0.8fr_0.6fr_1fr_100px] px-4 py-3 text-[13px] text-gray-700 items-center gap-2 hover:bg-gray-50 transition-colors"
                                 >
                                     {/* Name */}
                                     <div className="break-words font-medium whitespace-pre-line">
@@ -147,19 +167,19 @@ export default function StaffSettings() {
                                         {formatDate(m.createdAt)}
                                     </div>
 
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center justify-center gap-1">
                                         <button
                                             onClick={() => handleEdit(m)}
-                                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-gray-200 hover:bg-gray-50 cursor-pointer"
+                                            className="rounded-md border border-gray-300 px-1.5 py-0.5 text-[11px] font-medium hover:bg-gray-50 text-gray-700"
                                         >
-                                            <Pencil size={14} /> Edit
+                                            Edit
                                         </button>
                                         <button
                                             onClick={() => handleDelete(m)}
                                             disabled={isDeleting}
-                                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-gray-200 hover:bg-gray-50 text-red-600 disabled:opacity-50 cursor-pointer"
+                                            className="rounded-md border border-red-200 px-1.5 py-0.5 text-[11px] font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
                                         >
-                                            <Trash2 size={14} /> Delete
+                                            Delete
                                         </button>
                                     </div>
                                 </li>

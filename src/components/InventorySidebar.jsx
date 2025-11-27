@@ -1,6 +1,6 @@
 import { NavLink, useLocation } from "react-router";
 import { Disclosure } from "@headlessui/react";
-import { Boxes, Package, RefreshCcw, Store, ChevronDown } from "lucide-react";
+import { Package, ChevronDown, MapPin } from "lucide-react";
 import { useState, useEffect } from "react";
 
 const sections = [
@@ -10,6 +10,14 @@ const sections = [
     label: "Products",
     items: [
       { label: "Listing", to: "/inventory/products/simple" }
+    ],
+  },
+  {
+    id: "warehouses",
+    icon: MapPin,
+    label: "Warehouse",
+    items: [
+      { label: "Listing", to: "/inventory/warehouses" },
     ],
   },
   // {
@@ -46,14 +54,30 @@ const sections = [
 export default function InventorySidebar() {
   const { pathname } = useLocation();
 
-  // open only ONE section at a time; default-open "inventory"
-  const [openId, setOpenId] = useState("inventory");
+  const [openSections, setOpenSections] = useState(() => new Set(sections.map((s) => s.id)));
 
-  // keep the parent section open when navigating to a sub-route
   useEffect(() => {
-    const match = sections.find((s) => s.items.some(it => pathname.startsWith(it.to)));
-    if (match) setOpenId(match.id);
+    const match = sections.find((s) => s.items.some((it) => pathname.startsWith(it.to)));
+    if (!match) return;
+    setOpenSections((prev) => {
+      if (prev.has(match.id)) return prev;
+      const next = new Set(prev);
+      next.add(match.id);
+      return next;
+    });
   }, [pathname]);
+
+  const toggleSection = (id) => {
+    setOpenSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
 
   return (
     <aside className="w-64 shrink-0 border-r border-gray-200 bg-[#f6f7fb] h-[calc(100vh-64px)] sticky top-16">
@@ -65,14 +89,14 @@ export default function InventorySidebar() {
         <nav className="space-y-2">
           {sections.map((sec) => {
             const Icon = sec.icon;
-            const isOpen = openId === sec.id;
+            const isOpen = openSections.has(sec.id);
             return (
               <Disclosure key={sec.id} as="div">
                 {() => (
                   <>
                     <button
                       className="w-full flex items-center justify-between px-3 py-2 rounded-xl"
-                      onClick={() => setOpenId(isOpen ? "" : sec.id)}
+                      onClick={() => toggleSection(sec.id)}
                     >
                       <span className="flex items-center gap-3 text-sm text-gray-800">
                         <Icon size={18} className="opacity-80" />

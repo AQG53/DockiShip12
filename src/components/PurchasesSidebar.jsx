@@ -1,7 +1,8 @@
 import { NavLink, useLocation } from "react-router";
 import { Disclosure } from "@headlessui/react";
-import { Boxes, Package, RefreshCcw, Store, ChevronDown, User2, ShoppingBag } from "lucide-react";
+import { ChevronDown, User2, ShoppingBag } from "lucide-react";
 import { useState, useEffect } from "react";
+import { useAuthCheck } from "../hooks/useAuthCheck";
 
 const sections = [
   {
@@ -9,34 +10,81 @@ const sections = [
     icon: User2,
     label: "Manage Suppliers",
     items: [
-      { label: "Supplier",  to: "/purchases/suppliers/manage" },
+      { label: "Supplier", to: "/purchases/suppliers/manage" },
     ],
   },
   {
-    id: "purchases",
+    id: "purchase-orders",
     icon: ShoppingBag,
-    label: "Purchases",
+    label: "Purchase Orders",
     items: [
-      { label: "To Purchases", to: "/purchases/to-purchase" },
-      { label: "In Transit", to: "/purchases/in-transit" },
-      { label: "Partial Received",to: "/purchases/partial-received" },
-      { label: "Completed", to: "/purchases/completed" },
-      { label: "Voided", to: "/purchases/voided" },
+      { label: "To Purchase", to: "/purchases/to-purchase?status=to_purchase" },
+      { label: "In Transit", to: "/purchases/to-purchase?status=in_transit" },
+      { label: "Partially Received", to: "/purchases/to-purchase?status=partially_received" },
+      { label: "Received", to: "/purchases/to-purchase?status=received" },
+      { label: "Canceled", to: "/purchases/to-purchase?status=canceled" },
     ],
   }
 ];
 
-export default function InventorySidebar() {
-  const { pathname } = useLocation();
+export default function PurchasesSidebar() {
+  const location = useLocation();
+  const { pathname, search } = location;
+  const fullPath = pathname + search;
+  const { data: auth } = useAuthCheck({ refetchOnWindowFocus: false });
+  const perms = auth?.perms || [];
 
-  // open only ONE section at a time; default-open "inventory"
-  const [openId, setOpenId] = useState("purchases");
+  const [openSections, setOpenSections] = useState(() => new Set(sections.map((s) => s.id)));
 
-  // keep the parent section open when navigating to a sub-route
+  const filteredSections = sections.filter((sec) => {
+    if (sec.id === "suppliers") return perms.includes("suppliers.read");
+    if (sec.id === "purchase-orders") return perms.includes("purchases.po.read");
+    return true;
+  });
+
   useEffect(() => {
-    const match = sections.find((s) => s.items.some(it => pathname.startsWith(it.to)));
-    if (match) setOpenId(match.id);
-  }, [pathname]);
+    const match = filteredSections.find((s) => s.items.some((it) => {
+      // If item has query params, match full path
+      if (it.to.includes("?")) {
+        return fullPath === it.to;
+      }
+      // Otherwise match pathname start (for sub-routes) but ensure we don't match if current url has query params and item doesn't
+      // Actually for "All", we might want it to be active only if no query param?
+      // The user said "rename it to All", usually "All" implies no filter.
+      // If I am at /purchases/to-purchase?status=sent, "All" (/purchases/to-purchase) should probably NOT be active.
+      // So exact match for query params is important.
+
+      // If the item path has no query, but current location has query, they are different.
+      if (search && !it.to.includes("?")) {
+        // Exception: if the item path is a prefix of pathname? 
+        // But here all are under /purchases/to-purchase.
+        // Let's keep it simple: strict match for this section.
+        return pathname === it.to && search === "";
+      }
+
+      return pathname.startsWith(it.to);
+    }));
+
+    if (!match) return;
+    setOpenSections((prev) => {
+      if (prev.has(match.id)) return prev;
+      const next = new Set(prev);
+      next.add(match.id);
+      return next;
+    });
+  }, [pathname, search, fullPath, filteredSections]);
+
+  const toggleSection = (id) => {
+    setOpenSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
 
   return (
     <aside className="w-64 shrink-0 border-r border-gray-200 bg-[#f6f7fb]">
@@ -46,16 +94,16 @@ export default function InventorySidebar() {
         </h2>
 
         <nav className="space-y-2">
-          {sections.map((sec) => {
+          {filteredSections.map((sec) => {
             const Icon = sec.icon;
-            const isOpen = openId === sec.id;
+            const isOpen = openSections.has(sec.id);
             return (
               <Disclosure key={sec.id} as="div">
                 {() => (
                   <>
                     <button
                       className="w-full flex items-center justify-between px-3 py-2 rounded-xl"
-                      onClick={() => setOpenId(isOpen ? "" : sec.id)}
+                      onClick={() => toggleSection(sec.id)}
                     >
                       <span className="flex items-center gap-3 text-sm text-gray-800">
                         <Icon size={18} className="opacity-80" />
@@ -70,14 +118,18 @@ export default function InventorySidebar() {
                           <NavLink
                             key={it.to}
                             to={it.to}
-                            className={({ isActive }) =>
-                              [
+                            className={() => {
+                              // Custom active logic because NavLink default ignores query params by default or behaves strictly
+                              // We want exact match including query params
+                              const isActive = fullPath === it.to || (it.to === "/purchases/to-purchase" && fullPath === "/purchases/to-purchase");
+
+                              return [
                                 "block rounded-lg px-3 py-2 text-sm",
                                 isActive
                                   ? "text-blue-600 bg-yellow-100 border-l-4 border-blue-500"
                                   : "text-gray-700 hover:bg-amber-50"
-                              ].join(" ")
-                            }
+                              ].join(" ");
+                            }}
                           >
                             {it.label}
                           </NavLink>

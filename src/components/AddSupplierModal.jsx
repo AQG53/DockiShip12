@@ -1,8 +1,10 @@
 import { Fragment, useEffect, useState, useRef } from "react";
-import { Dialog, Transition, TransitionChild, DialogPanel, Listbox, ListboxButton, ListboxOption, ListboxOptions } from "@headlessui/react";
-import { Building2, MapPin, Mail, Phone, Globe2, Check, ChevronDown } from "lucide-react";
+import { Dialog, Transition, TransitionChild, DialogPanel } from "@headlessui/react";
+import { Building2, MapPin, Mail, Phone, Globe2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useCreateSupplier, useUpdateSupplier } from "../hooks/useSuppliers";
+import SelectCompact from "./SelectCompact";
+import { useCountryOptions } from "../hooks/useCountryOptions";
 
 const sanitizePostalInput = (value) => {
   if (value === undefined || value === null) return "";
@@ -38,8 +40,7 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
   });
 
   const [saving, setSaving] = useState(false);
-  const [countries, setCountries] = useState(["Select"]);
-  const [countryLoading, setCountryLoading] = useState(false);
+  const { countries, loading: countryLoading } = useCountryOptions();
   const [zipLoading, setZipLoading] = useState(false);
   const contactsRef = useRef(null);
 
@@ -95,31 +96,7 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
     }
   }, [open, supplier]);
 
-  // Load country list when modal opens (searchable select)
-  useEffect(() => {
-    let aborted = false;
-    async function loadCountryCodes() {
-      try {
-        setCountryLoading(true);
-        const res = await fetch("https://restcountries.com/v3.1/all?fields=cca2,name");
-        const data = await res.json();
-        if (aborted) return;
-        const items = Array.isArray(data)
-          ? data
-              .map((c) => ({ value: (c?.cca2 || '').toUpperCase(), label: c?.name?.common || c?.cca2 || '' }))
-              .filter((x) => x.value && x.label)
-              .sort((a, b) => a.label.localeCompare(b.label))
-          : [];
-        setCountries(["Select", ...items]);
-      } catch (e) {
-        console.error("Failed to load country codes", e);
-      } finally {
-        if (!aborted) setCountryLoading(false);
-      }
-    }
-    if (open && countries.length <= 1) loadCountryCodes();
-    return () => { aborted = true; };
-  }, [open]);
+  // Countries now supplied by shared hook
 
   const input =
     "h-8 w-full rounded-lg border border-gray-300 bg-white px-2 text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10";
@@ -540,95 +517,5 @@ function Field({ label, children, className = "" }) {
       )}
       {children}
     </div>
-  );
-}
-
-function SelectCompact({
-  value,
-  onChange,
-  options,
-  buttonClassName = "",
-  renderOption,
-  disabled = false,
-  filterable = false,
-}) {
-  const list = Array.isArray(options) ? options : [];
-  const getOptValue = (opt) => (typeof opt === "string" ? opt : opt?.value ?? "");
-  const getOptLabel = (opt) => (typeof opt === "string" ? opt : opt?.label ?? getOptValue(opt));
-
-  const currentLabel = (() => {
-    if (value === "Select") return "Select";
-    const found = list.find((opt) => (typeof opt === "string" ? opt === value : opt?.value === value));
-    if (!found) return String(value ?? "");
-    return getOptLabel(found);
-  })();
-
-  const [query, setQuery] = useState("");
-  const filtered = !filterable || !query
-    ? list
-    : list.filter((opt) => String(getOptLabel(opt)).toLowerCase().includes(query.toLowerCase()));
-
-  return (
-    <Listbox value={value} onChange={(val) => { onChange(val); setQuery(""); }} disabled={disabled}>
-      <div className="relative">
-        <ListboxButton
-          onClick={() => setQuery("")}
-          className={`relative w-full h-8 rounded-lg border border-gray-300 bg-white pl-2 pr-7 text-left text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10 ${disabled ? "opacity-60 cursor-not-allowed" : ""} ${buttonClassName}`}
-        >
-          <span className="block truncate">{currentLabel}</span>
-          <span className="pointer-events-none absolute inset-y-0 right-1.5 flex items-center text-gray-500">
-            <ChevronDown size={14} />
-          </span>
-        </ListboxButton>
-
-        <Transition
-          as={Fragment}
-          enter="transition ease-out duration-100"
-          enterFrom="transform opacity-0 scale-95"
-          enterTo="transform opacity-100 scale-100"
-          leave="transition ease-in duration-75"
-          leaveFrom="opacity-100 scale-100"
-          leaveTo="opacity-0 scale-95"
-        >
-          <ListboxOptions className="absolute mb-1 z-[200] max-h-56 w-full overflow-auto rounded-xl border border-gray-200 bg-white py-1 text-[12px] shadow-lg focus:outline-none">
-            {filterable && (
-              <div className="px-2 pb-1 sticky top-0 bg-white">
-                <input
-                  type="text"
-                  placeholder="Search..."
-                  className="w-full h-7 rounded-md border border-gray-300 px-2 text-[12px]"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              </div>
-            )}
-            {filtered.map((opt) => {
-              const val = getOptValue(opt);
-              const lab = getOptLabel(opt);
-              return (
-                <ListboxOption
-                  key={String(val || lab)}
-                  value={val}
-                  className={({ active }) => `cursor-pointer select-none px-2 py-1 ${active ? "bg-gray-100 text-gray-900" : "text-gray-800"}`}
-                >
-                  {({ selected }) => (
-                    <div className="flex items-center gap-2">
-                      {selected ? (
-                        <Check size={14} className="text-amber-700" />
-                      ) : (
-                        <span className="w-[14px]" />
-                      )}
-                      <span className="block truncate">{renderOption ? renderOption(opt) : lab}</span>
-                    </div>
-                  )}
-                </ListboxOption>
-              );
-            })}
-          </ListboxOptions>
-        </Transition>
-      </div>
-    </Listbox>
   );
 }

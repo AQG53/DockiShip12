@@ -181,15 +181,15 @@ export async function assignRolesToUser(userId, roleIds) {
 }
 
 export async function requestPasswordReset({ email }) {
-  const body =  { email };
+  const body = { email };
   const res = await axiosInstance.post("/auth/password/request", body, {
     headers: { Authorization: undefined, "X-Tenant-ID": undefined },
   });
   return res.data;
 }
 
-export async function resetPassword({token, newPassword}) {
-  const body = {token, newPassword};
+export async function resetPassword({ token, newPassword }) {
+  const body = { token, newPassword };
   const res = await axiosInstance.post("/auth/password/reset", body, {
     headers: { Authorization: undefined, "X-Tenant-ID": undefined },
   });
@@ -216,7 +216,7 @@ export async function deleteUser(userId) {
 }
 
 export async function deleteRole(roleId) {
-  if(!roleId) throw new Error("Missing roleId");
+  if (!roleId) throw new Error("Missing roleId");
   const res = await axiosInstance.delete(`/roles/${roleId}`);
   return res?.data?.ok === true;
 }
@@ -227,7 +227,7 @@ export async function updateMyProfile({ fullName, phone, country }) {
   try {
     const u = raw ? JSON.parse(raw) : null;
     userId = u?.id || u?.userId || null;
-  } catch {}
+  } catch { }
 
   if (!userId) throw new Error('No current user');
 
@@ -247,7 +247,7 @@ export async function updateTenant({ name, description, currency, timezone }) {
     name,
     description,
     currency,
-    timezone, 
+    timezone,
   });
   return res.data?.data ?? res.data ?? {};
 }
@@ -270,14 +270,15 @@ export async function acceptInvite({ token }) {
   return res?.data ?? {};
 }
 
-export async function listProducts({ page, perPage, search, status } = {}) {
+export async function listProducts({ page, perPage, search, status, supplierId } = {}) {
   const params = {};
   if (page != null) params.page = page;
   if (perPage != null) params.perPage = perPage;
   if (search) params.search = search;
   if (status) params.status = status;
+  if (supplierId) params.supplierId = supplierId;
 
-  const res = await axiosInstance.get("/products");
+  const res = await axiosInstance.get("/products", { params });
   const payload = res?.data ?? {};
   const inner = payload?.data ?? payload;
 
@@ -383,6 +384,79 @@ export async function archiveSupplier(id) {
   return res?.data?.ok === true || res?.status === 200 || res?.status === 204;
 }
 
+// Warehouses
+// =====================
+export async function listWarehouses() {
+  const res = await axiosInstance.get("/warehouses");
+  const payload = res?.data ?? {};
+  const rows = payload?.data ?? payload ?? [];
+  return Array.isArray(rows) ? rows : [];
+}
+
+export async function createWarehouse(payload) {
+  const res = await axiosInstance.post("/warehouses", payload);
+  return res?.data?.data ?? res?.data ?? {};
+}
+
+export async function updateWarehouse(id, payload) {
+  if (!id) throw new Error("Missing warehouse id");
+  const res = await axiosInstance.patch(`/warehouses/${id}`, payload);
+  return res?.data?.data ?? res?.data ?? {};
+}
+
+export async function archiveWarehouse(id) {
+  if (!id) throw new Error("Missing warehouse id");
+  const res = await axiosInstance.patch(`/warehouses/${id}/archive`);
+  return res?.data?.ok === true || res?.status === 200 || res?.status === 204;
+}
+
+// Purchase Orders
+// =====================
+export async function listPurchaseOrders({ status, supplierId } = {}) {
+  const params = {};
+  if (status) params.status = status;
+  if (supplierId) params.supplierId = supplierId;
+  const res = await axiosInstance.get("/purchase-orders", { params });
+  const payload = res?.data ?? {};
+  const rows = payload?.data ?? payload ?? [];
+  return Array.isArray(rows) ? rows : [];
+}
+
+export async function getPurchaseOrder(id) {
+  if (!id) throw new Error("Missing purchase order id");
+  const res = await axiosInstance.get(`/purchase-orders/${id}`);
+  return res?.data?.data ?? res?.data ?? {};
+}
+
+export async function createPurchaseOrder(payload) {
+  const res = await axiosInstance.post("/purchase-orders", payload);
+  return res?.data?.data ?? res?.data ?? {};
+}
+
+export async function updatePurchaseOrderStatus(id, status) {
+  if (!id) throw new Error("Missing purchase order id");
+  const res = await axiosInstance.patch(`/purchase-orders/${id}/status`, { status });
+  return res?.data?.data ?? res?.data ?? {};
+}
+
+export async function updatePurchaseOrder(id, payload) {
+  if (!id) throw new Error("Missing purchase order id");
+  const res = await axiosInstance.patch(`/purchase-orders/${id}`, payload);
+  return res?.data?.data ?? res?.data ?? {};
+}
+
+export async function deletePurchaseOrder(id) {
+  if (!id) throw new Error("Missing purchase order id");
+  const res = await axiosInstance.delete(`/purchase-orders/${id}`);
+  return res?.data?.ok === true || res?.status === 200 || res?.status === 204;
+}
+
+export async function receivePurchaseOrderItems(id, items) {
+  if (!id) throw new Error("Missing purchase order id");
+  const res = await axiosInstance.post(`/purchase-orders/${id}/receive`, { items });
+  return res?.data?.data ?? res?.data ?? {};
+}
+
 /** ---------- Supplier ⇄ Products ---------- **/
 // export async function listSupplierProducts(supplierId, params = {}) {
 //   if (!supplierId) throw new Error('Missing supplierId');
@@ -444,11 +518,9 @@ export async function linkSupplierProducts(supplierId, productIds = [], opts = {
  * Search/list marketplace channels for this tenant.
  * Filters: q (name contains), provider, page, perPage (optional)
  */
-export async function searchMarketplaceChannels({ q, provider, productName, page = 1, perPage = 200 } = {}) {
+export async function searchMarketplaceChannels({ q, page = 1, perPage = 200 } = {}) {
   const params = {};
   if (q) params.q = q;
-  if (productName) params.productName = productName;
-  else if (provider) params.provider = provider;
   if (page != null) params.page = page;
   if (perPage != null) params.perPage = perPage;
 
@@ -469,12 +541,12 @@ export async function searchMarketplaceChannels({ q, provider, productName, page
 /**
  * Create a marketplace channel (name + provider are required).
  */
-export async function createMarketplaceChannel({ name, provider, productName }) {
-  if (!name?.trim()) throw new Error('Missing channel name');
-  if (!(productName?.trim() || provider?.trim())) throw new Error('Missing product name');
+export async function createMarketplaceChannel({ name, marketplace }) {
+  const val = (marketplace || name || "").trim();
+  if (!val) throw new Error('Missing channel name');
+
   const res = await axiosInstance.post('/products/marketplaces/channels', {
-    name: name.trim(),
-    productName: (productName || provider).trim(),
+    marketplace: val,
   });
   return res?.data?.data ?? res?.data ?? {};
 }
@@ -565,14 +637,14 @@ export async function upsertProductVariantMarketplaceListings(productId, rows = 
   return res?.data?.data ?? res?.data ?? [];
 }
 
-// Providers list (distinct provider names)
-export async function searchMarketplaceProviders({ q } = {}) {
+// Product Names list (distinct product names from listings)
+export async function searchListingProductNames({ q } = {}) {
   const params = {};
   if (q) params.q = q;
-  const res = await axiosInstance.get('/products/marketplaces/providers', { params });
+  const res = await axiosInstance.get('/products/marketplaces/product-names', { params });
   const payload = res?.data ?? {};
   const inner = payload?.data ?? payload;
   const rows = Array.isArray(inner) ? inner : (inner?.providers ?? []);
-  // Normalize to plain provider strings when possible
+  // Normalize to plain strings when possible
   return rows.map((r) => (typeof r === 'string' ? r : (r?.provider ?? ''))).filter(Boolean);
 }

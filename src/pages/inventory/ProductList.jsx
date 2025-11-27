@@ -42,6 +42,26 @@ export default function ProductList() {
   const [search, setSearch] = useState("");
   const [openCreate, setOpenCreate] = useState(false);
 
+  const [page, setPage] = useState(1);
+  const [perPage] = useState(25);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  const statusOptions = useMemo(() => [
+    { id: "", name: "All Status" },
+    { id: "active", name: "Active" },
+    { id: "inactive", name: "Inactive" },
+    { id: "archived", name: "Archived" },
+  ], []);
+  const [statusFilter, setStatusFilter] = useState(statusOptions[0]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1); // Reset to page 1 on search change
+    }, 500); // 500ms debounce
+    return () => clearTimeout(timer);
+  }, [search]);
+
   // NEW: view modal state
   const [openView, setOpenView] = useState(false);
   const [activeProduct, setActiveProduct] = useState(null);
@@ -62,8 +82,13 @@ export default function ProductList() {
   const [editOpen, setEditOpen] = useState(false);
 
   useEffect(() => {
-    fetchProducts({ page: 1, perPage: 50, search: search?.trim() || undefined });
-  }, [search, fetchProducts]);
+    fetchProducts({
+      page,
+      perPage,
+      search: debouncedSearch?.trim() || undefined,
+      status: statusFilter.id || undefined,
+    });
+  }, [page, perPage, debouncedSearch, statusFilter, fetchProducts]);
 
   useEffect(() => {
     if (!data?.rows) return;
@@ -125,133 +150,155 @@ export default function ProductList() {
         </div>
       )}
 
-      {/* FILTERS */}
-      {canRead && (
-      <div className={card}>
-        <div className="px-4 py-3">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <HeadlessSelect value={group} onChange={setGroup} options={groups} className="w-[150px]" />
-            <HeadlessSelect value={keyType} onChange={setKeyType} options={keyTypes} className="w-[130px]" />
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search"
-                className={`${input} w-[220px] pl-8`}
-              />
-            </div>
-            <button className={btnPill} onClick={clearAll}>Clear</button>
-          </div>
-        </div>
-      </div>
-      )}
-
       {/* ACTIONS + TABLE */}
       {canRead && (
-      <div className={card}>
-        <div className="px-4 py-2.5 border-b border-gray-200 flex items-center justify-between">
-          <div />
-          <div>
+        <div className={card}>
+
+          <div className="px-4 py-2.5 border-b border-gray-200 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search"
+                  className={`${input} w-[220px] pl-8`}
+                />
+              </div>
+              <HeadlessSelect
+                value={statusFilter}
+                onChange={(val) => { setStatusFilter(val); setPage(1); }}
+                options={statusOptions}
+                className="w-[140px]"
+              />
+            </div>
             {canManage && (
-            <button className={btnPrimary} onClick={() => setOpenCreate(true)}>
-              <Plus size={16} /> Add Product
-            </button>
+              <button className={btnPrimary} onClick={() => setOpenCreate(true)}>
+                <Plus size={16} /> Add Product
+              </button>
             )}
           </div>
-        </div>
 
-        {/* Header row */}
-        <div className={`${GRID} bg-gray-50 px-4 py-3 text-[12px] font-semibold text-gray-700`}>
-          <div>Image</div>
-          <div>Product Name</div>
-          <div>SKU</div>
-          <div>Status</div>
-          <div>Type</div>
-          <div>Price</div>
-          <div>Stock</div>
-          <div>Created At</div>
-          <div>Actions</div>
-        </div>
-
-        {/* Rows */}
-        {isPending ? (
-          <div className="flex items-center justify-center py-16 text-gray-500 gap-2">
-            <Loader className="animate-spin" />
-            <span>Loading products...</span>
+          {/* Header row */}
+          <div className={`${GRID} bg-gray-50 px-4 py-3 text-[12px] font-semibold text-gray-700`}>
+            <div>Image</div>
+            <div>Product Name</div>
+            <div>SKU</div>
+            <div>Status</div>
+            <div>Type</div>
+            <div>Price</div>
+            <div>Stock</div>
+            <div>Created At</div>
+            <div>Actions</div>
           </div>
-        ) : isError ? (
-          <div className="px-4 py-6 text-sm text-red-600">Failed to load products: {String(error?.message || "Unknown error")}</div>
-        ) : rows.length === 0 ? (
-          <NoData />
-        ) : (
-          <ul className="divide-y divide-gray-100">
-            {rows.map((r) => (
-              <li
-                key={r.id}
-                className={`${GRID} px-4 py-3 text-[13px] text-gray-800 items-center hover:bg-gray-50 transition`}
-              >
-                <div>
-                  <img
-                    src={absImg(r.imageUrl)}
-                    alt=""
-                    className="h-10 w-10 object-contain rounded-md border border-gray-200 bg-gray-100"
-                    onError={(e) => {
-                      e.currentTarget.onerror = null;
-                      e.currentTarget.src = IMG_PLACEHOLDER;
-                    }}
-                  />
-                </div>
-                <div className="truncate" title={r.name}>{r.name}</div>
-                <div className="truncate text-xs text-gray-700">{r.sku}</div>
 
-                {/* Status */}
-                <div>
-                  <span className={`inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium ${r.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-gray-200 text-gray-700"
-                    }`}>
-                    {r.statusLabel.charAt(0).toUpperCase() + r.statusLabel.slice(1)}
-                  </span>
-                </div>
-
-                <div className="truncate">{r.typeLabel}</div>
-                <div className="whitespace-normal break-words">{r.priceDisplay}</div>
-                <div className="truncate">{r.stockDisplay}</div>
-                <div className="text-xs text-gray-600 px-4">{r.createdAt}</div>
-
-                <div className="text-right">
-                  <div className="inline-flex items-center gap-1">
-                    <button
-                      className="rounded-md border border-gray-300 px-1.5 py-0.5 text-[11px] hover:bg-gray-50"
-                      onClick={() => { setActiveProduct(r.raw); setOpenView(true); }}
-                    >
-                      View
-                    </button>
-                    {canManage && (
-                    <button
-                      className="rounded-md border border-gray-300 px-1.5 py-0.5 text-[11px] hover:bg-gray-50"
-                      onClick={() => { setEditingId(r.raw?.id || r.id); setEditOpen(true); }}
-                    >
-                      Edit
-                    </button>
-                    )}
-                    {canManage && (
-                    <button
-                      className="rounded-md border border-red-200 text-red-700 px-1.5 py-0.5 text-[11px] hover:bg-red-50"
-                      onClick={() => {
-                        setConfirmItem(r.raw);
-                        setConfirmOpen(true);
+          {/* Rows */}
+          {isPending ? (
+            <div className="flex items-center justify-center py-16 text-gray-500 gap-2">
+              <Loader className="animate-spin" />
+              <span>Loading products...</span>
+            </div>
+          ) : isError ? (
+            <div className="px-4 py-6 text-sm text-red-600">Failed to load products: {String(error?.message || "Unknown error")}</div>
+          ) : rows.length === 0 ? (
+            <NoData />
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {rows.map((r) => (
+                <li
+                  key={r.id}
+                  className={`${GRID} px-4 py-3 text-[13px] text-gray-800 items-center hover:bg-gray-50 transition`}
+                >
+                  <div>
+                    <img
+                      src={absImg(r.imageUrl)}
+                      alt=""
+                      className="h-10 w-10 object-contain rounded-md border border-gray-200 bg-gray-100"
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = IMG_PLACEHOLDER;
                       }}
-                    >
-                      Delete
-                    </button>
-                    )}
+                    />
                   </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+                  <div className="truncate" title={r.name}>{r.name}</div>
+                  <div className="truncate text-xs text-gray-700">{r.sku}</div>
+
+                  {/* Status */}
+                  <div>
+                    <span className={`inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium ${r.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-gray-200 text-gray-700"
+                      }`}>
+                      {r.statusLabel.charAt(0).toUpperCase() + r.statusLabel.slice(1)}
+                    </span>
+                  </div>
+
+                  <div className="truncate">{r.typeLabel}</div>
+                  <div className="whitespace-normal break-words">{r.priceDisplay}</div>
+                  <div className="truncate">{r.stockDisplay}</div>
+                  <div className="text-xs text-gray-600 px-4">{r.createdAt}</div>
+
+                  <div className="text-right">
+                    <div className="inline-flex items-center gap-1">
+                      <button
+                        className="rounded-md border border-gray-300 px-1.5 py-0.5 text-[11px] hover:bg-gray-50"
+                        onClick={() => { setActiveProduct(r.raw); setOpenView(true); }}
+                      >
+                        View
+                      </button>
+                      {canManage && (
+                        <button
+                          className="rounded-md border border-gray-300 px-1.5 py-0.5 text-[11px] hover:bg-gray-50"
+                          onClick={() => { setEditingId(r.raw?.id || r.id); setEditOpen(true); }}
+                        >
+                          Edit
+                        </button>
+                      )}
+                      {canManage && (
+                        <button
+                          className="rounded-md border border-red-200 text-red-700 px-1.5 py-0.5 text-[11px] hover:bg-red-50"
+                          onClick={() => {
+                            setConfirmItem(r.raw);
+                            setConfirmOpen(true);
+                          }}
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* Pagination Controls */}
+      {canRead && data?.meta && (
+        <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-white rounded-xl border">
+          <div className="text-sm text-gray-500">
+            Showing <span className="font-medium">{(data.meta.page - 1) * data.meta.perPage + 1}</span> to{" "}
+            <span className="font-medium">
+              {Math.min(data.meta.page * data.meta.perPage, data.meta.total)}
+            </span>{" "}
+            of <span className="font-medium">{data.meta.total}</span> results
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1 || isPending}
+            >
+              Previous
+            </button>
+            <button
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => setPage((p) => p + 1)}
+              disabled={page >= (data.meta.totalPages || 1) || isPending}
+            >
+              Next
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Create modal */}
@@ -319,6 +366,7 @@ function mapProductsToRows(apiRows, auth) {
         return new Intl.NumberFormat(undefined, {
           style: "currency",
           currency,
+          minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         }).format(num);
       } catch {

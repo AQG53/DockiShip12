@@ -9,7 +9,7 @@ import {
   updateProductVariant,
   addProductVariant,
   searchMarketplaceChannels,
-  searchMarketplaceProviders,
+  searchListingProductNames,
   createMarketplaceChannel,
   listProductMarketplaceListings,
   addProductMarketplaceListing,
@@ -105,26 +105,26 @@ export function useUploadProductImages() {
  * Typeahead/search over channels. Enable when you pass a query/provider.
  */
 export function useSearchMarketplaceChannels(params = {}, options = {}) {
-  const { q, productName, provider, page = 1, perPage = 200 } = params || {};
-  const name = productName || provider;
-  const enabledDefault = Boolean(q || name);
+  const { q, page = 1, perPage = 200 } = params || {};
+  // const name = productName || provider; // Removed dependency on product name
+  const enabledDefault = true; // Always enabled (or depends on q?)
 
   return useQuery({
     // use primitives so the key is stable across renders
-    queryKey: ["marketplaces", "channels", "search", name || null, q || null, page, perPage],
-    queryFn: () => searchMarketplaceChannels({ q, productName: name, page, perPage }),
+    queryKey: ["marketplaces", "channels", "search", q || null, page, perPage],
+    queryFn: () => searchMarketplaceChannels({ q, page, perPage }),
     enabled: options.enabled ?? enabledDefault,
     staleTime: 5 * 60 * 1000,
     ...options,
   });
 }
 
-export function useSearchMarketplaceProviders(params = {}, options = {}) {
+export function useSearchListingProductNames(params = {}, options = {}) {
   const { q } = params || {};
   const enabledDefault = true;
   return useQuery({
-    queryKey: ["marketplaces", "providers", q || null],
-    queryFn: () => searchMarketplaceProviders({ q }),
+    queryKey: ["marketplaces", "productNames", q || null],
+    queryFn: () => searchListingProductNames({ q }),
     enabled: options.enabled ?? enabledDefault,
     staleTime: 5 * 60 * 1000,
     ...options,

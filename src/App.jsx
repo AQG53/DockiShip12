@@ -28,6 +28,7 @@ import AcceptInvite from './pages/AcceptInvite.jsx'
 import InventoryPage from './pages/inventory/InventoryPage.jsx'
 import InventoryLayout from './pages/inventory/InventoryLayout.jsx'
 import ProductList from './pages/inventory/ProductList.jsx'
+import WarehouseList from './pages/inventory/WarehouseList.jsx'
 import PurchasesLayout from './pages/purchases/PurchasesLayout.jsx'
 import PurchasesPage from './pages/purchases/PurchasesPage.jsx'
 import SuppliersManage from './pages/purchases/SuppliersManage.jsx'
@@ -122,6 +123,7 @@ const App = () => {
 
           {/* Inventory */}
           <Route path="list" element={<InventoryPage />} />
+          <Route path="warehouses" element={<WarehouseList />} />
           {/* <Route path="inventory/inbound" element={<ManualInbound />} />
           <Route path="inventory/outbound" element={<ManualOutbound />} />
           <Route path="inventory/movement" element={<StockMovement />} /> */}
