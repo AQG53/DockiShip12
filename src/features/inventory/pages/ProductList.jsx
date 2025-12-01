@@ -233,7 +233,7 @@ export default function ProductList() {
                   <div className="truncate">{r.typeLabel}</div>
                   <div className="whitespace-normal break-words">{r.priceDisplay}</div>
                   <div className="truncate">{r.stockDisplay}</div>
-                  <div className="text-xs text-gray-600 px-4">{r.createdAt}</div>
+                  <div className="text-xs text-gray-600">{r.createdAt}</div>
 
                   <div className="text-right">
                     <div className="inline-flex items-center gap-1 justify-end">

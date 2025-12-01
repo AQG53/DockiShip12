@@ -9,7 +9,7 @@ import SelectCompact from "../../../components/SelectCompact";
 const input = "h-9 w-full rounded-lg border border-gray-300 bg-white px-3 text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10";
 const label = "block text-xs font-medium text-gray-700 mb-1";
 
-export default function QuickCreateProductModal({ open, onClose, onSuccess }) {
+export default function QuickCreateProductModal({ open, onClose, onSuccess, initialSupplierId }) {
     const { mutateAsync: createProductMut } = useCreateProduct();
     const { data: suppliers = [], isLoading: loadingSuppliers } = useSuppliers();
 
@@ -44,7 +44,7 @@ export default function QuickCreateProductModal({ open, onClose, onSuccess }) {
         if (open) {
             setName("");
             setSku("");
-            setSupplierId("");
+            setSupplierId(initialSupplierId || "");
             setOrigin("Select");
             setHasVariants(false);
             setSimpleSize("");
@@ -58,7 +58,7 @@ export default function QuickCreateProductModal({ open, onClose, onSuccess }) {
                 }
             ]);
         }
-    }, [open]);
+    }, [open, initialSupplierId]);
 
     // Fetch Countries
     useEffect(() => {

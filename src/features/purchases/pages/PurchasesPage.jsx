@@ -28,6 +28,7 @@ import {
 import { Button } from "../../../components/ui/Button";
 import { ActionMenu } from "../../../components/ui/ActionMenu";
 import { HeadlessSelect } from "../../../components/ui/HeadlessSelect";
+import ImageGallery from "../../../components/ImageGallery";
 import { ConfirmModal } from "../../../components/ConfirmModal";
 import { ReceiveItemsModal } from "../components/ReceiveItemsModal";
 import { PaymentUpdateModal } from "../components/PaymentUpdateModal";
@@ -50,7 +51,7 @@ import { useAuthCheck } from "../../auth/hooks/useAuthCheck";
 import { randomId } from "../../../lib/id";
 import ViewModal from "../../../components/ViewModal";
 import PurchaseOrderViewModal from "../components/PurchaseOrderViewModal";
-import ImageGallery from "../../../components/ImageGallery";
+
 import QuickCreateProductModal from "../../inventory/components/QuickCreateProductModal";
 
 const card = "rounded-xl border border-gray-200 bg-white shadow-sm";
@@ -58,7 +59,7 @@ const input =
   "h-9 w-full rounded-lg border border-gray-300 bg-white px-3 text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10";
 const textarea =
   "min-h-[90px] w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10";
-const GRID = "grid grid-cols-[0.8fr_1.2fr_1fr_0.8fr_1.1fr_0.8fr_1.3fr] gap-4";
+const GRID = "grid grid-cols-[50px_1fr_1.2fr_1fr_0.9fr_0.8fr_0.8fr_0.6fr] gap-4";
 const STATUS_OPTIONS = [
   { value: "to_purchase", label: "Not Confirmed" },
   { value: "in_transit", label: "Confirmed" },
@@ -203,6 +204,19 @@ export default function PurchasesPage() {
     sortOrder,
   });
 
+  const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+  const IMG_PLACEHOLDER =
+    "data:image/svg+xml;utf8," +
+    encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><rect width="100%" height="100%" fill="#f3f4f6"/><g fill="#9ca3af"><circle cx="26" cy="30" r="8"/><path d="M8 60l15-15 10 10 12-12 27 27H8z"/></g></svg>'
+    );
+  const absImg = (url) =>
+    !url
+      ? IMG_PLACEHOLDER
+      : /^https?:\/\//i.test(url)
+        ? url
+        : `${API_BASE}${url}`;
+
   const orders = data?.rows || [];
   const meta = data?.meta || {};
 
@@ -345,6 +359,7 @@ export default function PurchasesPage() {
           )}
         </div>
         <div className={`${GRID} bg-gray-50 px-4 py-3 text-[12px] font-semibold text-gray-700`}>
+          <div>Images</div>
           <div>PO number</div>
           <div>Supplier</div>
           <div>Warehouse</div>
@@ -437,12 +452,53 @@ export default function PurchasesPage() {
                 });
               }
 
-              const showMenu = actions.length > 2;
-              const visibleActions = showMenu ? actions.slice(0, 1) : actions;
-              const hiddenActions = showMenu ? actions.slice(1) : [];
+              // Logic: Always show "View". Put everything else in the menu.
+              const viewAction = actions.find(a => a.label === "View");
+              const otherActions = actions.filter(a => a.label !== "View");
+
+              const visibleActions = viewAction ? [viewAction] : [];
+              const hiddenActions = otherActions;
 
               return (
                 <li key={po.id} className={`${GRID} px-4 py-3 text-[13px] text-gray-800 items-center`}>
+                  <div>
+                    {(() => {
+                      // Collect images from items
+                      const images = [];
+                      if (po.items && Array.isArray(po.items)) {
+                        po.items.forEach(item => {
+                          if (item.product?.images?.length > 0) {
+                            // Attach product name to each image
+                            const productImages = item.product.images.map(img => ({
+                              ...img,
+                              productName: item.product.name
+                            }));
+                            images.push(...productImages);
+                          }
+                        });
+                      }
+
+                      if (images.length === 0) {
+                        return (
+                          <div className="w-10 h-10 rounded bg-gray-100 flex items-center justify-center border border-gray-200">
+                            <Package size={16} className="text-gray-400" />
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div>
+                          <ImageGallery
+                            images={images.slice(0, 3)} // Limit to 3 images for preview
+                            absImg={absImg}
+                            placeholder={IMG_PLACEHOLDER}
+                            thumbnailClassName="h-10 w-10"
+                            compact={true}
+                          />
+                        </div>
+                      );
+                    })()}
+                  </div>
                   <div>
                     <div className="font-semibold text-gray-900">{po.poNumber || po.id}</div>
                     <div className="text-xs text-gray-500">{new Date(po.createdAt || po.created_at || Date.now()).toLocaleDateString()}</div>
@@ -558,8 +614,12 @@ export default function PurchasesPage() {
                           });
                         }
 
-                        const visibleActions = formattedActions.slice(0, 2);
-                        const overflowActions = formattedActions.slice(2);
+                        // Logic: Always show "View". Put everything else in the menu.
+                        const viewAction = formattedActions.find(a => a.label === "View");
+                        const otherActions = formattedActions.filter(a => a.label !== "View");
+
+                        const visibleActions = viewAction ? [viewAction] : [];
+                        const overflowActions = otherActions;
 
                         return (
                           <>
@@ -1220,7 +1280,7 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
                                   onChange={setSelectedProduct}
                                   options={productSelectOptions}
                                   filterable
-                                  disabled={loadingProducts}
+                                  disabled={loadingProducts || !form.supplierId}
                                   renderOption={(opt) =>
                                     typeof opt === "string" ? (
                                       opt
@@ -1238,14 +1298,22 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
                               <div className="flex items-end gap-2">
                                 <button
                                   type="button"
-                                  className="h-9 w-full rounded-lg border border-dashed border-amber-400 text-sm font-semibold text-amber-700 hover:bg-amber-50 whitespace-nowrap px-4"
+                                  disabled={!form.supplierId}
+                                  className={`h-9 w-full rounded-lg border border-dashed text-sm font-semibold whitespace-nowrap px-4 ${!form.supplierId
+                                    ? "border-gray-300 text-gray-400 cursor-not-allowed"
+                                    : "border-amber-400 text-amber-700 hover:bg-amber-50"
+                                    }`}
                                   onClick={handleAddProduct}
                                 >
                                   Add product
                                 </button>
                                 <button
                                   type="button"
-                                  className="h-9 px-3 rounded-lg border border-dashed border-blue-400 text-sm font-semibold text-blue-700 hover:bg-blue-50 whitespace-nowrap"
+                                  disabled={!form.supplierId}
+                                  className={`h-9 px-3 rounded-lg border border-dashed text-sm font-semibold whitespace-nowrap ${!form.supplierId
+                                    ? "border-gray-300 text-gray-400 cursor-not-allowed"
+                                    : "border-blue-400 text-blue-700 hover:bg-blue-50"
+                                    }`}
                                   onClick={() => setQuickCreateOpen(true)}
                                 >
                                   + Quick Create
@@ -1437,6 +1505,7 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
         open={quickCreateOpen}
         onClose={() => setQuickCreateOpen(false)}
         onSuccess={handleQuickCreateSuccess}
+        initialSupplierId={form.supplierId}
       />
     </Transition>
   );

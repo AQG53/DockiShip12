@@ -8,7 +8,6 @@ import { useReceivePurchaseOrderItems } from "../hooks/usePurchaseOrders";
 export function ReceiveItemsModal({ open, onClose, po, onSave, loading: fetchingPo }) {
     const { data: auth } = useAuthCheck();
     const [items, setItems] = useState([]);
-    const [amountPaid, setAmountPaid] = useState("");
     const { mutateAsync: receiveItems, isPending: loading } = useReceivePurchaseOrderItems();
 
     useEffect(() => {
@@ -20,7 +19,6 @@ export function ReceiveItemsModal({ open, onClose, po, onSave, loading: fetching
                     receiveNow: 0,
                 }))
             );
-            setAmountPaid(po.amountPaid != null ? String(po.amountPaid) : "");
         }
     }, [open, po]);
 
@@ -61,23 +59,10 @@ export function ReceiveItemsModal({ open, onClose, po, onSave, loading: fetching
             return;
         }
 
-        const amount = amountPaid !== "" ? Number(amountPaid) : undefined;
-        const totalAmount = Number(po?.totalAmount) || 0;
-
-        if (amount !== undefined && amount > totalAmount) {
-            const formatted = new Intl.NumberFormat('en-US', {
-                style: 'currency',
-                currency: po?.currency || 'USD'
-            }).format(totalAmount);
-            toast.error(`Amount paid cannot exceed total amount (${formatted})`);
-            return;
-        }
-
         try {
             await receiveItems({
                 id: po.id,
                 items: toReceive,
-                amountPaid: amount
             });
             toast.success("Items received successfully");
             onSave(); // Refresh parent
@@ -222,29 +207,23 @@ export function ReceiveItemsModal({ open, onClose, po, onSave, loading: fetching
                                                             }).format(po?.totalAmount || 0)}
                                                         </span>
                                                     </div>
-                                                    <div>
-                                                        <div className="flex items-center justify-between mb-1.5">
-                                                            <label className="block text-xs font-medium text-gray-700">
-                                                                Amount Paid
-                                                            </label>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setAmountPaid(String(po?.totalAmount || 0))}
-                                                                className="text-xs font-medium text-blue-600 hover:text-blue-700 hover:underline"
-                                                            >
-                                                                Fill Total
-                                                            </button>
-                                                        </div>
-                                                        <input
-                                                            type="number"
-                                                            min="0"
-                                                            max={po?.totalAmount || 0}
-                                                            step="0.01"
-                                                            className="h-9 w-full rounded-lg border border-gray-300 px-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                                                            value={amountPaid}
-                                                            onChange={(e) => setAmountPaid(e.target.value)}
-                                                            placeholder="0.00"
-                                                        />
+                                                    <div className="flex items-center justify-between text-sm">
+                                                        <span className="text-gray-600">Amount Paid</span>
+                                                        <span className="font-medium text-gray-900">
+                                                            {new Intl.NumberFormat('en-US', {
+                                                                style: 'currency',
+                                                                currency: po?.currency || 'USD'
+                                                            }).format(po?.amountPaid || 0)}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex items-center justify-between text-sm">
+                                                        <span className="text-gray-600">Remaining</span>
+                                                        <span className="font-medium text-gray-900">
+                                                            {new Intl.NumberFormat('en-US', {
+                                                                style: 'currency',
+                                                                currency: po?.currency || 'USD'
+                                                            }).format((po?.totalAmount || 0) - (po?.amountPaid || 0))}
+                                                        </span>
                                                     </div>
                                                 </div>
                                             </div>

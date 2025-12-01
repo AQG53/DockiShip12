@@ -292,9 +292,14 @@ export async function listProducts({ page, perPage, search, status, supplierId }
     page: inner?.page ?? payload?.page ?? null,
     perPage: inner?.perPage ?? payload?.perPage ?? null,
     total: inner?.total ?? payload?.total ?? rows.length ?? 0,
+    totalPages: inner?.totalPages ?? payload?.totalPages ?? 1,
   };
 
-  return { rows: Array.isArray(rows) ? rows : [], meta };
+  return {
+    ...((typeof inner === 'object' && !Array.isArray(inner)) ? inner : {}),
+    rows: Array.isArray(rows) ? rows : [],
+    meta
+  };
 }
 
 export async function deleteProduct(productId) {
@@ -487,6 +492,12 @@ export async function receivePurchaseOrderItems(id, items, amountPaid) {
 export async function updatePurchaseOrderPayment(id, amountPaid) {
   if (!id) throw new Error("Missing purchase order id");
   const res = await axiosInstance.patch(`/purchase-orders/${id}/payment`, { amountPaid });
+  return res?.data?.data ?? res?.data ?? {};
+}
+
+export async function addPurchaseOrderPayment(id, payload) {
+  if (!id) throw new Error("Missing purchase order id");
+  const res = await axiosInstance.post(`/purchase-orders/${id}/payments`, payload);
   return res?.data?.data ?? res?.data ?? {};
 }
 

@@ -3,7 +3,7 @@ import { Dialog, Transition } from "@headlessui/react";
 import { ChevronLeft, ChevronRight, X, Maximize2 } from "lucide-react";
 import { Fragment } from "react";
 
-export default function ImageGallery({ images = [], absImg, placeholder, className, thumbnailClassName, compact = false }) {
+export default function ImageGallery({ images = [], absImg, placeholder, className, thumbnailClassName, compact = false, showName = false }) {
     const [lightboxOpen, setLightboxOpen] = useState(false);
     const [currentIndex, setCurrentIndex] = useState(0);
 
@@ -89,6 +89,13 @@ export default function ImageGallery({ images = [], absImg, placeholder, classNa
                         }}
                     />
 
+                    {/* Product Name Overlay */}
+                    {showName && currentImg.productName && (
+                        <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] px-1 py-0.5 truncate text-center">
+                            {currentImg.productName}
+                        </div>
+                    )}
+
                     {/* Hover Overlay with Maximize Icon */}
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
                         <Maximize2 className="text-white drop-shadow-md" size={compact ? 16 : 20} />
@@ -96,7 +103,7 @@ export default function ImageGallery({ images = [], absImg, placeholder, classNa
 
                     {/* Image Counter Badge */}
                     {!compact && images.length > 1 && (
-                        <div className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+                        <div className="absolute top-2 right-2 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded-full">
                             {currentIndex + 1} / {images.length}
                         </div>
                     )}
@@ -155,7 +162,7 @@ export default function ImageGallery({ images = [], absImg, placeholder, classNa
                                 leaveTo="opacity-0 scale-95"
                             >
                                 <Dialog.Panel className="w-full max-w-5xl transform overflow-hidden rounded-2xl p-6 text-left align-middle shadow-xl transition-all">
-                                    <div className="relative flex items-center justify-center h-[80vh]">
+                                    <div className="relative flex items-center justify-center h-[70vh]">
                                         <img
                                             src={absImg(currentImg.url)}
                                             alt={currentImg.alt || "Product image"}
@@ -166,10 +173,19 @@ export default function ImageGallery({ images = [], absImg, placeholder, classNa
                                             }}
                                         />
 
+                                        {/* Product Name Header */}
+                                        {currentImg.productName && (
+                                            <div className="absolute -top-5 left-0 right-0 text-center">
+                                                <span className="text-white text-lg font-medium drop-shadow-md">
+                                                    {currentImg.productName}
+                                                </span>
+                                            </div>
+                                        )}
+
                                         {/* Close Button */}
                                         <button
                                             onClick={() => setLightboxOpen(false)}
-                                            className="absolute -top-4 -right-4 text-white/70 hover:text-white p-2"
+                                            className="absolute -top-5 -right-4 text-white/70 hover:text-white p-2"
                                         >
                                             <X size={32} />
                                         </button>
