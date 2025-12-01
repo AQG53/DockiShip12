@@ -386,8 +386,11 @@ export async function archiveSupplier(id) {
 
 // Warehouses
 // =====================
-export async function listWarehouses() {
-  const res = await axiosInstance.get("/warehouses");
+export async function listWarehouses({ search, status } = {}) {
+  const params = {};
+  if (search) params.search = search;
+  if (status) params.status = status;
+  const res = await axiosInstance.get("/warehouses", { params });
   const payload = res?.data ?? {};
   const rows = payload?.data ?? payload ?? [];
   return Array.isArray(rows) ? rows : [];
@@ -410,16 +413,37 @@ export async function archiveWarehouse(id) {
   return res?.data?.ok === true || res?.status === 200 || res?.status === 204;
 }
 
+export async function getWarehouseStock(id) {
+  if (!id) throw new Error("Missing warehouse id");
+  const res = await axiosInstance.get(`/warehouses/${id}/stock`);
+  return res.data;
+}
+
 // Purchase Orders
 // =====================
-export async function listPurchaseOrders({ status, supplierId } = {}) {
+export async function listPurchaseOrders({ page, perPage, search, status, supplierId, sortBy, sortOrder } = {}) {
   const params = {};
+  if (page != null) params.page = page;
+  if (perPage != null) params.perPage = perPage;
+  if (search) params.search = search;
   if (status) params.status = status;
   if (supplierId) params.supplierId = supplierId;
+  if (sortBy) params.sortBy = sortBy;
+  if (sortOrder) params.sortOrder = sortOrder;
+
   const res = await axiosInstance.get("/purchase-orders", { params });
   const payload = res?.data ?? {};
-  const rows = payload?.data ?? payload ?? [];
-  return Array.isArray(rows) ? rows : [];
+
+  // Handle both old (array) and new (paginated) response formats
+  const rows = Array.isArray(payload) ? payload : (payload.data || []);
+  const meta = payload.meta || {
+    page: 1,
+    perPage: rows.length || 25,
+    total: rows.length,
+    totalPages: 1
+  };
+
+  return { rows, meta };
 }
 
 export async function getPurchaseOrder(id) {
@@ -433,9 +457,9 @@ export async function createPurchaseOrder(payload) {
   return res?.data?.data ?? res?.data ?? {};
 }
 
-export async function updatePurchaseOrderStatus(id, status) {
+export async function updatePurchaseOrderStatus(id, status, notes) {
   if (!id) throw new Error("Missing purchase order id");
-  const res = await axiosInstance.patch(`/purchase-orders/${id}/status`, { status });
+  const res = await axiosInstance.patch(`/purchase-orders/${id}/status`, { status, notes });
   return res?.data?.data ?? res?.data ?? {};
 }
 
@@ -451,9 +475,18 @@ export async function deletePurchaseOrder(id) {
   return res?.data?.ok === true || res?.status === 200 || res?.status === 204;
 }
 
-export async function receivePurchaseOrderItems(id, items) {
+export async function receivePurchaseOrderItems(id, items, amountPaid) {
   if (!id) throw new Error("Missing purchase order id");
-  const res = await axiosInstance.post(`/purchase-orders/${id}/receive`, { items });
+  const res = await axiosInstance.post(`/purchase-orders/${id}/receive`, {
+    items,
+    ...(amountPaid !== undefined && { amountPaid })
+  });
+  return res?.data?.data ?? res?.data ?? {};
+}
+
+export async function updatePurchaseOrderPayment(id, amountPaid) {
+  if (!id) throw new Error("Missing purchase order id");
+  const res = await axiosInstance.patch(`/purchase-orders/${id}/payment`, { amountPaid });
   return res?.data?.data ?? res?.data ?? {};
 }
 

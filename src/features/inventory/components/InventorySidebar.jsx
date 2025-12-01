@@ -80,7 +80,7 @@ export default function InventorySidebar() {
   };
 
   return (
-    <aside className="w-64 shrink-0 border-r border-gray-200 bg-[#f6f7fb] h-[calc(100vh-64px)] sticky top-16">
+    <aside className="w-64 shrink-0 border-r border-gray-200 bg-[#f6f7fb] h-[calc(100vh-64px)] sticky top-16 overflow-y-auto">
       <div className="p-4">
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
           Inventory

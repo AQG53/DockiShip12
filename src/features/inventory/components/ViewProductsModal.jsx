@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   Package,
   Box,
@@ -9,10 +9,10 @@ import {
   useGetProduct,
   useProductMarketplaceListings,
 } from "../hooks/useProducts";
-import { useAuthCheck } from "../hooks/useAuthCheck";
-import { deleteProductImage } from "../lib/api";
-import { useSuppliers } from "../hooks/useSuppliers";
-import ViewModal from "./ViewModal";
+import { useAuthCheck } from "../../auth/hooks/useAuthCheck";
+import { useSuppliers } from "../../purchases/hooks/useSuppliers";
+import ViewModal from "../../../components/ViewModal";
+import ImageGallery from "../../../components/ImageGallery";
 
 export default function ViewProductModal({ open, onClose, product }) {
   if (!product) return null;
@@ -127,6 +127,11 @@ export default function ViewProductModal({ open, onClose, product }) {
   const label = "text-xs font-medium text-gray-600";
   const value = "text-sm text-gray-900 font-medium";
   const [tab, setTab] = useState("details");
+
+  // Reset tab to details when modal opens
+  useEffect(() => {
+    if (open) setTab("details");
+  }, [open]);
   const productId = p?.id;
   const {
     data: listings = [],
@@ -288,28 +293,12 @@ export default function ViewProductModal({ open, onClose, product }) {
                           No images
                         </p>
                       ) : (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {imagesByVariant.productLevel.map(
-                            (img) => (
-                              <Thumb
-                                key={img.id}
-                                img={img}
-                                absImg={absImg}
-                                placeholder={IMG_PLACEHOLDER}
-                                onDelete={async () => {
-                                  try {
-                                    await deleteProductImage(
-                                      p.id,
-                                      img.id
-                                    );
-                                    await refetch?.();
-                                  } catch (e) {
-                                    console.error(e);
-                                  }
-                                }}
-                              />
-                            )
-                          )}
+                        <div className="mt-2">
+                          <ImageGallery
+                            images={imagesByVariant.productLevel}
+                            absImg={absImg}
+                            placeholder={IMG_PLACEHOLDER}
+                          />
                         </div>
                       )}
                     </div>
@@ -384,82 +373,106 @@ export default function ViewProductModal({ open, onClose, product }) {
                       <h3 className="text-sm font-semibold text-gray-900">Variants ({variantList.length})</h3>
                     </div>
 
-                    <div className="p-4">
-                      <div className="rounded-lg border border-gray-200 overflow-hidden">
-                        <div className="grid grid-cols-6 bg-gray-50 px-4 py-3 text-xs font-semibold text-gray-700">
-                          <div>Size</div>
-                          <div>Color</div>
-                          <div>Variant SKU</div>
-                          <div>Status</div>
-                          <div>Retail Price</div>
-                          <div>Stock on Hand</div>
-                        </div>
-
-                        <div className="divide-y divide-gray-100">
-                          {variantList.map((variant, idx) => {
-                            const imgs =
-                              imagesByVariant.byVar.get(
-                                variant.id
-                              ) || [];
-                            return (
-                              <div
-                                key={variant.id || idx}
-                                className="px-4 py-3 text-sm text-gray-800 hover:bg-gray-50 transition-colors"
-                              >
-                                <div className="grid grid-cols-6 items-center gap-2">
-                                  <div>{variant.sizeText || variant?.size?.name || variant?.size?.code || "—"}</div>
-                                  <div>{variant.colorText || "—"}</div>
-                                  <div className="font-medium">{variant.sku || "—"}</div>
-                                  <div>
-                                    <span
-                                      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${variant.status === "active"
-                                        ? "bg-green-100 text-green-700"
-                                        : "bg-gray-200 text-gray-700"
-                                        }`}
-                                    >
-                                      {variant.status?.toUpperCase() || "—"}
-                                    </span>
+                    <div className="p-4 space-y-3">
+                      {variantList.map((variant, idx) => {
+                        const imgs = imagesByVariant.byVar.get(variant.id) || [];
+                        return (
+                          <div
+                            key={variant.id || idx}
+                            className="rounded-lg border border-gray-200 overflow-hidden bg-white hover:shadow-sm transition-shadow"
+                          >
+                            {/* Variant Header */}
+                            <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div>
+                                  <span className="text-xs font-medium text-gray-600">SKU:</span>
+                                  <span className="ml-1.5 text-sm font-semibold text-gray-900">{variant.sku || "—"}</span>
+                                </div>
+                                {variant.sizeText && (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-xs text-gray-500">Size:</span>
+                                    <span className="text-sm font-medium text-gray-900">{variant.sizeText}</span>
                                   </div>
-                                  <div>{formatPrice(variant.retailPrice)}</div>
-                                  <div>{variant.stockOnHand ?? "—"}</div>
+                                )}
+                                {variant.colorText && (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-xs text-gray-500">Color:</span>
+                                    <span className="text-sm font-medium text-gray-900">{variant.colorText}</span>
+                                  </div>
+                                )}
+                              </div>
+                              <span
+                                className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${variant.status === "active"
+                                    ? "bg-green-100 text-green-700"
+                                    : "bg-gray-200 text-gray-700"
+                                  }`}
+                              >
+                                {variant.status?.toUpperCase() || "—"}
+                              </span>
+                            </div>
+
+                            {/* Variant Details */}
+                            <div className="p-4">
+                              <div className="grid grid-cols-3 gap-4 mb-4">
+                                <div>
+                                  <p className={label}>Retail Price</p>
+                                  <p className={value}>{variant.retailPrice != null ? formatPrice(variant.retailPrice) : "—"}</p>
+                                </div>
+                                <div>
+                                  <p className={label}>Selling Price</p>
+                                  <p className={value}>{variant.sellingPrice != null ? formatPrice(variant.sellingPrice) : "—"}</p>
+                                </div>
+                                <div>
+                                  <p className={label}>Stock on Hand</p>
+                                  <p className={value}>{variant.stockOnHand ?? "—"}</p>
                                 </div>
 
-                                <div className="mt-2">
-                                  {imgs.length === 0 ? (
-                                    <p className="text-xs text-gray-500">
-                                      No images
+                                {variant.weight != null && (
+                                  <div>
+                                    <p className={label}>Weight</p>
+                                    <p className={value}>
+                                      {variant.weight} {variant.weightUnit || p.weightUnit || ""}
                                     </p>
-                                  ) : (
-                                    <div className="flex flex-wrap gap-2">
-                                      {imgs.map((img) => (
-                                        <Thumb
-                                          key={img.id}
-                                          img={img}
-                                          absImg={absImg}
-                                          placeholder={
-                                            IMG_PLACEHOLDER
-                                          }
-                                          onDelete={async () => {
-                                            try {
-                                              await deleteProductImage(
-                                                p.id,
-                                                img.id
-                                              );
-                                              await refetch?.();
-                                            } catch (e) {
-                                              console.error(e);
-                                            }
-                                          }}
-                                        />
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
+                                  </div>
+                                )}
+
+                                {(variant.length != null || variant.width != null || variant.height != null) && (
+                                  <div>
+                                    <p className={label}>Dimensions (L × W × H)</p>
+                                    <p className={value}>
+                                      {variant.length ?? "—"} × {variant.width ?? "—"} × {variant.height ?? "—"}{" "}
+                                      {variant.dimensionUnit || p.dimensionUnit || ""}
+                                    </p>
+                                  </div>
+                                )}
+
+                                {variant.barcode && (
+                                  <div>
+                                    <p className={label}>Barcode</p>
+                                    <p className={value}>{variant.barcode}</p>
+                                  </div>
+                                )}
                               </div>
-                            );
-                          })}
-                        </div>
-                      </div>
+
+                              {/* Images */}
+                              <div>
+                                <p className={label}>Images</p>
+                                {imgs.length === 0 ? (
+                                  <p className="text-xs text-gray-500 mt-1">No images</p>
+                                ) : (
+                                  <div className="mt-2">
+                                    <ImageGallery
+                                      images={imgs}
+                                      absImg={absImg}
+                                      placeholder={IMG_PLACEHOLDER}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </>
@@ -581,29 +594,4 @@ export default function ViewProductModal({ open, onClose, product }) {
   );
 }
 
-function Thumb({ img, onDelete, absImg, placeholder }) {
-  return (
-    <div className="relative group w-full max-w-[180px]">
-      <a href={absImg(img.url)} target="_blank" rel="noreferrer">
-        <div className="h-32 w-full overflow-hidden rounded-md border border-gray-200 bg-gray-100">
-          <img
-            src={absImg(img.url)}
-            alt={img.alt || "Image"}
-            className="h-full w-full object-contain"
-            onError={(e) => {
-              e.currentTarget.onerror = null;
-              e.currentTarget.src = placeholder;
-            }}
-          />
-        </div>
-      </a>
-      <button
-        onClick={onDelete}
-        className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white border border-red-200 text-red-600 rounded-full h-6 w-6 text-xs"
-        title="Delete"
-      >
-        ×
-      </button>
-    </div>
-  );
-}
+

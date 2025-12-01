@@ -19,15 +19,18 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import AddSupplierModal from "../../components/AddSupplierModal";
-import ViewSupplierModal from "../../components/ViewSupplierModal";
-import ViewModal from "../../components/ViewModal";
-import { ConfirmModal } from "../../components/ConfirmModal";
-import { useSuppliers, useArchiveSupplier } from "../../hooks/useSuppliers";
-import { useSupplierProducts, useUnlinkSupplierProduct } from "../../hooks/useSuppliers";
-import { listProducts, linkSupplierProducts } from "../../lib/api";
+import AddSupplierModal from "../components/AddSupplierModal";
+import { ActionMenu } from "../../../components/ui/ActionMenu";
+import { Button } from "../../../components/ui/Button";
+import { HeadlessSelect } from "../../../components/ui/HeadlessSelect";
+import ViewSupplierModal from "../components/ViewSupplierModal";
+import ViewModal from "../../../components/ViewModal";
+import { ConfirmModal } from "../../../components/ConfirmModal";
+import { useSuppliers, useArchiveSupplier } from "../hooks/useSuppliers";
+import { useSupplierProducts, useUnlinkSupplierProduct } from "../hooks/useSuppliers";
+import { listProducts, linkSupplierProducts } from "../../../lib/api";
 import toast from "react-hot-toast";
-import { useAuthCheck } from "../../hooks/useAuthCheck";
+import { useAuthCheck } from "../../auth/hooks/useAuthCheck";
 
 export default function SuppliersManage() {
   // Permissions
@@ -110,8 +113,7 @@ export default function SuppliersManage() {
   const card = "rounded-xl border border-gray-200 bg-white";
   const input =
     "h-9 rounded-lg border border-gray-300 px-3 text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10";
-  const btnPrimary =
-    "inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#ffd026] text-blue-700 text-sm font-bold hover:opacity-90";
+
 
   return (
     <div className="space-y-4">
@@ -153,15 +155,15 @@ export default function SuppliersManage() {
               />
             </div>
             {canManageSuppliers && (
-              <button
-                className={btnPrimary}
+              <Button
+                variant="warning"
                 onClick={() => {
                   setEditSupplier(null);
                   setAddOpen(true);
                 }}
               >
-                <Plus size={16} /> Add supplier
-              </button>
+                <Plus size={16} className="mr-2" /> Add Supplier
+              </Button>
             )}
           </div>
 
@@ -216,37 +218,60 @@ export default function SuppliersManage() {
 
                   {/* Actions */}
                   <div className="col-span-2 flex items-center justify-end gap-1">
-                    <button
-                      className="rounded-md border border-gray-300 px-1.5 py-0.5 text-[11px] hover:bg-gray-50"
-                      onClick={() => {
-                        setViewSupplier(r.raw);
-                        setViewOpen(true);
-                      }}
-                    >
-                      View
-                    </button>
-                    {canManageSuppliers && (
-                      <>
-                        <button
-                          className="rounded-md border border-gray-300 px-1.5 py-0.5 text-[11px] hover:bg-gray-50"
-                          onClick={() => {
-                            setEditSupplier(r.raw);
-                            setAddOpen(true);
-                          }}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          className="rounded-md border border-red-200 text-red-700 px-1.5 py-0.5 text-[11px] hover:bg-red-50"
-                          onClick={() => {
+                    {(() => {
+                      const actions = [];
+
+                      // 1. View
+                      actions.push({
+                        label: "View",
+                        onClick: () => { setViewSupplier(r.raw); setViewOpen(true); },
+                        variant: "secondary",
+                      });
+
+                      // 2. Edit
+                      if (canManageSuppliers) {
+                        actions.push({
+                          label: "Edit",
+                          onClick: () => { setEditSupplier(r.raw); setAddOpen(true); },
+                          variant: "secondary",
+                        });
+                      }
+
+                      // 3. Delete
+                      if (canManageSuppliers) {
+                        actions.push({
+                          label: "Delete",
+                          onClick: () => {
                             setConfirmItem(r.raw);
                             setConfirmOpen(true);
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </>
-                    )}
+                          },
+                          variant: "danger-outline", // used if it's a button
+                          className: "text-red-700 hover:bg-red-50", // for menu item
+                        });
+                      }
+
+                      const visibleActions = actions.slice(0, 2);
+                      const overflowActions = actions.slice(2);
+
+                      return (
+                        <>
+                          {visibleActions.map((action, idx) => (
+                            <Button
+                              key={idx}
+                              variant={action.variant || "secondary"}
+                              size="xs"
+                              className="rounded-md"
+                              onClick={action.onClick}
+                            >
+                              {action.label}
+                            </Button>
+                          ))}
+                          {overflowActions.length > 0 && (
+                            <ActionMenu actions={overflowActions} />
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 </li>
               ))}
@@ -637,48 +662,4 @@ function EmptyState() {
   );
 }
 
-/* ---------- Headless Select (JSX) ---------- */
-function HeadlessSelect({ value, onChange, options, className = "" }) {
-  return (
-    <Listbox value={value} onChange={onChange}>
-      <div className={`relative ${className}`}>
-        <ListboxButton className="relative w-full h-8 rounded-lg border border-gray-300 bg-white pl-2.5 pr-7 text-left text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10">
-          <span className="block truncate">{value && value.name}</span>
-          <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center">
-            <ChevronDown size={16} className="text-gray-500" />
-          </span>
-        </ListboxButton>
 
-        <Transition
-          as={Fragment}
-          enter="transition ease-out duration-100"
-          enterFrom="transform opacity-0 scale-95"
-          enterTo="transform opacity-100 scale-100"
-          leave="transition ease-in duration-75"
-          leaveFrom="opacity-100 scale-100"
-          leaveTo="opacity-0 scale-95"
-        >
-          <ListboxOptions className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-gray-200 bg-white py-1 text-sm shadow-lg focus:outline-none">
-            {options.map((opt) => (
-              <ListboxOption
-                key={opt.id || opt.name}
-                value={opt}
-                className={({ active }) =>
-                  `relative cursor-pointer select-none px-3 py-2 ${active ? "bg-gray-100 text-gray-900" : "text-gray-800"
-                  }`
-                }
-              >
-                {({ selected }) => (
-                  <div className="flex items-center gap-2">
-                    {selected ? <Check size={16} className="text-amber-700" /> : <span className="w-4" />}
-                    <span className="block">{opt.name}</span>
-                  </div>
-                )}
-              </ListboxOption>
-            ))}
-          </ListboxOptions>
-        </Transition>
-      </div>
-    </Listbox>
-  );
-}

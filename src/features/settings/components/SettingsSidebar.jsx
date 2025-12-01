@@ -10,18 +10,18 @@ import {
 } from "lucide-react";
 
 const items = [
-  { label: "Shop Manage",        path: "/settings/shop",      Icon: Store },
-  { label: "Order & Shipping",   path: "/settings/orders",    Icon: Truck },
-  { label: "General Settings",   path: "/settings/general",   Icon: Cog },
-  { label: "Listing Settings",   path: "/settings/listings",  Icon: Layers },
+  { label: "Shop Manage", path: "/settings/shop", Icon: Store },
+  { label: "Order & Shipping", path: "/settings/orders", Icon: Truck },
+  { label: "General Settings", path: "/settings/general", Icon: Cog },
+  { label: "Listing Settings", path: "/settings/listings", Icon: Layers },
   { label: "Inventory Settings", path: "/settings/inventory", Icon: Boxes },
-  { label: "Staff Settings",     path: "/settings/staff",     Icon: Users },
-  { label: "Role Manage",        path: "/settings/roles",     Icon: Shield },
+  { label: "Staff Settings", path: "/settings/staff", Icon: Users },
+  { label: "Role Manage", path: "/settings/roles", Icon: Shield },
 ];
 
 export default function SettingsSidebar() {
   return (
-    <aside className="w-64 shrink-0 border-r border-gray-200 bg-[#f6f7fb]">
+    <aside className="w-64 shrink-0 border-r border-gray-200 bg-[#f6f7fb] h-[calc(100vh-64px)] sticky top-16 overflow-y-auto">
       <div className="p-4">
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
           Settings

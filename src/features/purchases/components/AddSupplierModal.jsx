@@ -1,10 +1,10 @@
-import { Fragment, useEffect, useState, useRef } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Dialog, Transition, TransitionChild, DialogPanel } from "@headlessui/react";
 import { Building2, MapPin, Mail, Phone, Globe2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useCreateSupplier, useUpdateSupplier } from "../hooks/useSuppliers";
-import SelectCompact from "./SelectCompact";
-import { useCountryOptions } from "../hooks/useCountryOptions";
+import SelectCompact from "../../../components/SelectCompact";
+import { useCountryOptions } from "../../../hooks/useCountryOptions";
 
 const sanitizePostalInput = (value) => {
   if (value === undefined || value === null) return "";
@@ -42,7 +42,7 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
   const [saving, setSaving] = useState(false);
   const { countries, loading: countryLoading } = useCountryOptions();
   const [zipLoading, setZipLoading] = useState(false);
-  const contactsRef = useRef(null);
+
 
   const currencies = [
     { value: 'USD', label: 'US Dollar ($)' },
@@ -107,12 +107,7 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
   const ghostBtn =
     "inline-flex items-center justify-center h-9 px-3 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-100";
 
-  const adjustContactsHeight = () => {
-    const el = contactsRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  };
+
 
   const handleChange = (key, value) => {
     let next = value;
@@ -124,9 +119,7 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
     setForm((prev) => ({ ...prev, [key]: next }));
   };
 
-  useEffect(() => {
-    adjustContactsHeight();
-  }, [form.contacts]);
+
 
   const fetchWithTimeout = async (url, ms = 6000) => {
     const ctrl = new AbortController();
@@ -352,10 +345,8 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
                       </Field>
 
                       <Field className="col-span-12 md:col-span-6" label="Contacts">
-                        <textarea
-                          ref={contactsRef}
-                          rows={1}
-                          className={`${input} min-h-[34px] resize-none`}
+                        <input
+                          className={input}
                           placeholder="Please enter Contacts"
                           value={form.contacts}
                           onChange={(e) => handleChange("contacts", e.target.value)}

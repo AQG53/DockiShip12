@@ -1,6 +1,6 @@
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createPurchaseOrder, listPurchaseOrders, updatePurchaseOrderStatus, updatePurchaseOrder, deletePurchaseOrder, receivePurchaseOrderItems } from "../lib/api";
-import { getPurchaseOrder } from "../lib/api"; // Assuming getPurchaseOrder is also from ../lib/api
+import { createPurchaseOrder, listPurchaseOrders, updatePurchaseOrderStatus, updatePurchaseOrder, deletePurchaseOrder, receivePurchaseOrderItems, getPurchaseOrder, updatePurchaseOrderPayment } from "../../../lib/api";
 
 export function usePurchaseOrders({ status, supplierId, ...options } = {}) {
   return useQuery({
@@ -83,7 +83,23 @@ export function useReceivePurchaseOrderItems(options = {}) {
   const qc = useQueryClient();
   return useMutation({
     mutationKey: ["purchase-orders", "receive"],
-    mutationFn: ({ id, items }) => receivePurchaseOrderItems(id, items),
+    mutationFn: ({ id, items, amountPaid }) => receivePurchaseOrderItems(id, items, amountPaid),
+    onSuccess: async (...args) => {
+      if (typeof options.onSuccess === "function") {
+        await options.onSuccess(...args);
+      }
+      await qc.invalidateQueries({ queryKey: ["purchase-orders"] });
+      await qc.invalidateQueries({ queryKey: ["purchase-order"] });
+    },
+    ...options,
+  });
+}
+
+export function useUpdatePayment(options = {}) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationKey: ["purchase-orders", "update-payment"],
+    mutationFn: ({ id, amountPaid }) => updatePurchaseOrderPayment(id, amountPaid),
     onSuccess: async (...args) => {
       if (typeof options.onSuccess === "function") {
         await options.onSuccess(...args);

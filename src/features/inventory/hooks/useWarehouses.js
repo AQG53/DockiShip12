@@ -4,7 +4,8 @@ import {
   createWarehouse,
   updateWarehouse,
   archiveWarehouse,
-} from "../lib/api";
+  getWarehouseStock,
+} from "../../../lib/api";
 
 export function useWarehouses({ search, status, ...options } = {}) {
   return useQuery({
@@ -58,6 +59,17 @@ export function useArchiveWarehouse(options = {}) {
       }
       await qc.invalidateQueries({ queryKey: ["warehouses"] });
     },
+    ...options,
+  });
+}
+
+export function useWarehouseStock(id, options = {}) {
+  return useQuery({
+    queryKey: ["warehouse-stock", id],
+    queryFn: () => getWarehouseStock(id),
+    enabled: !!id,
+    staleTime: 0,
+    retry: false,
     ...options,
   });
 }

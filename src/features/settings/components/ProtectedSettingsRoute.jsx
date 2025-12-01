@@ -1,7 +1,7 @@
 import React from "react";
 import { Navigate } from "react-router";
-import useUserPermissions from "../hooks/useUserPermissions";
-import PageLoader from "./PageLoader";
+import useUserPermissions from "../../../hooks/useUserPermissions";
+import PageLoader from "../../../components/PageLoader";
 
 export default function ProtectedSettingsRoute({ perm, children }) {
   const { perms, ready } = useUserPermissions();

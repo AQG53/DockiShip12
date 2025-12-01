@@ -17,6 +17,7 @@ const SelectSearchAdd = forwardRef(function SelectSearchAdd({
   onChange,
   options = [],
   placeholder = "Select",
+  searchPlaceholder,
   disabled = false,
   loading = false,
   allowAdd = true,
@@ -89,7 +90,7 @@ const SelectSearchAdd = forwardRef(function SelectSearchAdd({
           <div className="p-2">
             <input
               className={inputCls}
-              placeholder={placeholder}
+              placeholder={searchPlaceholder || placeholder}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               autoFocus
@@ -98,7 +99,7 @@ const SelectSearchAdd = forwardRef(function SelectSearchAdd({
 
           <div className="max-h-56 overflow-auto">
             {loading ? (
-              <div className="px-3 py-2 text-[12px] text-gray-600 flex items-center gap-2"><Loader2 size={14} className="animate-spin"/> Loading…</div>
+              <div className="px-3 py-2 text-[12px] text-gray-600 flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Loading…</div>
             ) : (
               <>
                 {filtered.length > 0 && filtered.map(o => (
@@ -132,7 +133,7 @@ const SelectSearchAdd = forwardRef(function SelectSearchAdd({
                       }
                     }}
                   >
-                    {adding ? <Loader2 size={14} className="animate-spin"/> : <Plus size={14} />} Add "{query.trim()}"
+                    {adding ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Add "{query.trim()}"
                   </button>
                 )}
               </>

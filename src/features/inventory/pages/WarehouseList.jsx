@@ -1,29 +1,27 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Dialog, Transition, Listbox, ListboxButton, ListboxOption, ListboxOptions } from "@headlessui/react";
-import { Building2, Plus, X, Search, ChevronDown, Check } from "lucide-react";
+import { Building2, Plus, X, Search, ChevronDown, Check, Eye } from "lucide-react";
 import toast from "react-hot-toast";
-import useUserPermissions from "../../hooks/useUserPermissions";
-import { ConfirmModal } from "../../components/ConfirmModal";
-import { NoData } from "../../components/NoData";
-import PageLoader from "../../components/PageLoader";
+import useUserPermissions from "../../auth/hooks/useUserPermissions";
+import { ConfirmModal } from "../../../components/ConfirmModal";
+import { NoData } from "../../../components/NoData";
+import PageLoader from "../../../components/PageLoader";
 import {
   useWarehouses,
   useCreateWarehouse,
   useUpdateWarehouse,
   useArchiveWarehouse,
-} from "../../hooks/useWarehouses";
-import SelectCompact from "../../components/SelectCompact";
-import { useCountryOptions } from "../../hooks/useCountryOptions";
+} from "../hooks/useWarehouses";
+import SelectCompact from "../../../components/SelectCompact";
+import { useCountryOptions } from "../../../hooks/useCountryOptions";
+import { Button } from "../../../components/ui/Button";
+import { ActionMenu } from "../../../components/ui/ActionMenu";
+import { HeadlessSelect } from "../../../components/ui/HeadlessSelect";
+import ViewWarehouseModal from "../components/ViewWarehouseModal";
 
 const inputClass =
   "h-9 rounded-lg border border-gray-300 px-3 text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10 w-full";
 const card = "rounded-xl border border-gray-200 bg-white";
-const btnPrimary =
-  "inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#ffd026] text-blue-700 text-sm font-bold hover:opacity-90 disabled:opacity-60";
-const primaryAction =
-  "inline-flex items-center justify-center h-9 px-4 rounded-lg bg-[#ffd026] text-blue-700 text-sm font-bold hover:brightness-95 disabled:opacity-60";
-const ghostBtn =
-  "inline-flex items-center justify-center h-9 px-3 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-100";
 const badge = (active) =>
   `inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${active ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-700"
   }`;
@@ -158,6 +156,10 @@ export default function WarehouseList() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [targetWarehouse, setTargetWarehouse] = useState(null);
 
+  // View Modal
+  const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [viewWarehouse, setViewWarehouse] = useState(null);
+
   useEffect(() => {
     if (!modalOpen) {
       setEditing(null);
@@ -241,9 +243,9 @@ export default function WarehouseList() {
             />
           </div>
           {canManage && (
-            <button className={btnPrimary} onClick={() => openModalFor(null)}>
-              <Plus size={16} /> Add Warehouse
-            </button>
+            <Button variant="warning" onClick={() => openModalFor(null)}>
+              <Plus size={16} className="mr-2" /> Add Warehouse
+            </Button>
           )}
         </div>
 
@@ -283,20 +285,25 @@ export default function WarehouseList() {
                   <span className={badge(wh.isActive)}>{wh.isActive ? "Active" : "Inactive"}</span>
                 </div>
                 <div className="flex items-center justify-end gap-1">
-                  {canManage && (
-                    <>
-                      <button
-                        className="rounded-md border border-gray-300 px-1.5 py-0.5 text-[11px] hover:bg-gray-50"
-                        onClick={() => openModalFor(wh)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        className={`rounded-md border px-1.5 py-0.5 text-[11px] ${wh.isActive
-                          ? "border-red-200 text-red-700 hover:bg-red-50"
-                          : "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                          }`}
-                        onClick={() => {
+                  {canManage && (() => {
+                    const actions = [
+                      {
+                        label: "View",
+                        onClick: () => {
+                          setViewWarehouse(wh);
+                          setViewModalOpen(true);
+                        },
+                        variant: "secondary",
+                        icon: Eye,
+                      },
+                      {
+                        label: "Edit",
+                        onClick: () => openModalFor(wh),
+                        variant: "secondary",
+                      },
+                      {
+                        label: wh.isActive ? "Deactivate" : "Activate",
+                        onClick: () => {
                           if (wh.isActive) {
                             setTargetWarehouse(wh);
                             setConfirmOpen(true);
@@ -305,12 +312,34 @@ export default function WarehouseList() {
                               .then(() => toast.success("Warehouse activated"))
                               .catch((e) => toast.error(e.message));
                           }
-                        }}
-                      >
-                        {wh.isActive ? "Deactivate" : "Activate"}
-                      </button>
-                    </>
-                  )}
+                        },
+                        variant: wh.isActive ? "danger-outline" : "secondary",
+                        className: wh.isActive ? "" : "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                      }
+                    ];
+
+                    const visibleActions = actions.slice(0, 2);
+                    const overflowActions = actions.slice(2);
+
+                    return (
+                      <>
+                        {visibleActions.map((action, idx) => (
+                          <Button
+                            key={idx}
+                            variant={action.variant}
+                            size="xs"
+                            className={`rounded-md ${action.className || ""}`}
+                            onClick={action.onClick}
+                          >
+                            {action.label}
+                          </Button>
+                        ))}
+                        {overflowActions.length > 0 && (
+                          <ActionMenu actions={overflowActions} />
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               </li>
             ))}
@@ -345,6 +374,12 @@ export default function WarehouseList() {
         Are you sure you want to deactivate{" "}
         <strong>{targetWarehouse?.name || "this warehouse"}</strong>? It will be hidden from active selections.
       </ConfirmModal>
+
+      <ViewWarehouseModal
+        open={viewModalOpen}
+        onClose={() => setViewModalOpen(false)}
+        warehouse={viewWarehouse}
+      />
     </div>
   );
 }
@@ -593,12 +628,12 @@ function WarehouseModal({ open, initial, onSave, onClose, saving }) {
                 </div>
 
                 <div className="border-t border-gray-200 bg-white px-4 py-3 flex items-center justify-end gap-2">
-                  <button className={ghostBtn} onClick={onClose}>
+                  <Button variant="ghost" onClick={onClose}>
                     Cancel
-                  </button>
-                  <button className={primaryAction} onClick={handleSubmit} disabled={saving}>
+                  </Button>
+                  <Button variant="warning" onClick={handleSubmit} isLoading={saving}>
                     {saving ? "Saving…" : "Save"}
-                  </button>
+                  </Button>
                 </div>
               </Dialog.Panel>
             </Transition.Child>
@@ -609,48 +644,6 @@ function WarehouseModal({ open, initial, onSave, onClose, saving }) {
   );
 }
 
-/* ---------- Headless Select ---------- */
-function HeadlessSelect({ value, onChange, options, className = "" }) {
-  return (
-    <Listbox value={value} onChange={onChange}>
-      <div className={`relative ${className}`}>
-        <ListboxButton className="relative w-full h-9 rounded-lg border border-gray-300 bg-white pl-3 pr-7 text-left text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10">
-          <span className="block truncate">{value?.name}</span>
-          <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center">
-            <ChevronDown size={16} className="text-gray-500" />
-          </span>
-        </ListboxButton>
-        <Transition
-          as={Fragment}
-          enter="transition ease-out duration-100"
-          enterFrom="transform opacity-0 scale-95"
-          enterTo="transform opacity-100 scale-100"
-          leave="transition ease-in duration-75"
-          leaveFrom="opacity-100 scale-100"
-          leaveTo="opacity-0 scale-95"
-        >
-          <ListboxOptions className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-gray-200 bg-white py-1 text-sm shadow-lg focus:outline-none">
-            {options.map((opt) => (
-              <ListboxOption
-                key={opt.id || opt.name}
-                value={opt}
-                className={({ active }) =>
-                  `relative cursor-pointer select-none px-3 py-2 ${active ? "bg-gray-100 text-gray-900" : "text-gray-800"}`
-                }
-              >
-                {({ selected }) => (
-                  <div className="flex items-center gap-2">
-                    {selected ? <Check size={16} className="text-amber-700" /> : <span className="w-4" />}
-                    <span className="block truncate">{opt.name}</span>
-                  </div>
-                )}
-              </ListboxOption>
-            ))}
-          </ListboxOptions>
-        </Transition>
-      </div>
-    </Listbox>
-  );
-}
+
 
 

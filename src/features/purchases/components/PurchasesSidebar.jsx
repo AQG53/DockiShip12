@@ -1,31 +1,9 @@
 import { NavLink, useLocation } from "react-router";
 import { Disclosure } from "@headlessui/react";
 import { ChevronDown, User2, ShoppingBag } from "lucide-react";
-import { useState, useEffect } from "react";
-import { useAuthCheck } from "../hooks/useAuthCheck";
-
-const sections = [
-  {
-    id: "suppliers",
-    icon: User2,
-    label: "Manage Suppliers",
-    items: [
-      { label: "Supplier", to: "/purchases/suppliers/manage" },
-    ],
-  },
-  {
-    id: "purchase-orders",
-    icon: ShoppingBag,
-    label: "Purchase Orders",
-    items: [
-      { label: "To Purchase", to: "/purchases/to-purchase?status=to_purchase" },
-      { label: "In Transit", to: "/purchases/to-purchase?status=in_transit" },
-      { label: "Partially Received", to: "/purchases/to-purchase?status=partially_received" },
-      { label: "Received", to: "/purchases/to-purchase?status=received" },
-      { label: "Canceled", to: "/purchases/to-purchase?status=canceled" },
-    ],
-  }
-];
+import { useState, useEffect, useMemo } from "react";
+import { useAuthCheck } from "../../../hooks/useAuthCheck";
+import { usePurchaseOrders } from "../hooks/usePurchaseOrders";
 
 export default function PurchasesSidebar() {
   const location = useLocation();
@@ -33,6 +11,63 @@ export default function PurchasesSidebar() {
   const fullPath = pathname + search;
   const { data: auth } = useAuthCheck({ refetchOnWindowFocus: false });
   const perms = auth?.perms || [];
+
+  // Fetch all orders to calculate counts
+  const { data } = usePurchaseOrders();
+  const apiCounts = data?.counts || {};
+
+  const counts = useMemo(() => {
+    const c = {
+      all: 0,
+      to_purchase: 0,
+      in_transit: 0,
+      partially_received: 0,
+      received: 0,
+      canceled: 0,
+    };
+
+    // Use API counts if available
+    if (Object.keys(apiCounts).length > 0) {
+      c.to_purchase = apiCounts.to_purchase || 0;
+      c.in_transit = apiCounts.in_transit || 0;
+      c.partially_received = apiCounts.partially_received || 0;
+      c.received = apiCounts.received || 0;
+      c.canceled = apiCounts.canceled || 0;
+      c.all = Object.values(apiCounts).reduce((a, b) => a + b, 0);
+    }
+    // Fallback to local calculation (though likely incomplete due to pagination)
+    else if (Array.isArray(data?.rows)) {
+      c.all = data.rows.length;
+      data.rows.forEach((o) => {
+        const s = o.status;
+        if (c[s] !== undefined) c[s]++;
+      });
+    }
+    return c;
+  }, [data, apiCounts]);
+
+  const sections = [
+    {
+      id: "suppliers",
+      icon: User2,
+      label: "Manage Suppliers",
+      items: [
+        { label: "Supplier", to: "/purchases/suppliers/manage" },
+      ],
+    },
+    {
+      id: "purchase-orders",
+      icon: ShoppingBag,
+      label: "Purchase Orders",
+      items: [
+        { label: "All Purchases", count: counts.all, to: "/purchases/to-purchase" },
+        { label: "In Transit", count: counts.in_transit, to: "/purchases/to-purchase?status=in_transit" },
+        { label: "Partially Received", count: counts.partially_received, to: "/purchases/to-purchase?status=partially_received" },
+        { label: "Received", count: counts.received, to: "/purchases/to-purchase?status=received" },
+        { label: "Canceled", count: counts.canceled, to: "/purchases/to-purchase?status=canceled" },
+      ],
+    }
+  ];
 
   const [openSections, setOpenSections] = useState(() => new Set(sections.map((s) => s.id)));
 
@@ -44,24 +79,12 @@ export default function PurchasesSidebar() {
 
   useEffect(() => {
     const match = filteredSections.find((s) => s.items.some((it) => {
-      // If item has query params, match full path
       if (it.to.includes("?")) {
         return fullPath === it.to;
       }
-      // Otherwise match pathname start (for sub-routes) but ensure we don't match if current url has query params and item doesn't
-      // Actually for "All", we might want it to be active only if no query param?
-      // The user said "rename it to All", usually "All" implies no filter.
-      // If I am at /purchases/to-purchase?status=sent, "All" (/purchases/to-purchase) should probably NOT be active.
-      // So exact match for query params is important.
-
-      // If the item path has no query, but current location has query, they are different.
       if (search && !it.to.includes("?")) {
-        // Exception: if the item path is a prefix of pathname? 
-        // But here all are under /purchases/to-purchase.
-        // Let's keep it simple: strict match for this section.
         return pathname === it.to && search === "";
       }
-
       return pathname.startsWith(it.to);
     }));
 
@@ -87,7 +110,7 @@ export default function PurchasesSidebar() {
   };
 
   return (
-    <aside className="w-64 shrink-0 border-r border-gray-200 bg-[#f6f7fb]">
+    <aside className="w-64 shrink-0 border-r border-gray-200 bg-[#f6f7fb] h-[calc(100vh-64px)] sticky top-16 overflow-y-auto">
       <div className="p-4">
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
           Purchases
@@ -119,19 +142,22 @@ export default function PurchasesSidebar() {
                             key={it.to}
                             to={it.to}
                             className={() => {
-                              // Custom active logic because NavLink default ignores query params by default or behaves strictly
-                              // We want exact match including query params
                               const isActive = fullPath === it.to || (it.to === "/purchases/to-purchase" && fullPath === "/purchases/to-purchase");
 
                               return [
-                                "block rounded-lg px-3 py-2 text-sm",
+                                "flex items-center justify-between rounded-lg px-3 py-2 text-sm",
                                 isActive
                                   ? "text-blue-600 bg-yellow-100 border-l-4 border-blue-500"
                                   : "text-gray-700 hover:bg-amber-50"
                               ].join(" ");
                             }}
                           >
-                            {it.label}
+                            <span>{it.label}</span>
+                            {it.count !== undefined && (
+                              <span className="text-xs font-medium text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded-full">
+                                {it.count}
+                              </span>
+                            )}
                           </NavLink>
                         ))}
                       </div>
