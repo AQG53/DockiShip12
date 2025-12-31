@@ -16,6 +16,8 @@ import {
   updateProductMarketplaceListing,
   deleteProductMarketplaceListing,
   upsertProductVariantMarketplaceListings,
+  listCategories,
+  createCategory,
 } from "../../../lib/api";
 import { uploadProductImages } from "../../../lib/api";
 
@@ -49,6 +51,24 @@ export function useProductMetaEnums(options = {}) {
     queryFn: getProductMetaEnums,
     staleTime: 5 * 60 * 1000,
     ...options,
+  });
+}
+
+export function useCategories(params) {
+  return useQuery({
+    queryKey: ["products", "meta", "categories", params?.search || ""],
+    queryFn: () => listCategories(params),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useCreateCategory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name) => createCategory(name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["products", "meta", "categories"] });
+    },
   });
 }
 

@@ -12,6 +12,7 @@ import {
   useUpdateWarehouse,
   useArchiveWarehouse,
 } from "../hooks/useWarehouses";
+import { lookupPostalCode } from "../../../lib/api";
 import SelectCompact from "../../../components/SelectCompact";
 import { useCountryOptions } from "../../../hooks/useCountryOptions";
 import { Button } from "../../../components/ui/Button";
@@ -40,80 +41,6 @@ const sanitizePostalInput = (value) => {
   if (value === undefined || value === null) return "";
   return String(value).replace(/[^0-9]/g, "");
 };
-
-const fetchWithTimeout = async (url, ms = 6000) => {
-  const ctrl = new AbortController();
-  const timeout = setTimeout(() => ctrl.abort(), ms);
-  try {
-    const res = await fetch(url, { signal: ctrl.signal });
-    return res;
-  } finally {
-    clearTimeout(timeout);
-  }
-};
-
-async function lookupPostalByCountry(country, postal) {
-  if (!country || !postal) return null;
-  const cc = String(country).trim().toUpperCase();
-  const pc = String(postal).trim();
-  if (!cc || !pc) return null;
-
-  const urls = [
-    `https://api.zippopotam.us/${encodeURIComponent(cc)}/${encodeURIComponent(pc)}`,
-    `http://api.zippopotam.us/${encodeURIComponent(cc)}/${encodeURIComponent(pc)}`,
-  ];
-
-  for (const url of urls) {
-    try {
-      const res = await fetchWithTimeout(url, 6000);
-      if (!res?.ok) continue;
-      const data = await res.json();
-      const p = Array.isArray(data?.places) ? data.places[0] : null;
-      if (!p) continue;
-      const city = p["place name"] || p["place"] || "";
-      const state = p["state abbreviation"] || p["state"] || "";
-      if (!city && !state) continue;
-      return { city, state };
-    } catch (_) {
-      continue;
-    }
-  }
-  return null;
-}
-
-async function lookupPostalByGeo(postal) {
-  if (!postal) return null;
-  const pc = String(postal).trim();
-  if (!pc) return null;
-  const params = new URLSearchParams({
-    format: "json",
-    addressdetails: "1",
-    limit: "1",
-    q: pc,
-  });
-  try {
-    const res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?${params}`, 6000);
-    if (!res?.ok) return null;
-    const data = await res.json();
-    const first = Array.isArray(data) && data.length ? data[0] : null;
-    if (!first) return null;
-    const address = first.address || {};
-    const city =
-      address.city ||
-      address.town ||
-      address.village ||
-      address.hamlet ||
-      address.county ||
-      "";
-    const state = address.state || address.region || address.state_district || "";
-    const countryCode = address.country_code ? address.country_code.toUpperCase() : "";
-    if (!city && !state && !countryCode) return null;
-    return { city, state, countryCode };
-  } catch (e) {
-    console.error("Geolocation lookup failed", e);
-    return null;
-  }
-}
 
 export default function WarehouseList() {
   const { claims, ready } = useUserPermissions();
@@ -449,38 +376,21 @@ function WarehouseModal({ open, initial, onSave, onClose, saving }) {
     if (!form.zipCode) return;
     setZipLoading(true);
     try {
-      let nextCity = "";
-      let nextState = "";
-      let nextCountry = "";
-
-      const geoResult = await lookupPostalByGeo(form.zipCode);
-      if (geoResult) {
-        nextCity = geoResult.city || "";
-        nextState = geoResult.state || "";
-        nextCountry = geoResult.countryCode || "";
-      }
-
       const manualCountry = (form.country || "").trim().toUpperCase();
-      const countryForLookup = manualCountry || nextCountry;
+      // If we have a country, pass it. If not, don't pass it (let backend find match).
+      // However, frontend previous logic was: try geo (no country) -> try country (manual).
+      // Our backend handles both cases: if country is present, it filters. If not, it searches.
 
-      if ((!nextCity || !nextState) && countryForLookup) {
-        const countryResult = await lookupPostalByCountry(countryForLookup, form.zipCode);
-        if (countryResult) {
-          nextCity = nextCity || countryResult.city || "";
-          nextState = nextState || countryResult.state || "";
-        }
+      const res = await lookupPostalCode(form.zipCode, manualCountry || undefined);
+      if (res && (res.city || res.state || res.country)) {
+        setForm(prev => ({
+          ...prev,
+          city: res.city || prev.city,
+          state: res.state || prev.state,
+          country: res.country || prev.country
+        }));
       }
 
-      const resolvedCountry = (nextCountry || manualCountry || countryForLookup || "").toUpperCase();
-
-      if (!nextCity && !nextState && !resolvedCountry) return;
-
-      setForm((prev) => ({
-        ...prev,
-        city: nextCity || prev.city,
-        state: nextState || prev.state,
-        country: resolvedCountry || prev.country,
-      }));
     } catch (err) {
       console.error("Postal lookup failed", err);
     } finally {
@@ -570,6 +480,21 @@ function WarehouseModal({ open, initial, onSave, onClose, saving }) {
                       <div className="grid grid-cols-12 gap-3">
                         <div className="col-span-12 md:col-span-6">
                           <label className="block text-[12px] text-gray-600 mb-1">
+                            Country <span className="text-red-600">*</span>
+                          </label>
+                          <SelectCompact
+                            value={form.country ? form.country : "Select"}
+                            onChange={(val) => setField("country", val === "Select" ? "" : val)}
+                            options={countries}
+                            filterable
+                            disabled={countryLoading}
+                          />
+                          {countryLoading && (
+                            <div className="text-[11px] text-gray-500 mt-1">Loading countries…</div>
+                          )}
+                        </div>
+                        <div className="col-span-12 md:col-span-6">
+                          <label className="block text-[12px] text-gray-600 mb-1">
                             Zip Code <span className="text-red-600">*</span>
                           </label>
                           <input
@@ -583,21 +508,6 @@ function WarehouseModal({ open, initial, onSave, onClose, saving }) {
                           />
                           {zipLoading && (
                             <div className="text-[11px] text-gray-500 mt-1">Looking up city and state…</div>
-                          )}
-                        </div>
-                        <div className="col-span-12 md:col-span-6">
-                          <label className="block text-[12px] text-gray-600 mb-1">
-                            Country <span className="text-red-600">*</span>
-                          </label>
-                          <SelectCompact
-                            value={form.country ? form.country : "Select"}
-                            onChange={(val) => setField("country", val === "Select" ? "" : val)}
-                            options={countries}
-                            filterable
-                            disabled={countryLoading}
-                          />
-                          {countryLoading && (
-                            <div className="text-[11px] text-gray-500 mt-1">Loading countries…</div>
                           )}
                         </div>
                       </div>

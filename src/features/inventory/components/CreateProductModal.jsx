@@ -1,6 +1,7 @@
+
 import { Fragment, useMemo, useState, useEffect, useRef } from "react";
 import { useAuthCheck } from "../../auth/hooks/useAuthCheck";
-import { useProductMetaEnums, useCreateProduct, useGetProduct, useUpdateProductParent, useUpdateVariant, useAddVariant, useUploadProductImages } from "../hooks/useProducts";
+import { useProductMetaEnums, useCreateProduct, useUpdateProductParent, useUpdateVariant, useAddVariant, useUploadProductImages, useCategories, useCreateCategory, useGetProduct } from "../hooks/useProducts";
 import { useSuppliers } from "../../purchases/hooks/useSuppliers";
 import {
     useSearchMarketplaceChannels,
@@ -17,6 +18,7 @@ import {
     Transition,
     TransitionChild,
     DialogPanel,
+    DialogTitle,
 } from "@headlessui/react";
 import { Check, Package, Plus, Trash2, Truck, DollarSign, Upload, Loader2 } from "lucide-react";
 import { deleteProductImage, linkSupplierProducts, unlinkSupplierProduct } from "../../../lib/api";
@@ -110,9 +112,18 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         return "oz";
     };
     const barcodeTypes = useMemo(() => ["UPC", "EAN", "ISBN", "QR"], []);
-    const groups = useMemo(() => ["Select", "Electronics", "Apparel", "Grocery"], []);
-    // const origins = useMemo(() => ["Select"], []);
-    const tags = useMemo(() => ["Select", "Featured", "Clearance", "Seasonal"], []);
+
+    const origins = useMemo(() => [
+        { value: "Select", label: "Select" },
+        { value: "US", label: "USA" },
+        { value: "CN", label: "China" },
+        { value: "IN", label: "India" },
+        { value: "VN", label: "Vietnam" },
+        { value: "TW", label: "Taiwan" },
+        { value: "TH", label: "Thailand" },
+        { value: "OT", label: "Other" }
+    ], []);
+
     // Suppliers list (for linking in edit mode)
     const { data: supplierList = [], isLoading: suppliersLoading } = useSuppliers({
         refetchOnWindowFocus: false,
@@ -164,6 +175,10 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const [newColorText, setNewColorText] = useState("");
     const [colorContext, setColorContext] = useState(null); // null | { kind: 'simple' } | { kind: 'variant', id: string }
 
+    // Category modal state
+    const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+    const [newCategoryText, setNewCategoryText] = useState("");
+
     const deriveSizeCode = (label) => {
         const s = String(label || '').trim();
         if (!s) return '';
@@ -171,17 +186,30 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     };
 
     // --- form state ---
-    const [sku, setSku] = useState("");
-    const [barcodeType, setBarcodeType] = useState(barcodeTypes[0]);
-    const [barcode, setBarcode] = useState("");
     const [name, setName] = useState("");
-
-    const [group, setGroup] = useState(groups[0]);
-    const [condition, setCondition] = useState(enums?.ProductCondition?.[0] || "NEW");
+    const [sku, setSku] = useState("");
+    const [barcode, setBarcode] = useState("");
+    const [barcodeType, setBarcodeType] = useState(barcodeTypes[0]);
     const [brand, setBrand] = useState("");
     const [status, setStatus] = useState(enums?.ProductStatus?.[0] || "active");
-    const [origins, setOrigins] = useState(["Select"]);
+    const [category, setCategory] = useState("Select");
     const [origin, setOrigin] = useState("Select");
+    const [condition, setCondition] = useState(enums?.ProductCondition?.[0] || "NEW");
+
+    // Hooks for Categories
+    const { data: serverCategories = [], isLoading: loadingCategories } = useCategories();
+    const { mutateAsync: createCategoryMut } = useCreateCategory();
+
+    // Combine hardcoded defaults (if any) with server data.
+    // Since using SelectSearchAdd, we can just map the server data + "Select".
+    // Or if we want to drop hardcoded entirely, we can just use server data.
+    // The user requested "fetch categories... if not found +add".
+    // I'll assume we prefer server data but maybe keep "Select" as placeholder behavior.
+    const categoryOptions = useMemo(() => {
+        const list = Array.isArray(serverCategories) ? serverCategories.map(c => ({ value: c.name, label: c.name })) : [];
+        return ["Select", ...list];
+    }, [serverCategories]);
+
     const [originLoading, setOriginLoading] = useState(false);
 
     const [weightMain, setWeightMain] = useState("");
@@ -197,7 +225,6 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         (enums?.LengthUnit || ["inch", "cm", "mm"]).includes("inch") ? "inch" : (enums?.LengthUnit?.[0] || "inch")
     );
 
-    const [tag, setTag] = useState(tags[0]);
     // Simple product-only attributes
     const [mainSizeText, setMainSizeText] = useState("");
     const [mainColorText, setMainColorText] = useState("");
@@ -347,18 +374,18 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             } else {
                 variants.forEach((v, idx) => {
                     const row = variantPrices[v.id] || {};
-                    const rowPrefix = `v:${v.id}:`;
-                    const humanRow = `Variant #${idx + 1}`;
+                    const rowPrefix = `v:${v.id}: `;
+                    const humanRow = `Variant #${idx + 1} `;
                     const hasSize = isNonEmpty(v.sizeCode) || isNonEmpty(v.sizeText);
                     if (!hasSize) m[rowPrefix + "size"] = `${humanRow}: Size`;
                     if (!isNonEmpty(v.sku)) m[rowPrefix + "sku"] = `${humanRow}: Variant SKU`;
-                    // if (!isNonEmpty(v.weight)) m[rowPrefix + "weight"] = `${humanRow}: Weight`;
-                    // if (!isNonEmpty(v.length)) m[rowPrefix + "length"] = `${humanRow}: Length`;
-                    // if (!isNonEmpty(v.width)) m[rowPrefix + "width"] = `${humanRow}: Width`;
-                    // if (!isNonEmpty(v.height)) m[rowPrefix + "height"] = `${humanRow}: Height`;
-                    // if (!isNonEmpty(v.unit)) m[rowPrefix + "unit"] = `${humanRow}: Unit`;
-                    // if (!isNonEmpty(row.retail)) m[rowPrefix + "retail"] = `${humanRow}: Retail Price`;
-                    // if (!isNonEmpty(row.original)) m[rowPrefix + "original"] = `${humanRow}: Original Price`;
+                    // if (!isNonEmpty(v.weight)) m[rowPrefix + "weight"] = `${ humanRow }: Weight`;
+                    // if (!isNonEmpty(v.length)) m[rowPrefix + "length"] = `${ humanRow }: Length`;
+                    // if (!isNonEmpty(v.width)) m[rowPrefix + "width"] = `${ humanRow }: Width`;
+                    // if (!isNonEmpty(v.height)) m[rowPrefix + "height"] = `${ humanRow }: Height`;
+                    // if (!isNonEmpty(v.unit)) m[rowPrefix + "unit"] = `${ humanRow }: Unit`;
+                    // if (!isNonEmpty(row.retail)) m[rowPrefix + "retail"] = `${ humanRow }: Retail Price`;
+                    // if (!isNonEmpty(row.original)) m[rowPrefix + "original"] = `${ humanRow }: Original Price`;
                     if (packagingNeedsQuantity(v.packagingType) && (!isNonEmpty(v.packagingQuantity) || Number(v.packagingQuantity) < 1)) {
                         m[rowPrefix + "packaging"] = `${humanRow}: Packaging quantity`;
                     }
@@ -378,7 +405,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             ? str.split(/\s+/).map(w => (w[0] || '').toUpperCase()).join('')
             : 'PRD';
         const digits = String(Math.floor(Math.random() * 1e8)).padStart(8, '0');
-        return `${initials || 'PRD'}-${digits}`;
+        return `${initials || 'PRD'} -${digits} `;
     };
 
     function resetFormToDefaults() {
@@ -387,7 +414,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         setBarcodeType(barcodeTypes[0]);
         setBarcode("");
         setName("");
-        setGroup(groups[0]);
+        setCategory(null);
         setCondition(enums?.ProductCondition?.[0] || "NEW");
         setBrand("");
         setStatus(enums?.ProductStatus?.[0] || "active");
@@ -409,7 +436,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                 : (enums?.LengthUnit?.[0] || "inch")
         );
 
-        setTag(tags[0]);
+        setCategory("Select");
 
         // new
         setSupplier("Select");
@@ -440,10 +467,10 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const computeAutoSku = (parentSku, v, index) => {
         const parent = (parentSku || "").trim();
         if (!parent) {
-            return `X-${index + 1}`;
+            return `X - ${index + 1} `;
         }
         const tail = v.sizeCode?.trim() || "X";
-        return `${parent}-${tail}`;
+        return `${parent} -${tail} `;
     };
 
     // --- helpers to sync parent <-> variants ---
@@ -451,7 +478,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
 
     function seedVariantsFromParent() {
         // create one variant row seeded from parent fields
-        const localId = `local-${randomId()}`;
+        const localId = `local - ${randomId()} `;
         const parentPkgType = (mainPackagingType || "").trim();
         const parentPkgQty = parentPkgType === "PAIR" ? "2" : sanitizeIntegerInput(mainPackagingQty || "");
         const nextVariant = {
@@ -549,12 +576,28 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         if (isNonEmpty(row.original)) setSellingPrice(String(row.original));
     }
 
+    const handleDuplicateLastVariant = () => {
+        setVariants((prev) => {
+            if (prev.length === 0) return prev;
+            const last = prev[prev.length - 1];
+            return [
+                ...prev,
+                {
+                    ...last,
+                    id: `local-${randomId()}`,
+                    sku: computeAutoSku(sku, last, prev.length),
+                    autoSku: true,
+                },
+            ];
+        });
+    };
+
     const addVariantAdHoc = () => {
         setVariants((prev) => [
             ...prev,
             {
                 // Use a local-only id to distinguish unsaved rows from server variants
-                id: `local-${randomId()}`,
+                id: `local - ${randomId()} `,
                 sizeCode: "",
                 sizeText: "—",
                 colorText: "",
@@ -746,7 +789,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         setStatus(productDetail.status || (enums?.ProductStatus?.[0] || "active"));
         setCondition(productDetail.condition || (enums?.ProductCondition?.[0] || "NEW"));
         setOrigin(productDetail.originCountry || "Select");
-        setTag(productDetail.tag || tags[0]);
+        setCategory(productDetail.category || "Select");
 
         // weight + dims (for simple) – backend simple uses parent fields; variant-style often stores in variant
         const wu = "lb";
@@ -975,6 +1018,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             brand: isNonEmpty(brand) ? brand.trim() : undefined,
             status: status,
             originCountry: origin !== "Select" ? origin : undefined, // ISO2
+            category: category !== "Select" ? category : undefined,
             isDraft: !!isDraft,
             publishedAt: isDraft ? null : nowIso(),
             // Backend simple fields
@@ -1051,6 +1095,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             brand: isNonEmpty(brand) ? brand.trim() : undefined,
             status,
             originCountry: origin !== "Select" ? origin : undefined,
+            category: category !== "Select" ? category : undefined,
             isDraft: !!isDraft,
             publishedAt: isDraft ? null : nowIso(),
             variants: mappedVariants,
@@ -1115,7 +1160,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                     isDraft: !!isDraft,
                     // optional: you can pass originCountry if backend supports in PATCH parent:
                     originCountry: payload.originCountry,
-                    tag: tag !== "Select" ? tag : undefined,
+                    category: category !== "Select" ? category : undefined,
                     condition: condition,
                     // pricing for simple products (single variant)
                     retailPrice: !usingVariants && retailPrice ? Number(retailPrice) : undefined,
@@ -1566,8 +1611,8 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                     </>
                                                 )}
 
-                                                <div className="col-span-12 grid grid-cols-4 gap-3">
-                                                    <div className="col-span-1">
+                                                <div className="col-span-12 grid grid-cols-12 gap-3">
+                                                    <div className="col-span-12 md:col-span-3">
                                                         <label className={label}>Status <span className="text-red-500">*</span></label>
                                                         <SelectCompact
                                                             value={status}
@@ -1575,30 +1620,39 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                             options={(enums?.ProductStatus || ["active", "inactive", "archived"]).map(s => ({ value: s, label: labelize(s) }))}
                                                         />
                                                     </div>
-                                                    <div className="col-span-1 relative overflow-visible">
+                                                    <div className="col-span-12 md:col-span-3 relative overflow-visible">
                                                         <label className={label}>Place of origin <span className="text-red-500">*</span></label>
                                                         <SelectCompact
                                                             value={origin}
                                                             onChange={(v) => { setOrigin(v); if (missing["origin"]) setMissing(p => { const n = { ...p }; delete n["origin"]; return n; }); }}
                                                             options={origins}
                                                             disabled={originLoading}
-                                                            buttonClassName={`h-8 text-[12px] px-2 ${err("origin") ? "ring-1 ring-red-200 border-red-400" : ""} `}
+                                                            buttonClassName={`h-8 text-[12px] px-2 ${err("origin") ? "ring-1 ring-red-200 border-red-400" : ""}`}
                                                             filterable
                                                         />
                                                         {originLoading && (
                                                             <p className="mt-1 text-[11px] text-gray-500">Loading countries…</p>
                                                         )}
                                                     </div>
-                                                    <div className="col-span-1">
-                                                        <label className={label}>Tag</label>
-                                                        <SelectCompact value={tag} onChange={setTag} options={tags} />
-                                                    </div>
-                                                    <Field className="col-span-1" label="Brand">
+                                                    <Field className="col-span-12 md:col-span-3" label="Brand">
                                                         <input
                                                             className={input}
                                                             placeholder="Enter"
                                                             value={brand}
                                                             onChange={(e) => setBrand(e.target.value)}
+                                                        />
+                                                    </Field>
+
+                                                    {/* Category */}
+                                                    <Field className="col-span-12 md:col-span-3" label="Category">
+                                                        <SelectCompact
+                                                            value={category || "Select"}
+                                                            onChange={(val) => setCategory(val)}
+                                                            options={categoryOptions}
+                                                            placeholder="Select Category"
+                                                            addNewLabel="Add new category..."
+                                                            onAddNew={() => setCategoryModalOpen(true)}
+                                                            filterable
                                                         />
                                                     </Field>
                                                 </div>
@@ -1721,41 +1775,96 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                     {variants.map((v, idx) => {
                                                                         const sizeLabel = v.sizeCode ? (sizes.find(s => s.code === v.sizeCode)?.text || v.sizeText || "—") : (v.sizeText || "—");
                                                                         return (
-                                                                            <div key={v.id} className="bg-white rounded-lg border border-gray-200 p-3">
-                                                                                <div className="flex items-center justify-between">
-                                                                                    <div className="text-sm font-semibold text-gray-900">
-                                                                                        Variant {idx + 1}: {sizeLabel} · {v.sku || "(no SKU)"}
+                                                                            <div key={v.id} className="bg-white rounded-xl border border-gray-200 shadow-sm transition-shadow hover:shadow-md">
+                                                                                {/* Variant Header Bar */}
+                                                                                <div className="flex items-center justify-between bg-gray-50 px-4 py-3 border-b border-gray-200 rounded-t-xl">
+                                                                                    <div className="flex items-center gap-3">
+                                                                                        <span className="inline-flex items-center justify-center bg-white border border-gray-200 rounded-md shadow-sm h-6 px-2 text-[11px] font-bold text-gray-700">
+                                                                                            #{idx + 1}
+                                                                                        </span>
+                                                                                        <div className="flex flex-col">
+                                                                                            <span className="text-sm font-semibold text-gray-900">
+                                                                                                {sizeLabel}
+                                                                                            </span>
+                                                                                            {v.sku && (
+                                                                                                <span className="text-[11px] text-gray-500 font-mono">
+                                                                                                    {v.sku}
+                                                                                                </span>
+                                                                                            )}
+                                                                                        </div>
                                                                                     </div>
-                                                                                    <div className="flex items-center gap-2">
-                                                                                        <span className="text-xs text-gray-600">Active</span>
-                                                                                        <button type="button" onClick={() => patchVariant(v.id, { active: !v.active })} className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${v.active ? "bg-amber-500" : "bg-gray-300"} `} title="Active">
-                                                                                            <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${v.active ? "translate-x-6" : "translate-x-1"} `} />
-                                                                                        </button>
-                                                                                        <button type="button" onClick={() => deleteVariant(v.id)} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-50" title="Delete variant"><Trash2 size={16} /></button>
+                                                                                    <div className="flex items-center gap-3">
+                                                                                        <div className="flex items-center gap-2 bg-white rounded-full border border-gray-200 px-2 py-1 shadow-sm">
+                                                                                            <span className="text-[10px] uppercase font-bold text-gray-500">Active</span>
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                onClick={() => patchVariant(v.id, { active: !v.active })}
+                                                                                                className={`relative inline-flex h-4 w-8 items-center rounded-full transition ${v.active ? "bg-green-500" : "bg-gray-300"}`}
+                                                                                                title="Toggle Active"
+                                                                                            >
+                                                                                                <span className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition ${v.active ? "translate-x-4" : "translate-x-0.5"}`} />
+                                                                                            </button>
+                                                                                        </div>
+
+                                                                                        <div className="h-4 w-px bg-gray-300 mx-1"></div>
+
                                                                                         {v.id ? (
                                                                                             <>
-                                                                                                <button type="button" className="inline-flex items-center h-8 px-2 rounded-md border border-amber-300 bg-[#FFF9E5] text-amber-800 text-[12px] font-semibold hover:bg-amber-50" title="Upload images for this variant" onClick={() => variantInputsRef.current?.[v.id]?.click()}>
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    className="inline-flex items-center justify-center h-7 px-2 rounded-md border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
+                                                                                                    title="Upload images"
+                                                                                                    onClick={() => variantInputsRef.current?.[v.id]?.click()}
+                                                                                                >
                                                                                                     <Upload size={14} />
-                                                                                                    <span className="ml-1">Images</span>
                                                                                                 </button>
-                                                                                                <input type="file" accept="image/*" multiple className="hidden" ref={(el) => { if (!variantInputsRef.current) variantInputsRef.current = {}; variantInputsRef.current[v.id] = el; }} onChange={async (e) => {
-                                                                                                    const files = Array.from(e.target.files || []);
-                                                                                                    if (!files.length) return;
-                                                                                                    if (edit && productDetail?.id && !String(v.id).startsWith('local-')) {
-                                                                                                        try { const pid = productDetail?.id || productId; await uploadImages({ productId: pid, files, variantId: v.id }); toast.success('Variant images uploaded'); e.target.value = ''; } catch (err) { console.error(err); toast.error('Failed to upload variant images'); }
-                                                                                                    } else {
-                                                                                                        // stage files for upload after create
-                                                                                                        setVariantImages(prev => ({ ...prev, [v.id]: files }));
-                                                                                                        toast.success('Variant images selected');
-                                                                                                    }
-                                                                                                }} />
+                                                                                                <input
+                                                                                                    type="file"
+                                                                                                    accept="image/*"
+                                                                                                    multiple
+                                                                                                    className="hidden"
+                                                                                                    ref={(el) => {
+                                                                                                        if (!variantInputsRef.current) variantInputsRef.current = {};
+                                                                                                        variantInputsRef.current[v.id] = el;
+                                                                                                    }}
+                                                                                                    onChange={async (e) => {
+                                                                                                        const files = Array.from(e.target.files || []);
+                                                                                                        if (!files.length) return;
+                                                                                                        if (edit && productDetail?.id && !String(v.id).startsWith('local-')) {
+                                                                                                            try {
+                                                                                                                const pid = productDetail?.id || productId;
+                                                                                                                await uploadImages({ productId: pid, files, variantId: v.id });
+                                                                                                                toast.success('Variant images uploaded');
+                                                                                                                e.target.value = '';
+                                                                                                            } catch (err) {
+                                                                                                                console.error(err);
+                                                                                                                toast.error('Failed to upload variant images');
+                                                                                                            }
+                                                                                                        } else {
+                                                                                                            setVariantImages((prev) => ({ ...prev, [v.id]: files }));
+                                                                                                            toast.success('Variant images selected');
+                                                                                                        }
+                                                                                                    }}
+                                                                                                />
                                                                                             </>
                                                                                         ) : null}
+
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => deleteVariant(v.id)}
+                                                                                            className="inline-flex items-center justify-center h-7 w-7 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                                                                            title="Delete variant"
+                                                                                        >
+                                                                                            <Trash2 size={15} />
+                                                                                        </button>
                                                                                     </div>
                                                                                 </div>
 
-                                                                                <div className="mt-3">
-                                                                                    <p className="text-xs font-semibold text-gray-700 mb-1">Basic Info</p>
+                                                                                <div className="p-4">
+                                                                                    <div className="flex items-center gap-2 mb-4">
+                                                                                        <span className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Basic Details</span>
+                                                                                        <div className="h-px bg-gray-100 flex-1"></div>
+                                                                                    </div>
                                                                                     <div className="grid grid-cols-12 gap-2">
                                                                                         <Field className="col-span-12 md:col-span-2" label="Size">
                                                                                             <SelectCompact
@@ -1816,13 +1925,16 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                             <input className={input} placeholder="Optional" value={v.barcode} onChange={(e) => patchVariant(v.id, { barcode: e.target.value })} />
                                                                                         </Field>
                                                                                     </div>
-                                                                                    <p className="text-xs font-semibold text-gray-700 mt-3 mb-1">Measurements</p>
+                                                                                    <div className="flex items-center gap-2 mb-4 mt-6">
+                                                                                        <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Measurements</span>
+                                                                                        <div className="h-px bg-gray-100 flex-1"></div>
+                                                                                    </div>
                                                                                     <div className="grid grid-cols-12 gap-2">
                                                                                         <Field className="col-span-12 md:col-span-4" label="Weight">
                                                                                             <div className="grid grid-cols-12">
                                                                                                 <div className="col-span-7 flex items-center rounded-lg border border-gray-300 bg-white focus-within:ring-2 focus-within:ring-gray-900/10 focus-within:border-gray-400 overflow-hidden">
                                                                                                     <input
-                                                                                                        className={`h-8 w-full border-none bg-transparent px-2 text-[13px] text-gray-900 focus:outline-none focus:ring-0 ${err(`v:${v.id}:weight`) ? "bg-red-50" : ""} `}
+                                                                                                        className={`h-8 w-full border-none bg-transparent px-2 text-[13px] text-gray-900 focus: outline-none focus: ring-0 ${err(`v:${v.id}:weight`) ? "bg-red-50" : ""} `}
                                                                                                         placeholder="Weight"
                                                                                                         value={v.weight}
                                                                                                         onChange={(e) => patchVariant(v.id, { weight: sanitizeDecimalInput(e.target.value) })}
@@ -1970,7 +2082,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                 <div className="grid grid-cols-12">
                                                                                     <div className="col-span-7 flex items-center rounded-lg border border-gray-300 bg-white focus-within:ring-2 focus-within:ring-gray-900/10 focus-within:border-gray-400 overflow-hidden">
                                                                                         <input
-                                                                                            className={`h-8 w-full border-none bg-transparent px-2 text-[13px] text-gray-900 focus:outline-none focus:ring-0 ${err(`v:${v.id}:weight`) ? "bg-red-50" : ""} `}
+                                                                                            className={`h-8 w-full border-none bg-transparent px-2 text-[13px] text-gray-900 focus: outline-none focus: ring-0 ${err(`v:${v.id}:weight`) ? "bg-red-50" : ""} `}
                                                                                             placeholder="Weight"
                                                                                             value={v.weight}
                                                                                             onChange={(e) => patchVariant(v.id, { weight: sanitizeDecimalInput(e.target.value) })}
@@ -2034,11 +2146,11 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                 <button
                                                                                     type="button"
                                                                                     onClick={() => patchVariant(v.id, { active: !v.active })}
-                                                                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${v.active ? "bg-amber-500" : "bg-gray-300"}`}
+                                                                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${v.active ? "bg-amber-500" : "bg-gray-300"} `}
                                                                                     title="Active"
                                                                                 >
                                                                                     <span
-                                                                                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${v.active ? "translate-x-6" : "translate-x-1"}`}
+                                                                                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${v.active ? "translate-x-6" : "translate-x-1"} `}
                                                                                     />
                                                                                 </button>
                                                                             </div>
@@ -2099,6 +2211,11 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                             <button type="button" className={outlineBtn} onClick={addVariantAdHoc}>
                                                                 Add Variant Row
                                                             </button>
+                                                            {variants.length > 0 && (
+                                                                <button type="button" className={outlineBtn} onClick={handleDuplicateLastVariant}>
+                                                                    Duplicate Last
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     </>
                                                 )}
@@ -2184,7 +2301,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                     <>
                                                                         <div className="mt-2 space-y-2">
                                                                             {pendingLinks.map((row, idx) => (
-                                                                                <div key={`pending - ${idx} `} className="grid grid-cols-12 items-center gap-2">
+                                                                                <div key={`pending-${idx} `} className="grid grid-cols-12 items-center gap-2">
                                                                                     <div className="col-span-5">
                                                                                         <SelectCompact
                                                                                             value={row.supplierId}
@@ -2776,7 +2893,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                                     await createChannel({ marketplace: trimmed });
                                                                                                     await refetchChannels();
                                                                                                     setSelectedChannelId(trimmed);
-                                                                                                    toast.success(`Added marketplace: ${trimmed}`);
+                                                                                                    toast.success(`Added marketplace: ${trimmed} `);
                                                                                                     setMarketplaceModalOpen(false);
                                                                                                 } catch (e) {
                                                                                                     console.error(e);
@@ -3233,6 +3350,77 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                             setColorContext(null);
                                             setColorModalOpen(false);
                                         }}>Add Color</button>
+                                    </div>
+                                </DialogPanel>
+                            </TransitionChild>
+                        </div>
+                    </div>
+                </Dialog>
+            </Transition>
+
+            {/* --- ADD CATEGORY MODAL --- */}
+            <Transition appear show={categoryModalOpen} as={Fragment}>
+                <Dialog as="div" className="relative z-[600]" onClose={() => setCategoryModalOpen(false)}>
+                    <TransitionChild as={Fragment} enter="transition-opacity ease-out duration-150" enterFrom="opacity-0" enterTo="opacity-100" leave="transition-opacity ease-in duration-100" leaveFrom="opacity-100" leaveTo="opacity-0">
+                        <div className="fixed inset-0 bg-black/30" />
+                    </TransitionChild>
+
+                    <div className="fixed inset-0">
+                        <div className="flex min-h-full items-center justify-center p-4">
+                            <TransitionChild
+                                as={Fragment}
+                                enter="transition ease-out duration-150"
+                                enterFrom="opacity-0 scale-95"
+                                enterTo="opacity-100 scale-100"
+                                leave="transition ease-in duration-100"
+                                leaveFrom="opacity-100 scale-100"
+                                leaveTo="opacity-0 scale-95"
+                            >
+                                <DialogPanel className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-4 shadow-xl">
+                                    <h3 className="text-base font-semibold text-gray-900 mb-2">Add New Category</h3>
+                                    <p className="text-[13px] text-gray-600 mb-4">
+                                        Create a new product category.
+                                    </p>
+
+                                    <div className="space-y-3">
+                                        <div>
+                                            <label className={label}>Name *</label>
+                                            <input
+                                                className={input}
+                                                value={newCategoryText}
+                                                onChange={(e) => setNewCategoryText(e.target.value)}
+                                                placeholder="e.g. Shoes"
+                                                autoFocus
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-4 flex items-center justify-end gap-2">
+                                        <button
+                                            type="button"
+                                            className={`${ghostBtn}`}
+                                            onClick={() => setCategoryModalOpen(false)}
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className={`${primaryBtn} ${(saving || !newCategoryText.trim()) ? "opacity-50 cursor-not-allowed" : ""}`}
+                                            disabled={saving || !newCategoryText.trim()}
+                                            onClick={async () => {
+                                                if (!newCategoryText.trim()) return;
+                                                try {
+                                                    const res = await createCategoryMut(newCategoryText.trim());
+                                                    setCategory(res.name);
+                                                    setNewCategoryText("");
+                                                    setCategoryModalOpen(false);
+                                                } catch (e) {
+                                                    console.error("Failed to create category", e);
+                                                }
+                                            }}
+                                        >
+                                            {saving ? "Saving..." : "Create"}
+                                        </button>
                                     </div>
                                 </DialogPanel>
                             </TransitionChild>

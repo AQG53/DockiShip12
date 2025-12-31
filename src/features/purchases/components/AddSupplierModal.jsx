@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
 import { useCreateSupplier, useUpdateSupplier } from "../hooks/useSuppliers";
 import SelectCompact from "../../../components/SelectCompact";
 import { useCountryOptions } from "../../../hooks/useCountryOptions";
+import { lookupPostalCode } from "../../../lib/api";
 
 const sanitizePostalInput = (value) => {
   if (value === undefined || value === null) return "";
@@ -121,113 +122,25 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
 
 
 
-  const fetchWithTimeout = async (url, ms = 6000) => {
-    const ctrl = new AbortController();
-    const timeout = setTimeout(() => ctrl.abort(), ms);
-    try {
-      const res = await fetch(url, { signal: ctrl.signal });
-      return res;
-    } finally {
-      clearTimeout(timeout);
-    }
-  };
 
-  async function lookupPostalByCountry(country, postal) {
-    if (!country || !postal) return null;
-    const cc = String(country).trim().toUpperCase();
-    const pc = String(postal).trim();
-    if (!cc || !pc) return null;
-
-    const urls = [
-      `https://api.zippopotam.us/${encodeURIComponent(cc)}/${encodeURIComponent(pc)}`,
-      `http://api.zippopotam.us/${encodeURIComponent(cc)}/${encodeURIComponent(pc)}`,
-    ];
-
-    for (const url of urls) {
-      try {
-        const res = await fetchWithTimeout(url, 6000);
-        if (!res?.ok) continue;
-        const data = await res.json();
-        const p = Array.isArray(data?.places) ? data.places[0] : null;
-        if (!p) continue;
-        const city = p["place name"] || p["place"] || "";
-        const state = p["state abbreviation"] || p["state"] || "";
-        if (!city && !state) continue;
-        return { city, state };
-      } catch (_) {
-        continue;
-      }
-    }
-    return null;
-  }
-
-  async function lookupPostalByGeo(postal) {
-    if (!postal) return null;
-    const pc = String(postal).trim();
-    if (!pc) return null;
-    const params = new URLSearchParams({
-      format: "json",
-      addressdetails: "1",
-      limit: "1",
-      q: pc,
-    });
-    try {
-      const res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?${params}`, 6000);
-      if (!res?.ok) return null;
-      const data = await res.json();
-      const first = Array.isArray(data) && data.length ? data[0] : null;
-      if (!first) return null;
-      const address = first.address || {};
-      const city =
-        address.city ||
-        address.town ||
-        address.village ||
-        address.hamlet ||
-        address.county ||
-        "";
-      const state = address.state || address.region || address.state_district || "";
-      const countryCode = address.country_code ? address.country_code.toUpperCase() : "";
-      if (!city && !state && !countryCode) return null;
-      return { city, state, countryCode };
-    } catch (e) {
-      console.error("Geolocation lookup failed", e);
-      return null;
-    }
-  }
 
   const handleZipBlur = async () => {
     if (!form.zipCode) return;
     setZipLoading(true);
     try {
-      let city = "";
-      let state = "";
-      let countryCode = "";
+      const manualCountry = (form.country || "Select") === "Select" ? "" : form.country;
 
-      const geoResult = await lookupPostalByGeo(form.zipCode);
-      if (geoResult) {
-        city = geoResult.city || "";
-        state = geoResult.state || "";
-        countryCode = geoResult.countryCode || "";
+      const res = await lookupPostalCode(form.zipCode, manualCountry || undefined);
+      if (res && (res.city || res.state || res.country)) {
+        setForm((prev) => ({
+          ...prev,
+          city: res.city || prev.city,
+          state: res.state || prev.state,
+          country: res.country || prev.country
+        }));
       }
-
-      const hasManualCountry = !!form.country && form.country !== "Select";
-      if ((!city || !state) && hasManualCountry) {
-        const countryResult = await lookupPostalByCountry(form.country, form.zipCode);
-        if (countryResult) {
-          city = city || countryResult.city || "";
-          state = state || countryResult.state || "";
-          countryCode = countryCode || form.country.toUpperCase();
-        }
-      }
-
-      if (!city && !state && !countryCode) return;
-
-      setForm((prev) => ({
-        ...prev,
-        city: city || prev.city,
-        state: state || prev.state,
-        country: countryCode || prev.country,
-      }));
+    } catch (err) {
+      // ignore
     } finally {
       setZipLoading(false);
     }
@@ -385,21 +298,6 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
                       <h3 className="text-sm font-semibold text-gray-900">Address information</h3>
                     </div>
                     <div className="p-4 grid grid-cols-12 gap-3">
-                      <Field className="col-span-12 md:col-span-3" label="Zip Code *">
-                        <input
-                          className={input}
-                          placeholder="Please enter Zip Code"
-                          value={form.zipCode}
-                          onChange={(e) => handleChange("zipCode", e.target.value)}
-                          onBlur={handleZipBlur}
-                          inputMode="numeric"
-                          pattern="[0-9]*"
-                        />
-                        {zipLoading && (
-                          <div className="text-[11px] text-gray-500 mt-1">Looking up city and state…</div>
-                        )}
-                      </Field>
-
                       <Field className="col-span-12 md:col-span-3" label="Country *">
                         <SelectCompact
                           value={form.country || "Select"}
@@ -414,6 +312,21 @@ export default function AddSupplierModal({ open, onClose, onSave, supplier }) {
                         )}
                         {form.country && !countryValid && (
                           <div className="text-[11px] text-red-600 mt-1">Country must be ISO two-letter code</div>
+                        )}
+                      </Field>
+
+                      <Field className="col-span-12 md:col-span-3" label="Zip Code *">
+                        <input
+                          className={input}
+                          placeholder="Please enter Zip Code"
+                          value={form.zipCode}
+                          onChange={(e) => handleChange("zipCode", e.target.value)}
+                          onBlur={handleZipBlur}
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                        />
+                        {zipLoading && (
+                          <div className="text-[11px] text-gray-500 mt-1">Looking up city and state…</div>
                         )}
                       </Field>
 

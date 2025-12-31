@@ -89,8 +89,8 @@ export default function ViewWarehouseModal({ open, onClose, warehouse }) {
                                     <p className={label}>Status</p>
                                     <span
                                         className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${wh?.isActive
-                                                ? "bg-green-100 text-green-700"
-                                                : "bg-gray-200 text-gray-700"
+                                            ? "bg-green-100 text-green-700"
+                                            : "bg-gray-200 text-gray-700"
                                             }`}
                                     >
                                         {wh?.isActive ? "ACTIVE" : "INACTIVE"}

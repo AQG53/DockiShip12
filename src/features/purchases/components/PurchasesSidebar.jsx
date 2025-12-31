@@ -11,6 +11,11 @@ export default function PurchasesSidebar() {
   const fullPath = pathname + search;
   const { data: auth } = useAuthCheck({ refetchOnWindowFocus: false });
   const perms = auth?.perms || [];
+  const roles = auth?.roles || [];
+  const isOwner = roles.some((r) => {
+    if (typeof r === 'string') return r.toLowerCase() === 'owner';
+    return String(r?.name).toLowerCase() === 'owner';
+  });
 
   // Fetch all orders to calculate counts
   const { data } = usePurchaseOrders();
@@ -72,6 +77,7 @@ export default function PurchasesSidebar() {
   const [openSections, setOpenSections] = useState(() => new Set(sections.map((s) => s.id)));
 
   const filteredSections = sections.filter((sec) => {
+    if (isOwner) return true;
     if (sec.id === "suppliers") return perms.includes("suppliers.read");
     if (sec.id === "purchase-orders") return perms.includes("purchases.po.read");
     return true;

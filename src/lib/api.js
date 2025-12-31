@@ -313,6 +313,34 @@ export async function getProductMetaEnums() {
   return res?.data ?? {};
 }
 
+export async function listCategories({ search } = {}) {
+  const params = {};
+  if (search) params.search = search;
+  const res = await axiosInstance.get("/products/meta/categories", { params });
+  return res?.data ?? [];
+}
+
+export async function createCategory(name) {
+  const res = await axiosInstance.post("/products/meta/categories", { name });
+  return res?.data ?? {};
+}
+
+
+
+export async function lookupPostalCode(code, country) {
+  const params = { code };
+  if (country) params.country = country;
+  try {
+    const res = await axiosInstance.get("/location/postal-code", { params });
+    return res.data || null;
+  } catch (err) {
+    console.error("Postal lookup error", err);
+    return null;
+  }
+}
+
+
+
 export async function createProduct(payload) {
   const res = await axiosInstance.post("/products", payload);
   return res?.data?.data ?? res?.data ?? {};
