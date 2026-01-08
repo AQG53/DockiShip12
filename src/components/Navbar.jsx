@@ -28,6 +28,7 @@ const Navbar = () => {
       ['/', 'home'],
       ['/inventory', 'inventory'],
       ['/purchases', 'purchases'],
+      ['/orders', 'orders'],
     ]);
 
     const match = Array.from(map.keys()).find((p) =>
@@ -97,7 +98,8 @@ const Navbar = () => {
   const canSeePurchases = isOwner || moduleSet.has('purchases') || moduleSet.has('suppliers');
   const canManageUsers = isOwner || moduleSet.has('user');
   const canManageRoles = isOwner || moduleSet.has('role');
-  
+  const canSeeOrders = isOwner || moduleSet.has('orders');
+
 
   const visibleLinks = useMemo(() => {
     return navLinks.filter((link) => {
@@ -105,9 +107,10 @@ const Navbar = () => {
       if (key === 'home') return true;
       if (key === 'inventory') return canSeeInventory;
       if (key === 'purchases') return canSeePurchases;
+      if (key === 'orders') return canSeeOrders;
       return false;
     });
-  }, [navLinks, canSeeInventory, canSeePurchases]);
+  }, [navLinks, canSeeInventory, canSeePurchases, canSeeOrders]);
 
   return (
     <nav className="bg-[#ffeb9e] shadow-md fixed w-full top-0 z-50">
@@ -225,7 +228,7 @@ const Navbar = () => {
                   className="absolute right-0 mt-2 w-48 origin-top-right bg-white border border-gray-200 rounded-xl shadow-lg focus:outline-none overflow-hidden"
                 >
                   {settingsItems.map(({ label, path }) => {
-                    if (label === "Shop Manage" && claims?.roles[0]?.toLowerCase()!="owner") return null;
+                    if (label === "Shop Manage" && claims?.roles[0]?.toLowerCase() != "owner") return null;
                     if (label === "Staff Settings" && !canManageUsers) return null;
                     if (label === "Role Manage" && !canManageRoles) return null;
 

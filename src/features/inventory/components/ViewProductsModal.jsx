@@ -403,8 +403,8 @@ export default function ViewProductModal({ open, onClose, product }) {
                               </div>
                               <span
                                 className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${variant.status === "active"
-                                    ? "bg-green-100 text-green-700"
-                                    : "bg-gray-200 text-gray-700"
+                                  ? "bg-green-100 text-green-700"
+                                  : "bg-gray-200 text-gray-700"
                                   }`}
                               >
                                 {variant.status?.toUpperCase() || "—"}
@@ -499,19 +499,22 @@ export default function ViewProductModal({ open, onClose, product }) {
                   </div>
                 ) : (
                   <div className="rounded-lg border border-gray-200 overflow-hidden">
-                    <div className={`grid ${hasVariants ? 'grid-cols-[1fr_1.2fr_1.4fr_1fr_0.7fr_0.7fr]' : 'grid-cols-[1.2fr_1.4fr_1fr_0.7fr_0.7fr]'} bg-gray-50 text-[12px] font-medium text-gray-700`}>
+                    <div className={`grid ${hasVariants ? 'grid-cols-[1fr_1.1fr_1.2fr_1fr_0.7fr_0.6fr_0.6fr_0.6fr]' : 'grid-cols-[1.1fr_1.2fr_1fr_0.7fr_0.6fr_0.6fr_0.6fr]'} bg-gray-50 text-[12px] font-medium text-gray-700`}>
                       {hasVariants && <div className="px-3 py-2">Variant SKU</div>}
                       <div className="px-3 py-2">Product Name</div>
                       <div className="px-3 py-2">Marketplace</div>
                       <div className="px-3 py-2">Listing SKU</div>
+                      <div className="px-3 py-2 text-center">Price</div>
                       <div className="px-3 py-2 text-center">Units</div>
                       <div className="px-3 py-2 text-center">Assign</div>
+                      <div className="px-3 py-2 text-center">Stock</div>
                     </div>
                     <div className="divide-y divide-gray-100">
                       {listings.map((l) => {
                         const provider = l?.productName ?? l?.channel?.provider ?? "";
                         const channelName = l?.channel?.marketplace ?? l?.channel?.name ?? "";
                         const units = Number.isFinite(l?.units) ? l.units : l?.units ?? "";
+                        const price = l?.price != null ? Number(l.price).toFixed(2) : null;
                         const variantId = l?.productVariantId ?? l?.variantId ?? null;
                         const marketplaceSku = (l?.externalSku || "").trim();
                         const resolvedVariant = variantList.find((v) => v.id === variantId);
@@ -529,14 +532,16 @@ export default function ViewProductModal({ open, onClose, product }) {
                         return (
                           <div
                             key={l.id || provider + channelName + marketplaceSku}
-                            className={`grid ${hasVariants ? 'grid-cols-[1fr_1.2fr_1.4fr_1fr_0.7fr_0.7fr]' : 'grid-cols-[1.2fr_1.4fr_1fr_0.7fr_0.7fr]'} bg-white text-[13px] text-gray-700 items-center`}
+                            className={`grid ${hasVariants ? 'grid-cols-[1fr_1.1fr_1.2fr_1fr_0.7fr_0.6fr_0.6fr_0.6fr]' : 'grid-cols-[1.1fr_1.2fr_1fr_0.7fr_0.6fr_0.6fr_0.6fr]'} bg-white text-[13px] text-gray-700 items-center`}
                           >
                             {hasVariants && <div className="px-3 py-2">{resolvedVariant?.sku || "—"}</div>}
                             <div className="px-3 py-2">{provider || "—"}</div>
                             <div className="px-3 py-2">{channelName || "—"}</div>
                             <div className="px-3 py-2">{marketplaceSku || "—"}</div>
+                            <div className="px-3 py-2 text-center">{price ? `$${price}` : "—"}</div>
                             <div className="px-3 py-2 text-center">{units}</div>
                             <div className="px-3 py-2 text-center">{assignVal}</div>
+                            <div className="px-3 py-2 text-center text-gray-500">{stock}</div>
                           </div>
                         );
                       })}

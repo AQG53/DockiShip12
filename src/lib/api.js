@@ -302,6 +302,108 @@ export async function listProducts({ page, perPage, search, status, supplierId }
   };
 }
 
+/**
+ * Fetch products with variants flattened for order selection dropdown.
+ * Returns: [{ id, type: 'product'|'variant', productId, variantId, name, sku, imageUrl, retailPrice, sizeText, colorText, stockOnHand }]
+ */
+export async function listProductsForOrderSelection({ search, channelId } = {}) {
+  const params = { status: 'active', perPage: 100 };
+  if (search) params.search = search;
+  if (channelId) params.channelId = channelId;
+
+  const res = await axiosInstance.get("/products", { params });
+  const payload = res?.data ?? {};
+  const inner = payload?.data ?? payload;
+  const rows = inner?.data ?? inner?.items ?? inner?.rows ?? (Array.isArray(inner) ? inner : []);
+
+  const flattened = [];
+  for (const product of rows) {
+    const variants = Array.isArray(product.variants) ? product.variants : [];
+    const productImage = Array.isArray(product.images) && product.images[0]?.url ? product.images[0].url : null;
+
+    if (variants.length === 0) {
+      // Simple product without variants
+      const listings = Array.isArray(product.channelListings) ? product.channelListings : (Array.isArray(product.ChannelListing) ? product.ChannelListing : []);
+      const listing = listings[0];
+
+      // Build variant display name (product name + size/color)
+      const variantName = product.name;
+
+      flattened.push({
+        id: product.id,
+        type: 'product',
+        productId: product.id,
+        variantId: null,
+        name: product.name,
+        variantName, // Product/variant name for dropdown main label
+        sku: listing?.externalSku ?? product.sku,
+        marketplaceName: listing?.productName ?? null, // Marketplace-specific name
+        marketplaceSku: listing?.externalSku ?? null, // Marketplace SKU
+        imageUrl: productImage,
+        retailPrice: product.retailPrice ?? null,
+        channelPrice: listing?.price ?? null,
+        channelUnits: listing?.units ?? null,
+        sizeText: null,
+        colorText: null,
+        displayName: listing?.productName ?? product.name,
+        stockOnHand: product.stockOnHand ?? 0,
+        avgCostPerUnit: product.avgCostPerUnit ?? null,
+        lastPurchasePrice: product.lastPurchasePrice ?? null,
+      });
+    } else {
+      // Product with variants - only add variants that have a listing on the channel
+      for (const variant of variants) {
+        let listings = Array.isArray(variant.channelListings) ? variant.channelListings : (Array.isArray(variant.ChannelListing) ? variant.ChannelListing : []);
+
+        // Check parent listings only for single-variant products (simple products presented as variants)
+        if (listings.length === 0 && variants.length === 1) {
+          const parentListings = Array.isArray(product.channelListings) ? product.channelListings : (Array.isArray(product.ChannelListing) ? product.ChannelListing : []);
+          if (parentListings.length > 0) {
+            listings = parentListings;
+          }
+        }
+
+        // Skip variants without listings on the selected channel
+        if (listings.length === 0) {
+          continue;
+        }
+
+        const listing = listings[0];
+
+        // Build variant display name (product name + size/color)
+        const variantParts = [product.name];
+        if (variant.sizeText) variantParts.push(`Size ${variant.sizeText}`);
+        if (variant.colorText) variantParts.push(variant.colorText);
+        const variantName = variantParts.join(' - ');
+
+        flattened.push({
+          id: variant.id,
+          type: 'variant',
+          productId: product.id,
+          variantId: variant.id,
+          name: product.name,
+          variantName, // Product/variant name for dropdown main label
+          sku: listing?.externalSku ?? variant.sku,
+          marketplaceName: listing?.productName ?? null, // Marketplace-specific name
+          marketplaceSku: listing?.externalSku ?? null, // Marketplace SKU
+          imageUrl: productImage,
+          retailPrice: variant.retailPrice ?? product.retailPrice ?? null,
+          channelPrice: listing?.price ?? null,
+          channelUnits: listing?.units ?? null,
+          sizeText: variant.sizeText,
+          colorText: variant.colorText,
+          displayName: listing?.productName ?? variantName,
+          stockOnHand: variant.stockOnHand ?? 0,
+          avgCostPerUnit: variant.avgCostPerUnit ?? null,
+          lastPurchasePrice: variant.lastPurchasePrice ?? null,
+        });
+      }
+    }
+  }
+
+  return flattened;
+}
+
 export async function deleteProduct(productId) {
   if (!productId) throw new Error("Missing productId");
   const res = await axiosInstance.delete(`/products/${productId}`);
@@ -613,13 +715,26 @@ export async function searchMarketplaceChannels({ q, page = 1, perPage = 200 } =
 /**
  * Create a marketplace channel (name + provider are required).
  */
-export async function createMarketplaceChannel({ name, marketplace }) {
+export async function createMarketplaceChannel({ name, marketplace, storeUrl }) {
   const val = (marketplace || name || "").trim();
   if (!val) throw new Error('Missing channel name');
 
   const res = await axiosInstance.post('/products/marketplaces/channels', {
     marketplace: val,
+    storeUrl: storeUrl || undefined,
   });
+  return res?.data?.data ?? res?.data ?? {};
+}
+
+export async function updateMarketplaceChannel(channelId, payload) {
+  if (!channelId) throw new Error("Missing channel ID");
+  const res = await axiosInstance.patch(`/products/marketplaces/channels/${channelId}`, payload);
+  return res?.data?.data ?? res?.data ?? {};
+}
+
+export async function deleteMarketplaceChannel(channelId) {
+  if (!channelId) throw new Error("Missing channel ID");
+  const res = await axiosInstance.delete(`/products/marketplaces/channels/${channelId}`);
   return res?.data?.data ?? res?.data ?? {};
 }
 
@@ -720,3 +835,140 @@ export async function searchListingProductNames({ q } = {}) {
   // Normalize to plain strings when possible
   return rows.map((r) => (typeof r === 'string' ? r : (r?.provider ?? ''))).filter(Boolean);
 }
+// =====================
+// Order & Shipping Settings
+// =====================
+// NOTE: Selling Mediums have been replaced by Marketplace Channels (TenantChannel)
+// Use searchMarketplaceChannels() and createMarketplaceChannel() instead
+
+export async function listCourierMediums({ search, status } = {}) {
+  const params = {};
+  if (search) params.search = search;
+  if (status) params.status = status;
+  const res = await axiosInstance.get("/order-settings/courier-mediums", { params });
+  return res.data?.data ?? res.data ?? [];
+}
+export async function createCourierMedium(payload) {
+  const res = await axiosInstance.post("/order-settings/courier-mediums", payload);
+  return res.data;
+}
+export async function updateCourierMedium(id, payload) {
+  const res = await axiosInstance.patch(`/order-settings/courier-mediums/${id}`, payload);
+  return res.data;
+}
+export async function deleteCourierMedium(id) {
+  const res = await axiosInstance.delete(`/order-settings/courier-mediums/${id}`);
+  return res.data;
+}
+
+export async function listRemarkTypes({ search, status } = {}) {
+  const params = {};
+  if (search) params.search = search;
+  if (status) params.status = status;
+  const res = await axiosInstance.get("/order-settings/remark-types", { params });
+  return res.data?.data ?? res.data ?? [];
+}
+export async function createRemarkType(payload) {
+  const res = await axiosInstance.post("/order-settings/remark-types", payload);
+  return res.data;
+}
+export async function updateRemarkType(id, payload) {
+  const res = await axiosInstance.patch(`/order-settings/remark-types/${id}`, payload);
+  return res.data;
+}
+export async function deleteRemarkType(id) {
+  const res = await axiosInstance.delete(`/order-settings/remark-types/${id}`);
+  return res.data;
+}
+
+
+
+// =====================
+// Order Management (Manual)
+// =====================
+export async function listOrders({ search, status, startDate, endDate, mediumId, courierId, remarkTypeId, dateType, page, perPage } = {}) {
+  const params = {};
+  if (search) params.search = search;
+  if (status && status !== 'ALL') params.status = status;
+  if (startDate) params.startDate = startDate;
+  if (endDate) params.endDate = endDate;
+  if (mediumId) params.mediumId = mediumId;
+  if (courierId) params.courierId = courierId;
+  if (remarkTypeId) params.remarkTypeId = remarkTypeId;
+  if (dateType) params.dateType = dateType;
+  if (page) params.page = page;
+  if (perPage) params.perPage = perPage;
+
+  const res = await axiosInstance.get("/orders", { params });
+  const payload = res?.data ?? {};
+
+  // If the backend returns { rows, meta }, valid.
+  // If it returns array (old backend), normalize.
+  const rows = payload.rows || (Array.isArray(payload) ? payload : (payload.data || []));
+  const meta = payload.meta || { page: 1, perPage: rows.length || 25, total: rows.length, totalPages: 1 };
+
+  return { rows, meta };
+}
+
+export async function createOrder(payload) {
+  const res = await axiosInstance.post("/orders", payload);
+  return res.data;
+}
+
+export async function updateOrder(id, payload) {
+  const res = await axiosInstance.patch(`/orders/${id}`, payload);
+  return res.data;
+}
+
+export async function deleteOrder(id) {
+  const res = await axiosInstance.delete(`/orders/${id}`);
+  return res.data;
+}
+
+// Order Helpers (Meta)
+export async function listColors() {
+  const res = await axiosInstance.get("/orders/meta/colors");
+  return res.data?.data ?? res.data ?? [];
+}
+
+export async function getOrderCounts() {
+  const res = await axiosInstance.get("/orders/meta/counts");
+  return res.data;
+}
+
+export async function createColor(name, code) {
+  const res = await axiosInstance.post("/orders/meta/colors", { name, code });
+  return res.data;
+}
+
+export async function createSizeOrder(code, name) {
+  const res = await axiosInstance.post("/orders/meta/sizes", { code, name });
+  return res.data;
+}
+
+export async function createCategoryOrder(name) {
+  const res = await axiosInstance.post("/orders/meta/categories", { name });
+  return res.data;
+}
+
+export async function listSizes({ search } = {}) {
+  const params = search ? { search } : {};
+  const res = await axiosInstance.get("/products/meta/sizes", { params });
+  return res.data?.data ?? res.data ?? [];
+}
+
+export async function uploadOrderAttachment(orderId, formData) {
+  const res = await axiosInstance.post(`/orders/${orderId}/attachments`, formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return res.data;
+}
+
+export async function deleteOrderAttachment(orderId, attachmentId) {
+  const res = await axiosInstance.delete(`/orders/${orderId}/attachments/${attachmentId}`);
+  return res.data;
+}
+
+

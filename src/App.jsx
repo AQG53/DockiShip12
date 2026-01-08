@@ -11,7 +11,7 @@ import SettingsLayout from './features/settings/pages/SettingsLayout.jsx'
 import SignupPage from './features/auth/pages/SignupPage.jsx'
 import TenantSetupPage from './pages/TenantSetup.jsx'
 //import ShopSettings from './pages/settings/ShopSettings.jsx'
-//import OrderSettings from './pages/settings/OrderSettings.jsx'
+import OrderSettings from './features/settings/pages/OrderSettings.jsx'
 //import GeneralSettings from './pages/settings/GeneralSettings.jsx'
 //import ListingSettings from './pages/settings/ListingSettings.jsx'
 //import InventorySettings from './pages/settings/InventorySettings.jsx'
@@ -32,6 +32,8 @@ import WarehouseList from './features/inventory/pages/WarehouseList.jsx'
 import PurchasesLayout from './features/purchases/pages/PurchasesLayout.jsx'
 import PurchasesPage from './features/purchases/pages/PurchasesPage.jsx'
 import SuppliersManage from './features/purchases/pages/SuppliersManage.jsx'
+import OrdersLayout from './features/orders/pages/OrdersLayout.jsx'
+import OrdersPage from './features/orders/pages/OrdersPage.jsx'
 
 function OwnerOnly({ children }) {
   const { claims, ready } = useUserPermissions();
@@ -158,6 +160,14 @@ const App = () => {
           path='/invite/accept'
           element={<AcceptInvite />}
         />
+
+        <Route
+          path='/orders'
+          element={isAuthenticated ? <OrdersLayout /> : <Navigate to="/login/owner" replace />}
+        >
+          <Route index element={<OrdersPage />} />
+        </Route>
+
         <Route
           path="/settings"
           element={isAuthenticated ? <SettingsLayout /> : <Navigate to="/login/owner" replace />}
@@ -171,8 +181,8 @@ const App = () => {
               </OwnerOnly>
             }
           />
-          {/* <Route path="orders" element={<OrderSettings />} />
-          <Route path="general" element={<GeneralSettings />} />
+          <Route path="orders" element={<OrderSettings />} />
+          {/* <Route path="general" element={<GeneralSettings />} />
           <Route path="listings" element={<ListingSettings />} />
           <Route path="inventory" element={<InventorySettings />} /> */}
           <Route path="staff" element={

@@ -18,6 +18,7 @@ export default function SelectCompact({
   filterable = false,
   onAddNew,
   addNewLabel = "Add New",
+  placeholder,
 }) {
   const list = Array.isArray(options) ? options : [];
   const containerRef = useRef(null);
@@ -28,6 +29,7 @@ export default function SelectCompact({
     typeof opt === "string" ? opt : opt?.label ?? getOptValue(opt);
 
   const currentLabel = (() => {
+    if (!value && placeholder) return placeholder;
     if (value === "Select") return "Select";
     const found = list.find((opt) =>
       typeof opt === "string" ? opt === value : opt?.value === value,
@@ -61,6 +63,8 @@ export default function SelectCompact({
 
   const ADD_NEW_SENTINEL = "__ADD_NEW_SENTINEL__";
 
+  const isPlaceholder = !value && !!placeholder;
+
   return (
     <Listbox
       value={value}
@@ -84,8 +88,8 @@ export default function SelectCompact({
         return (
           <div className="relative" ref={containerRef}>
             <ListboxButton
-              className={`relative w-full h-8 rounded-lg border border-gray-300 bg-white pl-2 pr-7 text-left text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10 ${disabled ? "opacity-60 cursor-not-allowed" : ""
-                } ${buttonClassName}`}
+              className={`relative w-full h-8 rounded-lg border border-gray-300 bg-white pl-2 pr-7 text-left text-[13px] focus:outline-none focus:ring-2 focus:ring-gray-900/10 ${disabled ? "opacity-60 cursor-not-allowed" : ""
+                } ${buttonClassName} ${isPlaceholder ? "text-gray-400" : "text-gray-900"}`}
             >
               <span className="block truncate">{currentLabel}</span>
               <span className="pointer-events-none absolute inset-y-0 right-1.5 flex items-center">

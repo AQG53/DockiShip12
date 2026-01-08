@@ -11,6 +11,7 @@ export const settingsItems = [
 export const navLinks = [
   { name: "Home", to: "/", id: "home" },
   { name: "Inventory", to: "/inventory", id: "inventory" },
+  { name: "Orders", to: "/orders", id: "orders" },
   { name: "Purchases", to: "/purchases", id: "purchases" },
 ];
 

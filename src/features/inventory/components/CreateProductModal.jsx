@@ -230,6 +230,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const [mainColorText, setMainColorText] = useState("");
     const [mainPackagingType, setMainPackagingType] = useState("");
     const [mainPackagingQty, setMainPackagingQty] = useState("");
+    const [mainStockOnHand, setMainStockOnHand] = useState("");
 
     // --- new: supplier & pricing ---
     const [supplier, setSupplier] = useState("Select");
@@ -273,6 +274,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     // listing form
     const [listingSku, setListingSku] = useState("");
     const [listingUnits, setListingUnits] = useState("");
+    const [listingPrice, setListingPrice] = useState("");
     const [selectedVariantForListing, setSelectedVariantForListing] = useState("product");
     const [assign, setAssign] = useState("");
 
@@ -316,13 +318,29 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     }, [providers]);
 
     const channelOptions = useMemo(() => {
-        const unique = new Set();
-        (allChannels || []).forEach(c => {
-            const n = c.marketplace ?? c.name;
-            if (n) unique.add(n);
-        });
-        return Array.from(unique).map(n => ({ value: n, label: n }));
-    }, [allChannels]);
+        // Only filter channels used by the SAME variant (or product level)
+        const usedIds = new Set(
+            (listings || [])
+                .filter(l => {
+                    const listingVariantId = l?.variantId ?? l?.productVariantId ?? null;
+                    if (selectedVariantForListing === "product") {
+                        // Product-level: only exclude channels used at product level (no variant)
+                        return listingVariantId === null;
+                    } else {
+                        // Variant-level: only exclude channels used by THIS variant
+                        return String(listingVariantId) === String(selectedVariantForListing);
+                    }
+                })
+                .map(l => l?.channel?.id || l?.tenantChannelId)
+                .filter(Boolean)
+        );
+        const available = (allChannels || []).filter(c => !usedIds.has(c.id));
+
+        return available.map(c => ({
+            value: c.id,
+            label: c.marketplace + (c.provider ? ` (${c.provider})` : '')
+        }));
+    }, [allChannels, listings, selectedVariantForListing]);
 
     // Track whether provider is custom (not in provider list)
     useEffect(() => {
@@ -423,6 +441,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         setMainColorText("");
         setMainPackagingType("");
         setMainPackagingQty("");
+        setMainStockOnHand("");
 
         setWeightMain("");
         setWeightUnit("lb");
@@ -459,6 +478,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         setSelectedChannelId(null);
         setListingSku("");
         setListingUnits("");
+        setListingPrice("");
         setSelectedVariantForListing("product");
         setAssign("");
         setProductNameIsCustom(false);
@@ -812,7 +832,11 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             productDetail.retailPrice != null ? String(productDetail.retailPrice) : ""
         );
         setSellingPrice(
-            productDetail.originalPrice != null ? String(productDetail.originalPrice) : ""
+            productDetail.originalPrice != null
+                ? String(productDetail.originalPrice)
+                : productDetail.lastPurchasePrice != null
+                    ? String(productDetail.lastPurchasePrice)
+                    : ""
         );
 
         // simple-only attributes
@@ -829,6 +853,9 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                     : ""
             );
         }
+        setMainStockOnHand(
+            productDetail.stockOnHand != null ? String(productDetail.stockOnHand) : ""
+        );
 
         // supplier (no primary; linking managed below)
         setSupplier("Select");
@@ -920,7 +947,11 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             arr.forEach(v => {
                 priceMap[v.id] = {
                     retail: v.retailPrice != null ? String(v.retailPrice) : "",
-                    original: v.originalPrice != null ? String(v.originalPrice) : "",
+                    original: v.originalPrice != null
+                        ? String(v.originalPrice)
+                        : v.lastPurchasePrice != null
+                            ? String(v.lastPurchasePrice)
+                            : "",
                     purchase: v.lastPurchasePrice != null ? String(v.lastPurchasePrice) : "",
                 };
             });
@@ -1043,6 +1074,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                 lastPurchasePrice: Number(purchasingPrice),
                 lastPurchaseCurr: CURRENCY,
             } : {}),
+            stockOnHand: mainStockOnHand ? Number(mainStockOnHand) : 0,
             variants: [], // keep empty if no variants
         });
     };
@@ -1084,6 +1116,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                 originalCurrency: CURRENCY,
                 lastPurchasePrice: priceRow.purchase != null && priceRow.purchase !== "" ? Number(priceRow.purchase) : undefined,
                 lastPurchaseCurr: CURRENCY,
+                stockOnHand: v.stockOnHand != null ? Number(v.stockOnHand) : 0,
                 attributes: {}, // reserved
             };
         });
@@ -1180,6 +1213,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                     width: !usingVariants && isNonEmpty(dimW) ? Number(dimW) : undefined,
                     height: !usingVariants && isNonEmpty(dimH) ? Number(dimH) : undefined,
                     dimensionUnit: !usingVariants ? dimUnit : undefined,
+                    stockOnHand: !usingVariants && mainStockOnHand ? Number(mainStockOnHand) : undefined,
                     // per-supplier pricing handled via links
                 };
                 const effectiveProductId = productDetail?.id || productId;
@@ -1233,6 +1267,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                             dimensionUnit: v.unit || dimUnit,
                             packagingType: packagingPayload.packagingType,
                             packagingQuantity: packagingPayload.packagingQuantity,
+                            stockOnHand: v.stockOnHand != null ? Number(v.stockOnHand) : undefined,
                             attributes: {}, // reserved
                         };
 
@@ -1549,9 +1584,9 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                     </div>
                                                 )}
 
-                                                {/* Simple product: Size, Color, Packaging, Condition, Brand in one row */}
+                                                {/* Simple product: Size, Color, Packaging, Condition, Stock in one row */}
                                                 {!variantEnabled ? (
-                                                    <div className="col-span-12 grid grid-cols-4 gap-3">
+                                                    <div className="col-span-12 grid grid-cols-5 gap-3">
                                                         <Field className="col-span-1" label="Size">
                                                             <SelectCompact
                                                                 value={mainSizeText || "—"}
@@ -1604,6 +1639,17 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                 options={(enums?.ProductCondition || ["NEW", "USED", "RECONDITIONED"]).map(c => ({ value: c, label: labelize(c) }))}
                                                             />
                                                         </div>
+                                                        <Field className="col-span-1" label="Stock">
+                                                            <input
+                                                                type="number"
+                                                                min={0}
+                                                                className={input}
+                                                                placeholder="0"
+                                                                value={mainStockOnHand}
+                                                                onChange={(e) => setMainStockOnHand(sanitizeIntegerInput(e.target.value))}
+                                                                inputMode="numeric"
+                                                            />
+                                                        </Field>
                                                     </div>
                                                 ) : (
                                                     <>
@@ -1919,10 +1965,21 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                             />
                                                                                         </Field>
                                                                                         <Field className="col-span-12 md:col-span-3" label="Variant SKU *">
-                                                                                            <input className={`${input} ${err(`v:${v.id}:sku`) ? "border-red-400 ring-1 ring-red-200" : ""} `} placeholder="e.g., 123-XL" value={v.sku} onChange={(e) => patchVariant(v.id, { sku: e.target.value, autoSku: false })} />
+                                                                                            <input className={`${input} ${err(`v:${v.id}:sku`) ? "border-red-400 ring-1 ring-red-200" : ""} `} placeholder="123-XL" value={v.sku} onChange={(e) => patchVariant(v.id, { sku: e.target.value, autoSku: false })} />
                                                                                         </Field>
                                                                                         <Field className="col-span-12 md:col-span-2" label="Barcode">
                                                                                             <input className={input} placeholder="Optional" value={v.barcode} onChange={(e) => patchVariant(v.id, { barcode: e.target.value })} />
+                                                                                        </Field>
+                                                                                        <Field className="col-span-12 md:col-span-2" label="Stock">
+                                                                                            <input
+                                                                                                type="number"
+                                                                                                min={0}
+                                                                                                className={input}
+                                                                                                placeholder="0"
+                                                                                                value={v.stockOnHand ?? ""}
+                                                                                                onChange={(e) => patchVariant(v.id, { stockOnHand: sanitizeIntegerInput(e.target.value) })}
+                                                                                                inputMode="numeric"
+                                                                                            />
                                                                                         </Field>
                                                                                     </div>
                                                                                     <div className="flex items-center gap-2 mb-4 mt-6">
@@ -1979,7 +2036,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                                     type="number"
                                                                                                     min={1}
                                                                                                     className={`${input} ${err(`v:${v.id}:packaging`) ? "border-red-400 ring-1 ring-red-200" : ""} `}
-                                                                                                    placeholder="e.g., 5"
+                                                                                                    placeholder="5"
                                                                                                     value={v.packagingQuantity || ""}
                                                                                                     onChange={(e) => patchVariant(v.id, { packagingQuantity: sanitizeIntegerInput(e.target.value) })}
                                                                                                     inputMode="numeric"
@@ -2063,7 +2120,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                             <div className="bg-white px-2 py-1.5 col-span-1">
                                                                                 <input
                                                                                     className={`${input} ${err(`v:${v.id}:sku`) ? "border-red-400 ring-1 ring-red-200" : ""} `}
-                                                                                    placeholder="e.g., 123-XL"
+                                                                                    placeholder="123-XL"
                                                                                     value={v.sku}
                                                                                     onChange={(e) => patchVariant(v.id, { sku: e.target.value, autoSku: false })}
                                                                                 />
@@ -2434,7 +2491,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                         <div className="grid grid-cols-12">
                                                             <input
                                                                 className={`${input} col-span-9 ${err("retailPrice") ? "border-red-400 ring-1 ring-red-200" : ""} rounded-r-none border-r`}
-                                                                placeholder="e.g., 299.00"
+                                                                placeholder="299.00"
                                                                 value={retailPrice}
                                                                 onChange={(e) => setRetailPrice(sanitizeDecimalInput(e.target.value))}
                                                                 inputMode="decimal"
@@ -2451,7 +2508,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                         <div className="grid grid-cols-12">
                                                             <input
                                                                 className={`${input} col-span-9 ${err("sellingPrice") ? "border-red-400 ring-1 ring-red-200" : ""} rounded-r-none border-r`}
-                                                                placeholder="e.g., 279.00"
+                                                                placeholder="279.00"
                                                                 value={sellingPrice}
                                                                 onChange={(e) => setSellingPrice(sanitizeDecimalInput(e.target.value))}
                                                                 inputMode="decimal"
@@ -2495,7 +2552,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                         <div className="px-3 py-2">
                                                                             <input
                                                                                 className={`${input} ${err("v:" + v.id + ":retail") ? "border-red-400 ring-1 ring-red-200" : ""} `}
-                                                                                placeholder="e.g., 299.00"
+                                                                                placeholder="299.00"
                                                                                 value={row.retail}
                                                                                 onChange={(e) =>
                                                                                     setVariantPrices((prev) => ({
@@ -2510,7 +2567,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                         <div className="px-3 py-2">
                                                                             <input
                                                                                 className={`${input} ${err("v:" + v.id + ":original") ? "border-red-400 ring-1 ring-red-200" : ""} `}
-                                                                                placeholder="e.g., 349.00"
+                                                                                placeholder="349.00"
                                                                                 value={row.original}
                                                                                 onChange={(e) =>
                                                                                     setVariantPrices((prev) => ({
@@ -2525,7 +2582,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                         <div className="px-3 py-2">
                                                                             <input
                                                                                 className={input}
-                                                                                placeholder="e.g., 120.00"
+                                                                                placeholder="120.00"
                                                                                 value={row.purchase}
                                                                                 onChange={(e) =>
                                                                                     setVariantPrices((prev) => ({
@@ -2794,7 +2851,26 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                         Add Listing
                                                     </div>
 
-                                                    <div className={`p-4 grid ${(Array.isArray(variants) && variants.length > 0) ? 'grid-cols-[1.6fr_1.0fr_1.2fr_1fr_0.7fr_0.7fr_0.7fr_50px]' : 'grid-cols-[1.6fr_1.0fr_1fr_0.7fr_0.7fr_0.7fr_50px]'} gap-3 items-end`}>
+                                                    <div className={`p-4 grid ${(Array.isArray(variants) && variants.length > 0) ? 'grid-cols-[1.4fr_1.0fr_1.2fr_0.8fr_0.7fr_0.7fr_0.7fr_0.7fr_50px]' : 'grid-cols-[1.4fr_1.0fr_0.9fr_0.8fr_0.7fr_0.7fr_0.7fr_50px]'} gap-3 items-end`}>
+                                                        {/* Variant pick (moved first, required) */}
+                                                        {Array.isArray(variants) && variants.length > 0 && (
+                                                            <div>
+                                                                <label className={label}>Attach To <span className="text-red-500">*</span></label>
+                                                                <SelectCompact
+                                                                    value={selectedVariantForListing}
+                                                                    onChange={(v) => setSelectedVariantForListing(v)}
+                                                                    options={[
+                                                                        { value: "product", label: "Product (no variant)" },
+                                                                        ...(variants.map(v => ({
+                                                                            value: String(v.id),
+                                                                            label: (v.sku || v.sizeText || v.sizeCode || "Variant")
+                                                                        })))
+                                                                    ]}
+                                                                    filterable
+                                                                />
+                                                            </div>
+                                                        )}
+
                                                         {/* Product Name (was Provider) */}
                                                         <div>
                                                             <label className={label}>Product Name</label>
@@ -2821,7 +2897,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                 })}
                                                                 placeholder="Select Marketplace"
                                                                 filterable
-                                                                disabled={false}
+                                                                disabled={Array.isArray(variants) && variants.length > 0 && !selectedVariantForListing}
                                                                 onAddNew={() => {
                                                                     setNewMarketplaceName("");
                                                                     setMarketplaceModalOpen(true);
@@ -2869,7 +2945,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                         <input
                                                                                             type="text"
                                                                                             className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                                                            placeholder="e.g. Amazon, eBay"
+                                                                                            placeholder="Amazon, eBay"
                                                                                             value={newMarketplaceName}
                                                                                             onChange={(e) => setNewMarketplaceName(e.target.value)}
                                                                                             autoFocus
@@ -2912,31 +2988,12 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                             </Dialog>
                                                         </Transition>
 
-                                                        {/* Variant pick (only when variants exist) */}
-                                                        {Array.isArray(variants) && variants.length > 0 && (
-                                                            <div>
-                                                                <label className={label}>Attach To</label>
-                                                                <SelectCompact
-                                                                    value={selectedVariantForListing}
-                                                                    onChange={(v) => setSelectedVariantForListing(v)}
-                                                                    options={[
-                                                                        { value: "product", label: "Product (no variant)" },
-                                                                        ...(variants.map(v => ({
-                                                                            value: String(v.id),
-                                                                            label: (v.sku || v.sizeText || v.sizeCode || "Variant")
-                                                                        })))
-                                                                    ]}
-                                                                    filterable
-                                                                />
-                                                            </div>
-                                                        )}
-
                                                         {/* SKU (optional) */}
                                                         <div>
                                                             <Field label="Listing SKU">
                                                                 <input
                                                                     className={input}
-                                                                    placeholder="e.g., AMZ-123-XL"
+                                                                    placeholder="AMZ-123-XL"
                                                                     value={listingSku}
                                                                     onChange={(e) => setListingSku(e.target.value)}
                                                                 />
@@ -2948,9 +3005,21 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                             <Field label="Units *">
                                                                 <input
                                                                     className={input}
-                                                                    placeholder="e.g., 25"
+                                                                    placeholder="25"
                                                                     value={listingUnits}
                                                                     onChange={(e) => setListingUnits(e.target.value)}
+                                                                />
+                                                            </Field>
+                                                        </div>
+
+                                                        {/* Selling Price */}
+                                                        <div>
+                                                            <Field label="Price">
+                                                                <input
+                                                                    className={input}
+                                                                    placeholder="29.99"
+                                                                    value={listingPrice}
+                                                                    onChange={(e) => setListingPrice(sanitizeDecimalInput(e.target.value))}
                                                                 />
                                                             </Field>
                                                         </div>
@@ -3022,10 +3091,16 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                             const payload = {
                                                                                 productName: prodName,
                                                                                 marketplace: channelName,
+                                                                                channelId: selectedChannelId,
                                                                                 units: Number(listingUnits),
                                                                             };
+                                                                            const selectedChan = (allChannels || []).find(c => c.id === selectedChannelId);
+                                                                            if (selectedChan) payload.marketplace = selectedChan.marketplace;
                                                                             if (listingSku && listingSku.trim()) {
                                                                                 payload.externalSku = listingSku.trim();
+                                                                            }
+                                                                            if (listingPrice && listingPrice.trim()) {
+                                                                                payload.price = parseFloat(listingPrice);
                                                                             }
                                                                             if (selectedVariantForListing && selectedVariantForListing !== "product") {
                                                                                 payload.variantId = selectedVariantForListing;
@@ -3035,6 +3110,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                             toast.success("Listing added");
                                                                             setListingSku("");
                                                                             setListingUnits("");
+                                                                            setListingPrice("");
                                                                             setSelectedProductName("Select");
                                                                             setSelectedChannelId(null);
                                                                             setSelectedVariantForListing("product");
@@ -3053,10 +3129,11 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
 
                                                 {/* Existing listings */}
                                                 <div className="rounded-xl border border-gray-200 overflow-hidden">
-                                                    <div className={`grid ${variantEnabled ? 'grid-cols-[1.2fr_1.4fr_1fr_0.7fr_0.7fr_0.7fr_1fr_90px]' : 'grid-cols-[1.2fr_1.4fr_1fr_0.7fr_0.7fr_0.7fr_90px]'} text-[12px] font-medium text-gray-700`}>
+                                                    <div className={`grid ${variantEnabled ? 'grid-cols-[1.1fr_1.2fr_0.9fr_0.7fr_0.6fr_0.6fr_0.6fr_0.9fr_70px]' : 'grid-cols-[1.1fr_1.2fr_0.9fr_0.7fr_0.6fr_0.6fr_0.6fr_70px]'} text-[12px] font-medium text-gray-700`}>
                                                         <div className="bg-gray-50 px-3 py-2">Product Name</div>
                                                         <div className="bg-gray-50 px-3 py-2">Marketplace</div>
                                                         <div className="bg-gray-50 px-3 py-2">SKU</div>
+                                                        <div className="bg-gray-50 px-3 py-2 text-center">Price</div>
                                                         <div className="bg-gray-50 px-3 py-2 text-center">Units</div>
                                                         <div className="bg-gray-50 px-3 py-2 text-center">Assign</div>
                                                         <div className="bg-gray-50 px-3 py-2 text-center">Stock</div>
@@ -3069,11 +3146,12 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                     ) : (Array.isArray(listings) && listings.length > 0) ? (
                                                         <div className="divide-y divide-gray-100">
                                                             {listings.map((l) => {
-                                                                const provider = l?.productName ?? l?.channel?.provider ?? "";
-                                                                const channelName = l?.channel?.marketplace ?? l?.channel?.name ?? "";
-                                                                const sku = l?.sku ?? "";
+                                                                const provider = l?.productName ?? l?.channel?.provider ?? ""; // this maps to 'Product Name' column
+                                                                const channelName = (l?.channel?.marketplace ?? l?.channel?.name ?? "") + (l?.channel?.provider ? ` (${l.channel.provider})` : "");
+                                                                const sku = l?.externalSku ?? l?.sku ?? "";
                                                                 const units = Number.isFinite(l?.units) ? l.units : (l?.units ?? "");
-                                                                const variantId = l?.variantId ?? null;
+                                                                const price = l?.price != null ? Number(l.price).toFixed(2) : null;
+                                                                const variantId = l?.variantId ?? l?.productVariantId ?? null;
 
                                                                 // Calculate Assign
                                                                 let stock = 0;
@@ -3087,10 +3165,11 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                 const assignVal = (unitsNum > 0 && stock > 0) ? Math.floor(stock / unitsNum) : 0;
 
                                                                 return (
-                                                                    <div key={l.id} className={`grid ${variantEnabled ? 'grid-cols-[1.2fr_1.4fr_1fr_0.7fr_0.7fr_0.7fr_1fr_90px]' : 'grid-cols-[1.2fr_1.4fr_1fr_0.7fr_0.7fr_0.7fr_90px]'} bg-white text-[13px] text-gray-700 items-center`}>
+                                                                    <div key={l.id} className={`grid ${variantEnabled ? 'grid-cols-[1.1fr_1.2fr_0.9fr_0.7fr_0.6fr_0.6fr_0.6fr_0.9fr_70px]' : 'grid-cols-[1.1fr_1.2fr_0.9fr_0.7fr_0.6fr_0.6fr_0.6fr_70px]'} bg-white text-[13px] text-gray-700 items-center`}>
                                                                         <div className="px-3 py-2">{provider || "—"}</div>
                                                                         <div className="px-3 py-2">{channelName || "—"}</div>
                                                                         <div className="px-3 py-2 text-[13px]">{sku || "—"}</div>
+                                                                        <div className="px-3 py-2 text-center">{price ? `$${price}` : "—"}</div>
                                                                         <div className="px-3 py-2 text-center">{units}</div>
                                                                         <div className="px-3 py-2 text-center">{assignVal}</div>
                                                                         <div className="px-3 py-2 text-center text-gray-500">{stock}</div>
@@ -3254,7 +3333,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                             <label className={label}>Size Label *</label>
                                             <input
                                                 className={input}
-                                                placeholder="e.g., Medium"
+                                                placeholder="Medium"
                                                 value={newSizeText}
                                                 onChange={(e) => setNewSizeText(e.target.value)}
                                             />
@@ -3328,7 +3407,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                     <h3 className="text-base font-semibold text-gray-900 mb-2">Add New Color</h3>
                                     <div className="space-y-2">
                                         <label className={label}>Color Label *</label>
-                                        <input className={input} placeholder="e.g., Red" value={newColorText} onChange={(e) => setNewColorText(e.target.value)} />
+                                        <input className={input} placeholder="Red" value={newColorText} onChange={(e) => setNewColorText(e.target.value)} />
                                     </div>
                                     <div className="mt-3 flex items-center justify-end gap-2">
                                         <button className={ghostBtn} onClick={() => setColorModalOpen(false)}>Cancel</button>
@@ -3389,7 +3468,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                 className={input}
                                                 value={newCategoryText}
                                                 onChange={(e) => setNewCategoryText(e.target.value)}
-                                                placeholder="e.g. Shoes"
+                                                placeholder="Shoes"
                                                 autoFocus
                                             />
                                         </div>

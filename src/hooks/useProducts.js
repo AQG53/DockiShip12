@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listProducts,
   deleteProduct,
@@ -16,6 +16,8 @@ import {
   updateProductMarketplaceListing,
   deleteProductMarketplaceListing,
   upsertProductVariantMarketplaceListings,
+  updateMarketplaceChannel,
+  deleteMarketplaceChannel,
 } from "../lib/api";
 import { uploadProductImages } from "../lib/api";
 
@@ -132,9 +134,33 @@ export function useSearchListingProductNames(params = {}, options = {}) {
 }
 
 export function useCreateMarketplaceChannel() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["marketplaces", "channels", "create"],
     mutationFn: createMarketplaceChannel,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["marketplaces", "channels"] });
+    },
+  });
+}
+
+export function useUpdateMarketplaceChannel() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }) => updateMarketplaceChannel(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["marketplaces", "channels"] });
+    },
+  });
+}
+
+export function useDeleteMarketplaceChannel() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id) => deleteMarketplaceChannel(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["marketplaces", "channels"] });
+    },
   });
 }
 
