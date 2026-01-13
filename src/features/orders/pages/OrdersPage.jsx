@@ -307,7 +307,7 @@ export default function OrdersPage() {
             label: "Order ID",
             className: "!items-start",
             render: (row) => (
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 min-h-[3rem] py-1">
                     <span className="text-gray-900 text-[13px] truncate" title={row.orderId}>
                         {row.orderId || "—"}
                     </span>
