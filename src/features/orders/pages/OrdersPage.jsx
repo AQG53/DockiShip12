@@ -295,9 +295,11 @@ export default function OrdersPage() {
             label: "Date",
             className: "!items-start",
             render: (row) => (
-                <span className="text-gray-700 text-[13px]">
-                    {row.date ? new Date(row.date).toLocaleDateString() : "—"}
-                </span>
+                <div className="flex items-center min-h-[3rem] py-1">
+                    <span className="text-gray-700 text-[13px]">
+                        {row.date ? new Date(row.date).toLocaleDateString() : "—"}
+                    </span>
+                </div>
             )
         },
         {
@@ -318,9 +320,11 @@ export default function OrdersPage() {
             label: "Marketplace",
             className: "!items-start",
             render: (row) => (
-                <span className="text-gray-700 text-[13px]">
-                    {row.tenantChannel?.marketplace || "—"}
-                </span>
+                <div className="flex items-center min-h-[3rem] py-1">
+                    <span className="text-gray-700 text-[13px]">
+                        {row.tenantChannel?.marketplace || "—"}
+                    </span>
+                </div>
             )
         },
         {
@@ -581,7 +585,7 @@ export default function OrdersPage() {
             label: "Status",
             className: "!items-start",
             render: (row) => (
-                <div className="flex flex-col items-start gap-1">
+                <div className="flex flex-col items-start justify-center gap-1 min-h-[3rem] py-1">
                     <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${row.status === 'DELIVERED'
                         ? "bg-emerald-100 text-emerald-700"
                         : row.status === 'CANCEL' || row.status === 'RETURN' || row.status === 'REFUND'
