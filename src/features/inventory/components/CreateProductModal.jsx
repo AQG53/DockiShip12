@@ -113,21 +113,17 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     };
     const barcodeTypes = useMemo(() => ["UPC", "EAN", "ISBN", "QR"], []);
 
-    const origins = useMemo(() => [
+    const [origins, setOrigins] = useState([
         { value: "Select", label: "Select" },
-        { value: "US", label: "USA" },
-        { value: "CN", label: "China" },
-        { value: "IN", label: "India" },
-        { value: "VN", label: "Vietnam" },
-        { value: "TW", label: "Taiwan" },
-        { value: "TH", label: "Thailand" },
-        { value: "OT", label: "Other" }
-    ], []);
+        // { value: "US", label: "USA" }, 
+        // ... (removed hardcoded list to allow fetch)
+    ]);
 
     // Suppliers list (for linking in edit mode)
     const { data: supplierList = [], isLoading: suppliersLoading } = useSuppliers({
         refetchOnWindowFocus: false,
     });
+
     const supplierOptions = useMemo(() => {
         const base = Array.isArray(supplierList) ? supplierList : [];
         return [
@@ -135,6 +131,8 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             ...base.map((s) => ({ value: s.id, label: s.companyName || s.id })),
         ];
     }, [supplierList]);
+
+
 
     // Sizes are now stateful so we can add new ones
     const [sizes, setSizes] = useState([
@@ -256,6 +254,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const [editLinkSel, setEditLinkSel] = useState({});
     const [retailPrice, setRetailPrice] = useState("");
     const [sellingPrice, setSellingPrice] = useState("");
+    const [costPrice, setCostPrice] = useState("");
 
     const [missing, setMissing] = useState({});   // map: key -> human label
 
@@ -296,6 +295,17 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             { enabled: !!(edit && open) }
         );
 
+    const channelOptions = useMemo(() => {
+        // We no longer filter out channels used by the SAME variant, as the user wants to allow multiple listings
+        // provided the external SKU is unique.
+        const available = allChannels || [];
+
+        return available.map(c => ({
+            value: c.id,
+            label: c.marketplace + (c.provider ? ` (${c.provider})` : '')
+        }));
+    }, [allChannels]);
+
     // Listings for this product
     const {
         data: listings = [],
@@ -317,30 +327,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         return ["Select", ...arr.sort((a, b) => String(a).localeCompare(String(b)))];
     }, [providers]);
 
-    const channelOptions = useMemo(() => {
-        // Only filter channels used by the SAME variant (or product level)
-        const usedIds = new Set(
-            (listings || [])
-                .filter(l => {
-                    const listingVariantId = l?.variantId ?? l?.productVariantId ?? null;
-                    if (selectedVariantForListing === "product") {
-                        // Product-level: only exclude channels used at product level (no variant)
-                        return listingVariantId === null;
-                    } else {
-                        // Variant-level: only exclude channels used by THIS variant
-                        return String(listingVariantId) === String(selectedVariantForListing);
-                    }
-                })
-                .map(l => l?.channel?.id || l?.tenantChannelId)
-                .filter(Boolean)
-        );
-        const available = (allChannels || []).filter(c => !usedIds.has(c.id));
 
-        return available.map(c => ({
-            value: c.id,
-            label: c.marketplace + (c.provider ? ` (${c.provider})` : '')
-        }));
-    }, [allChannels, listings, selectedVariantForListing]);
 
     // Track whether provider is custom (not in provider list)
     useEffect(() => {
@@ -487,10 +474,10 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const computeAutoSku = (parentSku, v, index) => {
         const parent = (parentSku || "").trim();
         if (!parent) {
-            return `X - ${index + 1} `;
+            return `X-${index + 1}`;
         }
         const tail = v.sizeCode?.trim() || "X";
-        return `${parent} -${tail} `;
+        return `${parent}-${tail}`;
     };
 
     // --- helpers to sync parent <-> variants ---
@@ -686,7 +673,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                         .sort((a, b) => a.label.localeCompare(b.label))
                     : [];
 
-                setOrigins(["Select", ...items]);
+                setOrigins(["Select", ...items, { value: "OT", label: "Other" }]);
             } catch (e) {
                 console.error("Failed to load country codes", e);
             } finally {
@@ -829,15 +816,22 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
 
         // pricing (simple)
         setRetailPrice(
-            productDetail.retailPrice != null ? String(productDetail.retailPrice) : ""
+            productDetail.retailPrice != null ? Number(productDetail.retailPrice).toFixed(2) : ""
         );
-        setSellingPrice(
-            productDetail.originalPrice != null
-                ? String(productDetail.originalPrice)
-                : productDetail.lastPurchasePrice != null
-                    ? String(productDetail.lastPurchasePrice)
-                    : ""
+        // Cost Price (avg cost or manual)
+        // If PO exists -> avgCostPerUnit (Read Only). If NO PO -> originalPrice (Manual).
+        const hasPO = !!productDetail.hasPurchaseOrders;
+        const rawCost = hasPO
+            ? productDetail.avgCostPerUnit
+            : (productDetail.originalPrice != null ? productDetail.originalPrice : "");
+        setCostPrice(rawCost !== "" && rawCost != null ? Number(rawCost).toFixed(2) : "");
+
+        // Last Purchase Price - Read Only if PO exists
+        setPurchasingPrice(
+            productDetail.lastPurchasePrice != null ? Number(productDetail.lastPurchasePrice).toFixed(2) : ""
         );
+        // Clean up old sellingPrice usage
+        setSellingPrice("");
 
         // simple-only attributes
         setMainSizeText(productDetail.sizeText || "");
@@ -859,9 +853,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
 
         // supplier (no primary; linking managed below)
         setSupplier("Select");
-        setPurchasingPrice(
-            productDetail.lastPurchasePrice != null ? String(productDetail.lastPurchasePrice) : ""
-        );
+        // Removed redundant setPurchasingPrice call here
 
         // variants
         const arr = productDetail.ProductVariant || [];
@@ -892,6 +884,8 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                     packagingType: v.packagingType || "",
                     packagingQuantity: v.packagingQuantity != null ? String(v.packagingQuantity) : "",
                     stockOnHand: v.stockOnHand ?? 0,
+                    avgCostPerUnit: v.avgCostPerUnit,
+                    lastPurchasePrice: v.lastPurchasePrice,
                 };
             });
             setVariants(rows);
@@ -943,16 +937,20 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             } catch { }
 
             // per-variant pricing table state
+            // per-variant pricing table state
             const priceMap = {};
+            const hasPO = !!productDetail.hasPurchaseOrders;
             arr.forEach(v => {
+                const costVal = hasPO
+                    ? (v.avgCostPerUnit != null ? v.avgCostPerUnit : v.originalPrice)
+                    : (v.originalPrice != null ? v.originalPrice : "");
+
+                const purchaseVal = v.lastPurchasePrice != null ? v.lastPurchasePrice : "";
+
                 priceMap[v.id] = {
-                    retail: v.retailPrice != null ? String(v.retailPrice) : "",
-                    original: v.originalPrice != null
-                        ? String(v.originalPrice)
-                        : v.lastPurchasePrice != null
-                            ? String(v.lastPurchasePrice)
-                            : "",
-                    purchase: v.lastPurchasePrice != null ? String(v.lastPurchasePrice) : "",
+                    retail: v.retailPrice != null ? Number(v.retailPrice).toFixed(2) : "",
+                    original: costVal !== "" && costVal != null ? Number(costVal).toFixed(2) : "",
+                    purchase: purchaseVal !== "" ? Number(purchaseVal).toFixed(2) : "",
                 };
             });
             setVariantPrices(priceMap);
@@ -960,6 +958,11 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             setVariantEnabled(false);
             setVariants([]);
             setVariantPrices({});
+        }
+        if (productDetail?.supplierLinks?.length > 0) {
+            setPendingLinks([]);
+        } else {
+            setPendingLinks([{ id: 'new-init', supplierId: 'Select', price: '' }]);
         }
     }, [edit, open, productDetail, enums]);
 
@@ -975,7 +978,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             isNonEmpty(status) &&
             origin !== "Select" &&
             isNonEmpty(retailPrice) &&
-            isNonEmpty(sellingPrice)
+            isNonEmpty(costPrice)
         );
     };
 
@@ -1197,9 +1200,11 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                     condition: condition,
                     // pricing for simple products (single variant)
                     retailPrice: !usingVariants && retailPrice ? Number(retailPrice) : undefined,
-                    originalPrice: !usingVariants && sellingPrice ? Number(sellingPrice) : undefined,
+                    originalPrice: !usingVariants && costPrice ? Number(costPrice) : undefined,
                     retailCurrency: CURRENCY,
                     originalCurrency: CURRENCY,
+                    lastPurchasePrice: !usingVariants && purchasingPrice ? Number(purchasingPrice) : undefined,
+                    lastPurchaseCurr: CURRENCY,
                     // For simple product, pass size/color to sync single variant
                     sizeText: !usingVariants ? (isNonEmpty(mainSizeText) ? mainSizeText.trim() : undefined) : undefined,
                     colorText: !usingVariants ? (isNonEmpty(mainColorText) ? mainColorText.trim() : undefined) : undefined,
@@ -1528,7 +1533,9 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                             if (String(name || '').trim().length > 0) {
                                                                 const initials = String(name).trim().split(/\s+/).map(w => (w[0] || '').toUpperCase()).join('') || 'PRD';
                                                                 const digits = String(Math.floor(Math.random() * 1e8)).padStart(8, '0');
-                                                                setSku(`${initials} -${digits} `);
+                                                                if (!sku) { // only auto-generate if empty
+                                                                    setSku(`${initials}-${digits}`);
+                                                                }
                                                             }
                                                         }}
                                                     />
@@ -1544,7 +1551,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                         className={`${input} ${err("sku") ? "border-red-400 ring-1 ring-red-200" : ""} `}
                                                         placeholder="Auto-generated from name"
                                                         value={sku}
-                                                        readOnly
+                                                        onChange={(e) => setSku(e.target.value)}
                                                     />
 
                                                 </Field>
@@ -2294,7 +2301,10 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                 {(edit && productDetail) ? (
                                                     <div className="col-span-12">
                                                         <div className="mt-2 pt-1">
-                                                            <div className="text-[13px] font-semibold text-gray-900 mb-2">Suppliers</div>
+                                                            <div className="grid grid-cols-12 gap-2 mb-2 text-xs font-medium text-gray-500">
+                                                                <div className="col-span-5 pl-1">Supplier</div>
+                                                                <div className="col-span-5 pl-1">Last Purchase Price</div>
+                                                            </div>
 
                                                             {/* Existing links first */}
                                                             <div className="space-y-2">
@@ -2416,8 +2426,11 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                     </div>
                                                 ) : (
                                                     <div className="col-span-12">
-                                                        <div className="mt-2 border-t border-gray-100 pt-3">
-                                                            <div className="text-[13px] font-semibold text-gray-900 mb-2">Suppliers</div>
+                                                        <div className="mt-2">
+                                                            <div className="grid grid-cols-12 gap-2 mb-2 text-xs font-medium text-gray-500">
+                                                                <div className="col-span-5 pl-1">Supplier</div>
+                                                                <div className="col-span-5 pl-1">Last Purchase Price</div>
+                                                            </div>
                                                             <div className="space-y-2">
                                                                 {supplierRows.map((row, idx) => (
                                                                     <div key={idx} className="grid grid-cols-12 items-center gap-2">
@@ -2487,7 +2500,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                         <div className="p-4">
                                             {!variantEnabled ? (
                                                 <div className="grid grid-cols-12 gap-3">
-                                                    <Field className="col-span-12 md:col-span-6" label="Retail Price">
+                                                    <Field className="col-span-12 md:col-span-4" label="Selling Price">
                                                         <div className="grid grid-cols-12">
                                                             <input
                                                                 className={`${input} col-span-9 ${err("retailPrice") ? "border-red-400 ring-1 ring-red-200" : ""} rounded-r-none border-r`}
@@ -2504,13 +2517,36 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                         </div>
                                                     </Field>
 
-                                                    <Field className="col-span-12 md:col-span-6" label="Selling Price">
+                                                    <Field className="col-span-12 md:col-span-4" label="Cost Price">
                                                         <div className="grid grid-cols-12">
                                                             <input
-                                                                className={`${input} col-span-9 ${err("sellingPrice") ? "border-red-400 ring-1 ring-red-200" : ""} rounded-r-none border-r`}
-                                                                placeholder="279.00"
-                                                                value={sellingPrice}
-                                                                onChange={(e) => setSellingPrice(sanitizeDecimalInput(e.target.value))}
+                                                                className={`${input} col-span-9 rounded-r-none border-r ${(edit && productDetail?.hasPurchaseOrders) ? "bg-gray-50 text-gray-500" : ""
+                                                                    }`}
+                                                                placeholder="0.00"
+                                                                value={costPrice}
+                                                                onChange={(e) => setCostPrice(sanitizeDecimalInput(e.target.value))}
+                                                                readOnly={edit && productDetail?.hasPurchaseOrders}
+                                                                disabled={edit && productDetail?.hasPurchaseOrders}
+                                                                inputMode="decimal"
+                                                            />
+                                                            <div className="col-span-3">
+                                                                <div className="h-8 w-full rounded-r-lg border border-gray-300 bg-gray-50 text-[13px] text-gray-700 flex items-center justify-center select-none">
+                                                                    {CURRENCY}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </Field>
+
+                                                    <Field className="col-span-12 md:col-span-4" label="Last Purchase Price">
+                                                        <div className="grid grid-cols-12">
+                                                            <input
+                                                                className={`${input} col-span-9 rounded-r-none border-r ${(edit && productDetail?.hasPurchaseOrders) ? "bg-gray-50 text-gray-500" : ""
+                                                                    }`}
+                                                                placeholder="0.00"
+                                                                value={purchasingPrice}
+                                                                onChange={(e) => setPurchasingPrice(sanitizeDecimalInput(e.target.value))}
+                                                                readOnly={edit && productDetail?.hasPurchaseOrders}
+                                                                disabled={edit && productDetail?.hasPurchaseOrders}
                                                                 inputMode="decimal"
                                                             />
                                                             <div className="col-span-3">
@@ -2526,8 +2562,8 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                 <div className="rounded-xl border border-gray-200 overflow-hidden">
                                                     <div className="grid grid-cols-[1fr_140px_140px_140px_90px] text-[12px] font-medium text-gray-700">
                                                         <div className="bg-gray-50 px-3 py-2">Variant SKU</div>
-                                                        <div className="bg-gray-50 px-3 py-2">Retail Price</div>
-                                                        <div className="bg-gray-50 px-3 py-2">Original Price</div>
+                                                        <div className="bg-gray-50 px-3 py-2">Selling Price</div>
+                                                        <div className="bg-gray-50 px-3 py-2">Cost Price</div>
                                                         <div className="bg-gray-50 px-3 py-2">Last Purchase</div>
                                                         <div className="bg-gray-50 px-3 py-2 text-center">Currency</div>
                                                     </div>
@@ -2566,8 +2602,8 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
 
                                                                         <div className="px-3 py-2">
                                                                             <input
-                                                                                className={`${input} ${err("v:" + v.id + ":original") ? "border-red-400 ring-1 ring-red-200" : ""} `}
-                                                                                placeholder="349.00"
+                                                                                className={`${input} ${(edit && productDetail?.hasPurchaseOrders) ? "bg-gray-50 text-gray-500" : ""}`}
+                                                                                placeholder="0.00"
                                                                                 value={row.original}
                                                                                 onChange={(e) =>
                                                                                     setVariantPrices((prev) => ({
@@ -2575,14 +2611,16 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                         [v.id]: { ...(prev[v.id] || {}), original: sanitizeDecimalInput(e.target.value) },
                                                                                     }))
                                                                                 }
+                                                                                readOnly={edit && productDetail?.hasPurchaseOrders}
+                                                                                disabled={edit && productDetail?.hasPurchaseOrders}
                                                                                 inputMode="decimal"
                                                                             />
                                                                         </div>
 
                                                                         <div className="px-3 py-2">
                                                                             <input
-                                                                                className={input}
-                                                                                placeholder="120.00"
+                                                                                className={`${input} ${(edit && productDetail?.hasPurchaseOrders) ? "bg-gray-50 text-gray-500" : ""}`}
+                                                                                placeholder="0.00"
                                                                                 value={row.purchase}
                                                                                 onChange={(e) =>
                                                                                     setVariantPrices((prev) => ({
@@ -2590,6 +2628,8 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                         [v.id]: { ...(prev[v.id] || {}), purchase: sanitizeDecimalInput(e.target.value) },
                                                                                     }))
                                                                                 }
+                                                                                readOnly={edit && productDetail?.hasPurchaseOrders}
+                                                                                disabled={edit && productDetail?.hasPurchaseOrders}
                                                                                 inputMode="decimal"
                                                                             />
                                                                         </div>

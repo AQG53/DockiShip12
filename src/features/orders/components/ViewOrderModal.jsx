@@ -1,5 +1,5 @@
 import { useMemo, useRef } from "react";
-import { Package, Truck, User, Calendar, Hash, DollarSign, Tag, MessageSquare, Copy, Check, Paperclip, Download, Trash2, Loader2, Plus } from "lucide-react";
+import { Package, Truck, User, Calendar, Hash, DollarSign, Tag, MessageSquare, Copy, Check, Paperclip, Download, Trash2, Loader2, Plus, Receipt } from "lucide-react";
 import { useState, useEffect } from "react";
 import ViewModal from "../../../components/ViewModal";
 import { useAuthCheck } from "../../auth/hooks/useAuthCheck";
@@ -112,8 +112,42 @@ export default function ViewOrderModal({ open, onClose, order }) {
         });
     };
 
-    const profitValue = order.netProfit !== undefined ? Number(order.netProfit) : 0;
-    const profitClass = profitValue >= 0 ? "text-emerald-600" : "text-rose-500";
+    // Derived Financials (Calculate on fly to ensure consistency with items)
+    const { itemsRevenue, itemsCost, calculatedTotal, calculatedProfit } = useMemo(() => {
+        let rev = 0;
+        let cost = 0;
+        if (order.items && order.items.length > 0) {
+            order.items.forEach(item => {
+                const qty = parseFloat(item.quantity) || 0;
+                const price = parseFloat(item.unitPrice) || 0;
+                const unitCost = parseFloat(item.unitCost) || 0;
+                rev += (qty * price);
+                cost += (qty * unitCost);
+            });
+        } else {
+            // Fallback for legacy simple orders without items
+            rev = parseFloat(order.totalAmount) || 0;
+            cost = parseFloat(order.totalCost) || 0;
+        }
+
+        const shipping = parseFloat(order.shippingCharges) || 0;
+        const tax = parseFloat(order.tax) || 0;
+        const other = parseFloat(order.otherCharges) || 0;
+
+        // Total Amount = Items + Shipping + Tax + Other
+        const total = rev + shipping + tax + other;
+
+        const profit = rev - cost - shipping - tax - other;
+
+        return {
+            itemsRevenue: rev,
+            itemsCost: cost,
+            calculatedTotal: total,
+            calculatedProfit: profit
+        };
+    }, [order]);
+
+    const profitClass = calculatedProfit >= 0 ? "text-emerald-600" : "text-rose-500";
 
     // Attachments Logic
     const [localAttachments, setLocalAttachments] = useState([]);
@@ -160,7 +194,18 @@ export default function ViewOrderModal({ open, onClose, order }) {
         }
     };
 
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+    const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+
+    // Placeholder for missing images
+    const IMG_PLACEHOLDER = "data:image/svg+xml;utf8," + encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><rect width="100%" height="100%" fill="#f3f4f6"/><g fill="#9ca3af"><circle cx="26" cy="30" r="8"/><path d="M8 60l15-15 10 10 12-12 27 27H8z"/></g></svg>'
+    );
+
+    const absImg = (path) => {
+        if (!path) return IMG_PLACEHOLDER;
+        if (path.startsWith("data:") || path.startsWith("http")) return path;
+        return `${API_BASE}${path}`;
+    };
 
     return (
         <ViewModal
@@ -190,60 +235,99 @@ export default function ViewOrderModal({ open, onClose, order }) {
                 </div>
             </CardSection>
 
-            {/* Product Details Section */}
+            {/* Product Details Section (Table Layout + Summary) */}
             <CardSection icon={Tag} title="Product Details">
-                {order.items && order.items.length > 0 ? (
-                    <div className="space-y-3">
-                        {order.items.map((item, idx) => {
-                            const imageUrl = item.product?.imageUrl || item.productVariant?.imageUrl;
-                            return (
-                                <div key={item.id || idx} className="flex gap-3 items-start border-b border-gray-100 last:border-0 pb-3 last:pb-0">
-                                    {/* Product Image */}
-                                    <div className="h-14 w-14 rounded-lg border border-gray-200 overflow-hidden flex-shrink-0 bg-gray-50 flex items-center justify-center">
-                                        {imageUrl ? (
-                                            <img src={imageUrl} alt={item.productDescription || "Product"} className="h-full w-full object-cover" />
-                                        ) : (
-                                            <Package className="w-6 h-6 text-gray-300" />
+                <div className="border border-gray-200 rounded-lg overflow-hidden bg-white shadow-sm">
+                    <table className="w-full text-left text-sm">
+                        <thead className="bg-gray-50 border-b border-gray-100">
+                            <tr>
+                                <th className="px-4 py-3 font-medium text-gray-500 w-[50%]">Product</th>
+                                <th className="px-2 py-3 font-medium text-gray-500 w-[10%] text-center">Qty</th>
+                                <th className="px-2 py-3 font-medium text-gray-500 w-[15%] text-center">Unit Cost</th>
+                                <th className="px-2 py-3 font-medium text-gray-500 w-[15%] text-center">Unit Sale Price</th>
+                                <th className="px-4 py-3 font-medium text-gray-500 w-[10%] text-right">Subtotal</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                            {order.items && order.items.length > 0 ? (
+                                order.items.map((item, idx) => {
+                                    const imageUrl = item.product?.images?.[0]?.url;
+                                    return (
+                                        <tr key={item.id || idx} className="hover:bg-gray-50/50 transition-colors">
+                                            <td className="px-4 py-3 align-top">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="h-10 w-10 rounded-lg border border-gray-200 overflow-hidden flex-shrink-0 bg-gray-50 flex items-center justify-center">
+                                                        <img
+                                                            src={absImg(imageUrl)}
+                                                            alt=""
+                                                            className="h-full w-full object-contain"
+                                                            onError={(e) => { e.currentTarget.src = IMG_PLACEHOLDER; }}
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <p className="font-medium text-gray-900 line-clamp-1">
+                                                            {item.productDescription || item.product?.name || "Product"}
+                                                        </p>
+                                                        <p className="text-xs text-gray-400 truncate">
+                                                            {(item.productVariant?.sku || item.product?.sku)}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td className="px-2 py-3 align-top text-center text-gray-900 font-medium">{item.quantity}</td>
+                                            <td className="px-2 py-3 align-top text-center text-gray-500">{formatPrice(item.unitCost)}</td>
+                                            <td className="px-2 py-3 align-top text-center text-gray-500">{formatPrice(item.unitPrice)}</td>
+                                            <td className="px-4 py-3 align-top text-right text-gray-900 font-medium">{formatPrice(item.totalAmount)}</td>
+                                        </tr>
+                                    );
+                                })
+                            ) : (
+                                <tr>
+                                    <td colSpan={5} className="px-4 py-8 text-center text-gray-400 italic">
+                                        No items or legacy order format.
+                                        {/* Fallback for legacy simple orders if needed, though mostly items exist now */}
+                                        {order.productDescription && (
+                                            <div className="mt-2 text-sm text-gray-600">
+                                                {order.productDescription} (x{order.quantity})
+                                            </div>
                                         )}
-                                    </div>
-                                    {/* Product Info */}
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-medium text-gray-900 truncate">{item.productDescription || item.product?.name || "Product"}</p>
-                                        <p className="text-xs text-gray-500">
-                                            Qty: {item.quantity} · {formatPrice(item.unitPrice)}
-                                        </p>
-                                        <p className="text-xs text-gray-400 truncate">
-                                            {(item.productVariant?.sku || item.product?.sku)}
-                                        </p>
-                                    </div>
-                                    {/* Price */}
-                                    <div className="text-right flex-shrink-0">
-                                        <p className="text-sm font-medium text-gray-900">{formatPrice(item.totalAmount)}</p>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                        <div className="pt-2 flex justify-between items-center font-semibold text-gray-900 border-t border-gray-200 mt-2">
-                            <span>Total</span>
-                            <span>{formatPrice(order.totalAmount)}</span>
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+
+                {/* Summary Footer */}
+                <div className="bg-gray-50 rounded-lg p-4 mt-6">
+                    <div className="flex flex-col gap-2">
+                        <div className="flex justify-between text-sm">
+                            <span className="text-gray-500">Subtotal (Items)</span>
+                            <span className="font-medium text-gray-900">{formatPrice(itemsRevenue)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                            <span className="text-gray-500">Shipping Charges</span>
+                            <span className="font-medium text-gray-900">{formatPrice(order.shippingCharges)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                            <span className="text-gray-500">Tax</span>
+                            <span className="font-medium text-gray-900">{formatPrice(order.tax)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                            <span className="text-gray-500">Other Charges</span>
+                            <span className="font-medium text-gray-900">{formatPrice(order.otherCharges)}</span>
+                        </div>
+                        <div className="h-px bg-gray-200 my-1"></div>
+                        <div className="flex justify-between text-base font-bold text-gray-900">
+                            <span>Total Order Amount</span>
+                            <span>{formatPrice(calculatedTotal)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm font-semibold mt-2">
+                            <span className="text-gray-900">Net Profit</span>
+                            <span className={profitClass}>{formatPrice(calculatedProfit)}</span>
                         </div>
                     </div>
-                ) : (
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                        <DetailRow
-                            label="Product"
-                            value={order.productDescription}
-                            className="col-span-2 md:col-span-3"
-                        />
-                        <DetailRow label="Quantity" value={order.quantity} />
-                        {order.size && (
-                            <DetailRow label="Size" value={order.size.code || order.size.name} />
-                        )}
-                        {order.color && (
-                            <DetailRow label="Color" value={order.color.name} />
-                        )}
-                    </div>
-                )}
+                </div>
             </CardSection>
 
             {/* Attachments Section */}
@@ -264,7 +348,7 @@ export default function ViewOrderModal({ open, onClose, order }) {
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <a
-                                            href={`${API_BASE_URL}${att.filePath}`}
+                                            href={`${API_BASE}${att.filePath}`}
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
@@ -282,20 +366,7 @@ export default function ViewOrderModal({ open, onClose, order }) {
                 </div>
             </CardSection>
 
-            {/* Pricing Section */}
-            <CardSection icon={DollarSign} title="Pricing & Profit">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <DetailRow label="Cost Price" value={formatPrice(order.costPrice)} />
-                    <DetailRow label="Selling Price" value={formatPrice(order.totalAmount)} />
-                    <DetailRow label="Shipping Cost" value={formatPrice(order.shippingCost)} />
-                    <div>
-                        <p className="text-xs font-medium text-gray-500 mb-0.5">Net Profit</p>
-                        <p className={`text-sm font-semibold ${profitClass}`}>
-                            {formatPrice(order.netProfit)}
-                        </p>
-                    </div>
-                </div>
-            </CardSection>
+
 
             {/* Shipping Section */}
             <CardSection icon={Truck} title="Shipping Details">
@@ -343,6 +414,9 @@ export default function ViewOrderModal({ open, onClose, order }) {
                 <div className="grid grid-cols-2 gap-4">
                     <DetailRow label="Created At" value={formatDateTime(order.createdAt)} />
                     <DetailRow label="Last Updated" value={formatDateTime(order.updatedAt)} />
+                    {order.createdBy && (
+                        <DetailRow label="Created By" value={order.createdBy.fullName || order.createdBy.email} className="col-span-2" />
+                    )}
                 </div>
             </CardSection>
         </ViewModal>

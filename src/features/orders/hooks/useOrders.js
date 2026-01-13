@@ -12,6 +12,7 @@ import {
     createCategoryOrder,
     getOrderCounts,
     listProductsForOrderSelection,
+    bulkUpdateOrder,
 } from "../../../lib/api";
 
 // --- Products for Selection (Flattened) ---
@@ -19,8 +20,8 @@ import {
 export function useProductsForSelection(search = "", channelId = null) {
     return useQuery({
         queryKey: ["products", "forSelection", search, channelId],
-        queryFn: () => listProductsForOrderSelection({ search, channelId }),
-        staleTime: 2 * 60 * 1000,
+        queryFn: () => listProductsForOrderSelection({ search, channelId, perPage: 20 }),
+        staleTime: 0, // Always fetch fresh
         enabled: true // Always enabled, API handles null channelId
     });
 }
@@ -71,6 +72,16 @@ export function useDeleteOrder() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: (id) => deleteOrder(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["orders"] });
+        },
+    });
+}
+
+export function useBulkUpdateOrder() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ ids, status }) => bulkUpdateOrder(ids, status),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["orders"] });
         },

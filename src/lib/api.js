@@ -306,8 +306,8 @@ export async function listProducts({ page, perPage, search, status, supplierId }
  * Fetch products with variants flattened for order selection dropdown.
  * Returns: [{ id, type: 'product'|'variant', productId, variantId, name, sku, imageUrl, retailPrice, sizeText, colorText, stockOnHand }]
  */
-export async function listProductsForOrderSelection({ search, channelId } = {}) {
-  const params = { status: 'active', perPage: 100 };
+export async function listProductsForOrderSelection({ search, channelId, perPage = 20 } = {}) {
+  const params = { status: 'active', perPage };
   if (search) params.search = search;
   if (channelId) params.channelId = channelId;
 
@@ -324,79 +324,157 @@ export async function listProductsForOrderSelection({ search, channelId } = {}) 
     if (variants.length === 0) {
       // Simple product without variants
       const listings = Array.isArray(product.channelListings) ? product.channelListings : (Array.isArray(product.ChannelListing) ? product.ChannelListing : []);
-      const listing = listings[0];
 
-      // Build variant display name (product name + size/color)
-      const variantName = product.name;
+      // Strict filtering: If channelId is present, we MUST have at least one listing.
+      if (channelId && listings.length === 0) {
+        continue;
+      }
 
-      flattened.push({
-        id: product.id,
-        type: 'product',
-        productId: product.id,
-        variantId: null,
-        name: product.name,
-        variantName, // Product/variant name for dropdown main label
-        sku: listing?.externalSku ?? product.sku,
-        marketplaceName: listing?.productName ?? null, // Marketplace-specific name
-        marketplaceSku: listing?.externalSku ?? null, // Marketplace SKU
-        imageUrl: productImage,
-        retailPrice: product.retailPrice ?? null,
-        channelPrice: listing?.price ?? null,
-        channelUnits: listing?.units ?? null,
-        sizeText: null,
-        colorText: null,
-        displayName: listing?.productName ?? product.name,
-        stockOnHand: product.stockOnHand ?? 0,
-        avgCostPerUnit: product.avgCostPerUnit ?? null,
-        lastPurchasePrice: product.lastPurchasePrice ?? null,
-      });
+      // Iterate ALL listings to support multiple listings per product
+      if (listings.length > 0) {
+        for (const listing of listings) {
+          const uniqueId = listing.id ? String(listing.id) : `L_${product.id}_${listing.externalSku || Math.random()}`;
+          flattened.push({
+            id: uniqueId, // Use Listing ID for uniqueness
+            type: 'product',
+            productId: product.id,
+            variantId: null,
+            name: product.name,
+            variantName: product.name,
+            sku: listing.externalSku ?? product.sku,
+            marketplaceName: listing.productName ?? product.name, // Listing specific name preferred
+            marketplaceSku: listing.externalSku ?? null,
+            imageUrl: productImage,
+            retailPrice: product.retailPrice ?? null,
+            channelPrice: listing.price ?? null,
+            channelUnits: listing.units ?? null,
+            sizeText: null,
+            colorText: null,
+            displayName: listing.productName ?? product.name,
+            stockOnHand: product.stockOnHand ?? 0,
+            avgCostPerUnit: product.avgCostPerUnit ?? null,
+            lastPurchasePrice: product.lastPurchasePrice ?? null,
+          });
+        }
+      } else {
+        // Fallback for NO channelId (generic search) - showing product itself
+        // (The user asked for strict filtering "in orders/dropdown", which implies channelId is set.
+        // But if this function is used elsewhere without channelId, we might want to keep the product.)
+        if (!channelId) {
+          flattened.push({
+            id: product.id,
+            type: 'product',
+            productId: product.id,
+            variantId: null,
+            name: product.name,
+            variantName: product.name,
+            sku: product.sku,
+            marketplaceName: null,
+            marketplaceSku: null,
+            imageUrl: productImage,
+            retailPrice: product.retailPrice ?? null,
+            channelPrice: null,
+            channelUnits: null,
+            sizeText: null,
+            colorText: null,
+            displayName: product.name,
+            stockOnHand: product.stockOnHand ?? 0,
+            avgCostPerUnit: product.avgCostPerUnit ?? null,
+            lastPurchasePrice: product.lastPurchasePrice ?? null,
+          });
+        }
+      }
+
     } else {
-      // Product with variants - only add variants that have a listing on the channel
+      // Product with variants
       for (const variant of variants) {
         let listings = Array.isArray(variant.channelListings) ? variant.channelListings : (Array.isArray(variant.ChannelListing) ? variant.ChannelListing : []);
 
-        // Check parent listings only for single-variant products (simple products presented as variants)
+        // Check parent listings only for single-variant products... (Logic from before)
+        // Actually, if we allow multiple listings per variant, we should check specifically for variant listings first.
+        // If the user wants to list the *parent* product as a fallback for the variant...
+        // The previous logic was: "Check parent listings only for single-variant products".
+        // Let's preserve that logic but adapt it to multiple listings.
+
+        let usedParent = false;
         if (listings.length === 0 && variants.length === 1) {
           const parentListings = Array.isArray(product.channelListings) ? product.channelListings : (Array.isArray(product.ChannelListing) ? product.ChannelListing : []);
           if (parentListings.length > 0) {
             listings = parentListings;
+            usedParent = true;
           }
         }
 
-        // Skip variants without listings on the selected channel
-        if (listings.length === 0) {
+        // Strict Filtering for Variants
+        if (channelId && listings.length === 0) {
           continue;
         }
 
-        const listing = listings[0];
+        if (listings.length > 0) {
+          for (const listing of listings) {
+            // Build variant display name
+            const variantParts = [product.name];
+            if (variant.sizeText) variantParts.push(`Size ${variant.sizeText}`);
+            if (variant.colorText) variantParts.push(variant.colorText);
+            const variantName = variantParts.join(' - ');
 
-        // Build variant display name (product name + size/color)
-        const variantParts = [product.name];
-        if (variant.sizeText) variantParts.push(`Size ${variant.sizeText}`);
-        if (variant.colorText) variantParts.push(variant.colorText);
-        const variantName = variantParts.join(' - ');
+            const uniqueId = listing.id ? String(listing.id) : `V_${variant.id}_${listing.externalSku || Math.random()}`;
 
-        flattened.push({
-          id: variant.id,
-          type: 'variant',
-          productId: product.id,
-          variantId: variant.id,
-          name: product.name,
-          variantName, // Product/variant name for dropdown main label
-          sku: listing?.externalSku ?? variant.sku,
-          marketplaceName: listing?.productName ?? null, // Marketplace-specific name
-          marketplaceSku: listing?.externalSku ?? null, // Marketplace SKU
-          imageUrl: productImage,
-          retailPrice: variant.retailPrice ?? product.retailPrice ?? null,
-          channelPrice: listing?.price ?? null,
-          channelUnits: listing?.units ?? null,
-          sizeText: variant.sizeText,
-          colorText: variant.colorText,
-          displayName: listing?.productName ?? variantName,
-          stockOnHand: variant.stockOnHand ?? 0,
-          avgCostPerUnit: variant.avgCostPerUnit ?? null,
-          lastPurchasePrice: variant.lastPurchasePrice ?? null,
-        });
+            flattened.push({
+              id: uniqueId, // Use Listing ID
+              type: 'variant',
+              productId: product.id,
+              variantId: variant.id,
+              name: product.name,
+              variantName,
+              // If we used parent listing, SKU might be parent listing's SKU.
+              // But typically variant listing should map to variant.
+              sku: listing.externalSku ?? variant.sku,
+              marketplaceName: listing.productName ?? null,
+              marketplaceSku: listing.externalSku ?? null,
+              imageUrl: productImage,
+              retailPrice: variant.retailPrice ?? product.retailPrice ?? null,
+              channelPrice: listing.price ?? null,
+              channelUnits: listing.units ?? null,
+              sizeText: variant.sizeText,
+              colorText: variant.colorText,
+              displayName: listing.productName ?? variantName,
+              stockOnHand: variant.stockOnHand ?? 0,
+              avgCostPerUnit: variant.avgCostPerUnit ?? null,
+              lastPurchasePrice: variant.lastPurchasePrice ?? null,
+            });
+          }
+        } else {
+          // No listing, fallback for no-channelId case
+          if (!channelId) {
+            const variantParts = [product.name];
+            if (variant.sizeText) variantParts.push(`Size ${variant.sizeText}`);
+            if (variant.colorText) variantParts.push(variant.colorText);
+            const variantName = variantParts.join(' - ');
+
+            flattened.push({
+              id: variant.id,
+              type: 'variant',
+              productId: product.id,
+              variantId: variant.id,
+              name: product.name,
+              variantName,
+              sku: variant.sku,
+              marketplaceName: null,
+              marketplaceSku: null,
+              imageUrl: productImage,
+              retailPrice: variant.retailPrice ?? product.retailPrice ?? null,
+              channelPrice: null,
+              channelUnits: null,
+              sizeText: variant.sizeText,
+              colorText: variant.colorText,
+              displayName: variantName,
+              stockOnHand: variant.stockOnHand ?? 0,
+              avgCostPerUnit: variant.avgCostPerUnit ?? null,
+              lastPurchasePrice: variant.lastPurchasePrice ?? null,
+            });
+          }
+        }
       }
     }
   }
@@ -477,7 +555,7 @@ export async function uploadProductImages(productId, files, { variantId } = {}) 
   Array.from(files).forEach((f) => form.append('images', f));
   if (variantId) form.append('variantId', variantId);
   const res = await axiosInstance.post(`/products/${productId}/images${variantId ? `?variantId=${encodeURIComponent(variantId)}` : ''}`, form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
+    headers: { 'Content-Type': undefined },
   });
   return res?.data?.data ?? res?.data ?? [];
 }
@@ -920,6 +998,11 @@ export async function updateOrder(id, payload) {
   return res.data;
 }
 
+export async function bulkUpdateOrder(ids, status) {
+  const res = await axiosInstance.post(`/orders/bulk-status`, { ids, status });
+  return res.data;
+}
+
 export async function deleteOrder(id) {
   const res = await axiosInstance.delete(`/orders/${id}`);
   return res.data;
@@ -959,9 +1042,7 @@ export async function listSizes({ search } = {}) {
 
 export async function uploadOrderAttachment(orderId, formData) {
   const res = await axiosInstance.post(`/orders/${orderId}/attachments`, formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
+    headers: { 'Content-Type': undefined }
   });
   return res.data;
 }

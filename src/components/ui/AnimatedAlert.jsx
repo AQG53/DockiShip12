@@ -50,6 +50,8 @@ export function AnimatedAlert({
     message,
     confirmLabel = "OK",
     onConfirm,
+    showCancel = false,
+    cancelLabel = "Cancel",
 }) {
     const getIcon = () => {
         switch (type) {
@@ -129,13 +131,24 @@ export function AnimatedAlert({
                                     </p>
                                 )}
 
-                                <button
-                                    type="button"
-                                    className={`w-full inline-flex justify-center rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 transition-all ${getButtonClass()}`}
-                                    onClick={handleConfirm}
-                                >
-                                    {confirmLabel}
-                                </button>
+                                <div className="flex gap-3">
+                                    {showCancel && (
+                                        <button
+                                            type="button"
+                                            className="flex-1 inline-flex justify-center rounded-xl px-4 py-3 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-300 transition-all"
+                                            onClick={onClose}
+                                        >
+                                            {cancelLabel}
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        className={`flex-1 inline-flex justify-center rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 transition-all ${getButtonClass()}`}
+                                        onClick={handleConfirm}
+                                    >
+                                        {confirmLabel}
+                                    </button>
+                                </div>
                             </Dialog.Panel>
                         </Transition.Child>
                     </div>

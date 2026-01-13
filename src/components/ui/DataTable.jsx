@@ -34,13 +34,13 @@ export function DataTable({
             )}
 
             {/* Scrollable Table Container */}
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto w-full max-w-full">
                 {/* Header row */}
                 <div
-                    className={`grid ${gridClass} bg-gray-50 px-4 py-3 text-[12px] font-semibold text-gray-700 min-w-max`}
+                    className={`grid ${gridClass} bg-gray-50 text-[12px] font-semibold text-gray-700 min-w-max [&>*:first-child]:pl-4 [&>*:last-child]:pr-4`}
                 >
                     {columns.map((col) => (
-                        <div key={col.key} className={col.headerClassName || col.className || ""}>
+                        <div key={col.key} className={`${col.headerClassName || col.className || ""} py-3 flex items-center`}>
                             {col.label}
                         </div>
                     ))}
@@ -58,10 +58,10 @@ export function DataTable({
                         {rows.map((row) => (
                             <li
                                 key={rowKey(row)}
-                                className={`grid ${gridClass} px-4 py-3 text-[13px] text-gray-800 items-center hover:bg-gray-50/50 transition-colors min-w-max`}
+                                className={`grid ${gridClass} text-[13px] text-gray-800 hover:bg-gray-50/50 transition-colors min-w-max group [&>*:first-child]:pl-4 [&>*:last-child]:pr-4`}
                             >
                                 {columns.map((col) => (
-                                    <div key={col.key} className={col.className || ""}>
+                                    <div key={col.key} className={`${col.className || ""} py-3 flex items-center`}>
                                         {col.render ? col.render(row) : row[col.key] ?? "—"}
                                     </div>
                                 ))}

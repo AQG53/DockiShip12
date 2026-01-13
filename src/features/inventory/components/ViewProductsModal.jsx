@@ -13,6 +13,7 @@ import { useAuthCheck } from "../../auth/hooks/useAuthCheck";
 import { useSuppliers } from "../../purchases/hooks/useSuppliers";
 import ViewModal from "../../../components/ViewModal";
 import ImageGallery from "../../../components/ImageGallery";
+import SelectCompact from "../../../components/SelectCompact";
 
 export default function ViewProductModal({ open, onClose, product }) {
   if (!product) return null;
@@ -127,16 +128,40 @@ export default function ViewProductModal({ open, onClose, product }) {
   const label = "text-xs font-medium text-gray-600";
   const value = "text-sm text-gray-900 font-medium";
   const [tab, setTab] = useState("details");
+  const [marketplaceFilter, setMarketplaceFilter] = useState([]);
 
-  // Reset tab to details when modal opens
+  // Reset tab to details and clear filter when modal opens
   useEffect(() => {
-    if (open) setTab("details");
+    if (open) {
+      setTab("details");
+      setMarketplaceFilter([]);
+    }
   }, [open]);
   const productId = p?.id;
   const {
     data: listings = [],
     isLoading: listingsLoading,
   } = useProductMarketplaceListings(productId, { enabled: !!productId });
+
+  const marketplaceOptions = useMemo(() => {
+    const s = new Set();
+    if (Array.isArray(listings)) {
+      listings.forEach((l) => {
+        const name = l?.channel?.marketplace ?? l?.channel?.name ?? "";
+        if (name) s.add(name);
+      });
+    }
+    return Array.from(s).sort().map((m) => ({ value: m, label: m }));
+  }, [listings]);
+
+  const filteredListings = useMemo(() => {
+    return listings.filter((l) => {
+      if (!marketplaceFilter || marketplaceFilter.length === 0) return true;
+      const channelName = l?.channel?.marketplace ?? l?.channel?.name ?? "";
+      return marketplaceFilter.includes(channelName);
+    });
+  }, [listings, marketplaceFilter]);
+
   const { data: supplierRows = [], isLoading: suppliersLoading } = useSuppliers({
     refetchOnWindowFocus: false,
   });
@@ -483,9 +508,22 @@ export default function ViewProductModal({ open, onClose, product }) {
           {/* MARKETPLACES TAB */}
           {tab === "marketplaces" && (
             <div className={card}>
-              <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center gap-2">
-                <Store className="w-4 h-4 text-gray-500" />
-                <h3 className="text-sm font-semibold text-gray-900">Marketplaces</h3>
+              <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Store className="w-4 h-4 text-gray-500" />
+                  <h3 className="text-sm font-semibold text-gray-900">Marketplaces</h3>
+                </div>
+                <div className="w-64">
+                  <SelectCompact
+                    value={marketplaceFilter}
+                    onChange={setMarketplaceFilter}
+                    options={marketplaceOptions}
+                    placeholder="Filter by marketplace..."
+                    filterable
+                    multiple
+                    buttonClassName="text-xs"
+                  />
+                </div>
               </div>
               <div className="p-4">
                 {listingsLoading ? (
@@ -498,55 +536,61 @@ export default function ViewProductModal({ open, onClose, product }) {
                     No marketplace listings.
                   </div>
                 ) : (
-                  <div className="rounded-lg border border-gray-200 overflow-hidden">
-                    <div className={`grid ${hasVariants ? 'grid-cols-[1fr_1.1fr_1.2fr_1fr_0.7fr_0.6fr_0.6fr_0.6fr]' : 'grid-cols-[1.1fr_1.2fr_1fr_0.7fr_0.6fr_0.6fr_0.6fr]'} bg-gray-50 text-[12px] font-medium text-gray-700`}>
-                      {hasVariants && <div className="px-3 py-2">Variant SKU</div>}
-                      <div className="px-3 py-2">Product Name</div>
-                      <div className="px-3 py-2">Marketplace</div>
-                      <div className="px-3 py-2">Listing SKU</div>
-                      <div className="px-3 py-2 text-center">Price</div>
-                      <div className="px-3 py-2 text-center">Units</div>
-                      <div className="px-3 py-2 text-center">Assign</div>
-                      <div className="px-3 py-2 text-center">Stock</div>
-                    </div>
-                    <div className="divide-y divide-gray-100">
-                      {listings.map((l) => {
-                        const provider = l?.productName ?? l?.channel?.provider ?? "";
-                        const channelName = l?.channel?.marketplace ?? l?.channel?.name ?? "";
-                        const units = Number.isFinite(l?.units) ? l.units : l?.units ?? "";
-                        const price = l?.price != null ? Number(l.price).toFixed(2) : null;
-                        const variantId = l?.productVariantId ?? l?.variantId ?? null;
-                        const marketplaceSku = (l?.externalSku || "").trim();
-                        const resolvedVariant = variantList.find((v) => v.id === variantId);
+                  <>
+                    {filteredListings.length === 0 ? (
+                      <div className="text-sm text-gray-500">No matching listings found.</div>
+                    ) : (
+                      <div className="rounded-lg border border-gray-200 overflow-hidden">
+                        <div className={`grid ${hasVariants ? 'grid-cols-[1fr_1.1fr_1.2fr_1fr_0.7fr_0.6fr_0.6fr_0.6fr]' : 'grid-cols-[1.1fr_1.2fr_1fr_0.7fr_0.6fr_0.6fr_0.6fr]'} bg-gray-50 text-[12px] font-medium text-gray-700`}>
+                          {hasVariants && <div className="px-3 py-2">Variant SKU</div>}
+                          <div className="px-3 py-2">Product Name</div>
+                          <div className="px-3 py-2">Marketplace</div>
+                          <div className="px-3 py-2">Listing SKU</div>
+                          <div className="px-3 py-2 text-center">Price</div>
+                          <div className="px-3 py-2 text-center">Units</div>
+                          <div className="px-3 py-2 text-center">Assign</div>
+                          <div className="px-3 py-2 text-center">Stock</div>
+                        </div>
+                        <div className="divide-y divide-gray-100">
+                          {filteredListings.map((l) => {
+                            const provider = l?.productName ?? l?.channel?.provider ?? "";
+                            const channelName = l?.channel?.marketplace ?? l?.channel?.name ?? "";
+                            const units = Number.isFinite(l?.units) ? l.units : l?.units ?? "";
+                            const price = l?.price != null ? Number(l.price).toFixed(2) : null;
+                            const variantId = l?.productVariantId ?? l?.variantId ?? null;
+                            const marketplaceSku = (l?.externalSku || "").trim();
+                            const resolvedVariant = variantList.find((v) => v.id === variantId);
 
-                        // Calculate Assign
-                        let stock = 0;
-                        if (resolvedVariant) {
-                          stock = resolvedVariant.stockOnHand ?? 0;
-                        } else {
-                          stock = p?.stock ?? p?.stockOnHand ?? 0;
-                        }
-                        const unitsNum = parseInt(units, 10);
-                        const assignVal = (unitsNum > 0 && stock > 0) ? Math.floor(stock / unitsNum) : 0;
+                            // Calculate Assign
+                            let stock = 0;
+                            if (resolvedVariant) {
+                              stock = resolvedVariant.stockOnHand ?? 0;
+                            } else {
+                              stock = p?.stock ?? p?.stockOnHand ?? 0;
+                            }
+                            const unitsNum = parseInt(units, 10);
+                            const assignVal = (unitsNum > 0 && stock > 0) ? Math.floor(stock / unitsNum) : 0;
 
-                        return (
-                          <div
-                            key={l.id || provider + channelName + marketplaceSku}
-                            className={`grid ${hasVariants ? 'grid-cols-[1fr_1.1fr_1.2fr_1fr_0.7fr_0.6fr_0.6fr_0.6fr]' : 'grid-cols-[1.1fr_1.2fr_1fr_0.7fr_0.6fr_0.6fr_0.6fr]'} bg-white text-[13px] text-gray-700 items-center`}
-                          >
-                            {hasVariants && <div className="px-3 py-2">{resolvedVariant?.sku || "—"}</div>}
-                            <div className="px-3 py-2">{provider || "—"}</div>
-                            <div className="px-3 py-2">{channelName || "—"}</div>
-                            <div className="px-3 py-2">{marketplaceSku || "—"}</div>
-                            <div className="px-3 py-2 text-center">{price ? `$${price}` : "—"}</div>
-                            <div className="px-3 py-2 text-center">{units}</div>
-                            <div className="px-3 py-2 text-center">{assignVal}</div>
-                            <div className="px-3 py-2 text-center text-gray-500">{stock}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+                            return (
+                              <div
+                                key={l.id || provider + channelName + marketplaceSku}
+                                className={`grid ${hasVariants ? 'grid-cols-[1fr_1.1fr_1.2fr_1fr_0.7fr_0.6fr_0.6fr_0.6fr]' : 'grid-cols-[1.1fr_1.2fr_1fr_0.7fr_0.6fr_0.6fr_0.6fr]'} bg-white text-[13px] text-gray-700 items-center`}
+                              >
+                                {hasVariants && <div className="px-3 py-2">{resolvedVariant?.sku || "—"}</div>}
+                                <div className="px-3 py-2">{provider || "—"}</div>
+                                <div className="px-3 py-2">{channelName || "—"}</div>
+                                <div className="px-3 py-2">{marketplaceSku || "—"}</div>
+                                <div className="px-3 py-2 text-center">{price ? `$${price}` : "—"}</div>
+                                <div className="px-3 py-2 text-center">{units}</div>
+                                <div className="px-3 py-2 text-center">{assignVal}</div>
+                                <div className="px-3 py-2 text-center text-gray-500">{stock}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>

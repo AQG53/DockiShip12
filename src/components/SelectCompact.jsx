@@ -19,6 +19,9 @@ export default function SelectCompact({
   onAddNew,
   addNewLabel = "Add New",
   placeholder,
+  multiple = false,
+  onSearch,
+  hideCheck = false,
 }) {
   const list = Array.isArray(options) ? options : [];
   const containerRef = useRef(null);
@@ -29,6 +32,15 @@ export default function SelectCompact({
     typeof opt === "string" ? opt : opt?.label ?? getOptValue(opt);
 
   const currentLabel = (() => {
+    if (multiple) {
+      if (!Array.isArray(value) || value.length === 0) return placeholder || "Select";
+      if (value.length === 1) {
+        const val = value[0];
+        const found = list.find((opt) => (typeof opt === "string" ? opt === val : opt?.value === val));
+        return found ? getOptLabel(found) : String(val);
+      }
+      return `${value.length} selected`;
+    }
     if (!value && placeholder) return placeholder;
     if (value === "Select") return "Select";
     const found = list.find((opt) =>
@@ -39,16 +51,34 @@ export default function SelectCompact({
   })();
 
   const [query, setQuery] = useState("");
+
+  // Debounce search callback
+  useEffect(() => {
+    if (!onSearch) return;
+    const timeout = setTimeout(() => {
+      onSearch(query);
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [query, onSearch]);
+
   const filtered =
     !filterable || !query
       ? list
-      : list.filter((opt) =>
+      // If onSearch is provided, we assume the parent handles filtering (server-side),
+      // so we show the list as-is (which should be the search results).
+      // Otherwise client-side filter:
+      : (onSearch ? list : list.filter((opt) =>
         String(getOptLabel(opt)).toLowerCase().includes(query.toLowerCase()),
-      );
+      ));
 
   // Calculate position on open
   const handleOpen = () => {
+    // Only clear query if NOT server-side search mode (optional UX choice)
+    // Actually, usually we want to clear or keep?
+    // Let's clear it for now to reset.
     setQuery("");
+    if (onSearch) onSearch(""); // Reset server search too
+
     if (containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
       const spaceBelow = window.innerHeight - rect.bottom;
@@ -63,19 +93,25 @@ export default function SelectCompact({
 
   const ADD_NEW_SENTINEL = "__ADD_NEW_SENTINEL__";
 
-  const isPlaceholder = !value && !!placeholder;
+  const isPlaceholder = (!value || (multiple && value.length === 0)) && !!placeholder;
 
   return (
     <Listbox
       value={value}
+      multiple={multiple}
       onChange={(val) => {
         if (val === ADD_NEW_SENTINEL) {
           onAddNew?.();
           setQuery("");
+          if (onSearch) onSearch("");
           return;
         }
         onChange(val);
-        setQuery("");
+        // Don't clear query on multiple select to allow selecting multiple
+        if (!multiple) {
+          setQuery("");
+          if (onSearch) onSearch("");
+        }
       }}
       disabled={disabled}
     >
@@ -140,10 +176,12 @@ export default function SelectCompact({
                       >
                         {({ selected }) => (
                           <div className="flex items-center gap-2">
-                            {selected ? (
-                              <Check size={14} className="text-amber-700" />
-                            ) : (
-                              <span className="w-[14px]" />
+                            {!hideCheck && (
+                              selected ? (
+                                <Check size={14} className="text-amber-700" />
+                              ) : (
+                                <span className="w-[14px]" />
+                              )
                             )}
                             <span className="block truncate">
                               {renderOption ? renderOption(opt) : lab}

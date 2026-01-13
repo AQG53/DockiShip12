@@ -49,6 +49,12 @@ export default function OrderModal({ open, onClose, editing }) {
     const [trackingId, setTrackingId] = useState("");
     const [status, setStatus] = useState("LABEL_PRINTED");
     const [remarkTypeId, setRemarkTypeId] = useState("");
+    const [remarks, setRemarks] = useState("");
+
+    // New Fields State
+    const [shippingCharges, setShippingCharges] = useState(0);
+    const [tax, setTax] = useState(0);
+    const [otherCharges, setOtherCharges] = useState(0);
 
     // Products for selecting
     const [productSearch, setProductSearch] = useState("");
@@ -86,18 +92,35 @@ export default function OrderModal({ open, onClose, editing }) {
     };
 
     // Derived Financials
-    const { totalCost, totalRevenue, netProfit } = useMemo(() => {
+    // Derived Financials
+    const { itemsTotalRevenue, totalCost, grandTotal, netProfit } = useMemo(() => {
         let tc = 0, tr = 0;
         items.forEach(item => {
             tc += (parseFloat(item.totalCost) || 0);
-            tr += (parseFloat(item.totalAmount) || 0); // "Subtotal" in UI is Revenue
+            tr += (parseFloat(item.totalAmount) || 0);
         });
+
+        const shipping = parseFloat(shippingCharges) || 0;
+        const taxVal = parseFloat(tax) || 0;
+        const other = parseFloat(otherCharges) || 0;
+
+        const grandTotal = tr + shipping + taxVal + other;
+        // Net Profit = (ItemsRev + Shipping + Other) - ItemsCost - Tax?
+        // Or strictly: (GrandTotal) - (ItemsCost) - Tax (liability)?
+        // Backend: orderTotalAmount.minus(orderTotalCost).minus(tax);
+        // where orderTotalAmount = itemsTotal + ship + tax + other
+        // So Net = (items + ship + tax + other) - itemsCost - tax 
+        //        = items + ship + other - itemsCost.
+
+        const netProfit = tr - tc;
+
         return {
+            itemsTotalRevenue: tr, // Subtotal
             totalCost: tc,
-            totalRevenue: tr,
-            netProfit: tr - tc
+            grandTotal,
+            netProfit
         };
-    }, [items]);
+    }, [items, shippingCharges, tax, otherCharges]);
 
     // Load editing data
     useEffect(() => {
@@ -109,8 +132,11 @@ export default function OrderModal({ open, onClose, editing }) {
             setTrackingId(editing.trackingId || "");
             setStatus(editing.status || "LABEL_PRINTED");
             setRemarkTypeId(editing.remarkTypeId || "");
+            setRemarks(editing.remarks || "");
 
-            setRemarkTypeId(editing.remarkTypeId || "");
+            setShippingCharges(editing.shippingCharges || 0);
+            setTax(editing.tax || 0);
+            setOtherCharges(editing.otherCharges || 0);
 
             // Populate Attachments
             if (editing.attachments) {
@@ -162,6 +188,10 @@ export default function OrderModal({ open, onClose, editing }) {
             setTrackingId("");
             setStatus("LABEL_PRINTED");
             setRemarkTypeId("");
+            setRemarks("");
+            setShippingCharges(0);
+            setTax(0);
+            setOtherCharges(0);
             setItems([]);
         }
     }, [editing, open]);
@@ -186,6 +216,7 @@ export default function OrderModal({ open, onClose, editing }) {
 
         const newItem = {
             id: Math.random().toString(36).substr(2, 9),
+            listingId: product.id, // Store listing ID (which is product.id from the option)
             productId: product.productId,
             variantId: product.variantId || null, // if it's a variant
             displayName: product.displayName,
@@ -241,6 +272,7 @@ export default function OrderModal({ open, onClose, editing }) {
         setItems(newItems);
     };
 
+    // Handlers
     const handleSave = async () => {
         if (!orderId?.trim()) {
             alert.error("Required Field", "Order ID is required");
@@ -253,13 +285,43 @@ export default function OrderModal({ open, onClose, editing }) {
         }
 
         // Stock Validation
-        const overStockItems = items.filter(item => (parseFloat(item.quantity) || 0) > (item.stockOnHand || 0));
-        if (overStockItems.length > 0) {
-            alert.error(
-                "Insufficient Stock",
-                `Quantity exceeds available stock for: ${overStockItems.map(i => i.displayName).join(", ")}`
-            );
-            return;
+        // 1. Skip if status is Cancel/Return/Refund (items are being returned to stock)
+        const isReturning = ['CANCEL', 'RETURN', 'REFUND'].includes(status);
+
+        if (!isReturning) {
+            const overStockItems = items.filter(item => {
+                const qty = parseFloat(item.quantity) || 0;
+                let available = item.stockOnHand || 0;
+
+                // 2. If editing an ACTIVE order, add back the *original* quantity to available stock
+                // because we "own" that stock currently.
+                if (editing && editing.items) {
+                    // Check if the editing order was holding stock
+                    const wasHoldingStock = !['CANCEL', 'RETURN', 'REFUND'].includes(editing.status);
+
+                    if (wasHoldingStock) {
+                        // Find original item match (by variantId or productId)
+                        // Note: item.id is random UI ID, so match by content
+                        const original = editing.items.find(orig =>
+                            (item.variantId && orig.productVariantId === item.variantId) ||
+                            (!item.variantId && orig.productId === item.productId && !orig.productVariantId)
+                        );
+                        if (original) {
+                            available += (original.quantity || 0);
+                        }
+                    }
+                }
+
+                return qty > available;
+            });
+
+            if (overStockItems.length > 0) {
+                alert.error(
+                    "Insufficient Stock",
+                    `Quantity exceeds available stock for: ${overStockItems.map(i => i.displayName).join(", ")}`
+                );
+                return;
+            }
         }
 
         const payload = {
@@ -270,6 +332,10 @@ export default function OrderModal({ open, onClose, editing }) {
             trackingId,
             status,
             remarkTypeId: remarkTypeId || null,
+            remarks,
+            shippingCharges: parseFloat(shippingCharges) || 0,
+            tax: parseFloat(tax) || 0,
+            otherCharges: parseFloat(otherCharges) || 0,
             items: items.map(item => ({
                 productId: item.productId,
                 productVariantId: item.variantId,
@@ -304,6 +370,7 @@ export default function OrderModal({ open, onClose, editing }) {
                         fd.append('file', file);
                         return uploadOrderAttachment(savedOrderId, fd);
                     }));
+                    toast.dismiss(loadingToast);
                     // toast.success removed as per request
                 } catch (err) {
                     console.error("Upload error", err);
@@ -314,8 +381,12 @@ export default function OrderModal({ open, onClose, editing }) {
             onClose();
         } catch (err) {
             const msg = err?.response?.data?.message || err?.message || "Failed to save order";
-            if (msg.toLowerCase().includes("order id already exists")) {
+            const lowerMsg = msg.toLowerCase();
+
+            if (lowerMsg.includes("order id already exists")) {
                 alert.error("Duplicate Order ID", `An order with ID "${orderId}" already exists. Please use a unique Order ID.`);
+            } else if (lowerMsg.includes("tracking id already exists")) {
+                alert.error("Duplicate Tracking ID", `An order with Tracking ID "${trackingId}" already exists.`);
             } else {
                 alert.error("Error", msg);
             }
@@ -327,20 +398,24 @@ export default function OrderModal({ open, onClose, editing }) {
     const courierOpts = couriers.map(c => ({ value: c.id, label: c.shortName || c.fullName }));
     const remarkTypeOpts = remarkTypes.map(r => ({ value: r.id, label: r.name }));
     const statusOptions = [
-        "LABEL_PRINTED", "PACKED", "SHIPPED", "DROP_OFF",
+        "LABEL_PRINTED", "SHIPPED",
         "DELIVERED", "RETURN", "CANCEL", "REFUND"
     ].map(s => ({ value: s, label: s.replace(/_/g, " ") }));
 
     const productSelectOpts = useMemo(() => {
-        const selectedIds = new Set(items.map(i => i.variantId || i.productId));
+        // Filter by SKU to ensure unique listings are hidden once selected.
+        // The SKU in productOptions is the listing's externalSku.
+        const selectedSkus = new Set(items.map(i => i.sku || i.marketplaceSku).filter(Boolean));
+
         return productOptions
-            .filter(p => !selectedIds.has(p.id))
+            .filter(p => !selectedSkus.has(p.sku))
             .map(p => ({
                 value: p.id,
                 label: p.variantName || p.name, // Use variantName for display label
                 variantName: p.variantName || p.name,
                 marketplaceName: p.marketplaceName,
                 marketplaceSku: p.marketplaceSku,
+                imageUrl: p.imageUrl,
             }));
     }, [productOptions, items]);
 
@@ -476,24 +551,42 @@ export default function OrderModal({ open, onClose, editing }) {
                                     onChange={handleProductSelect}
                                     options={productSelectOpts}
                                     filterable
+                                    onSearch={setProductSearch} // Enable server-side search
                                     buttonClassName="h-9 border-dashed border-gray-300 text-gray-500 hover:border-blue-400 hover:text-blue-600 bg-white"
                                     addNewLabel={null}
+                                    hideCheck={true} // Hide the selected checkmark/spacer
                                     placeholder="Search products to add..."
                                     renderOption={(opt) => {
                                         if (typeof opt === 'string') return opt;
                                         return (
-                                            <div className="flex flex-col gap-0.5">
-                                                <span className="text-sm font-medium text-gray-900">{opt.variantName || opt.label}</span>
-                                                {(opt.marketplaceName || opt.marketplaceSku) && (
-                                                    <div className="flex items-center gap-3 text-xs text-gray-500">
-                                                        {opt.marketplaceName && (
-                                                            <span><span className="text-gray-400">Listing:</span> {opt.marketplaceName}</span>
-                                                        )}
+                                            <div className="flex items-start gap-2 py-1">
+                                                <div className="w-9 h-9 flex-shrink-0 rounded-md border border-gray-200 bg-gray-50 overflow-hidden mt-0.5">
+                                                    {opt.imageUrl ? (
+                                                        <img src={absImg(opt.imageUrl)} alt="" className="w-full h-full object-cover" />
+                                                    ) : (
+                                                        <div className="w-full h-full flex items-center justify-center text-gray-300">
+                                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                                            </svg>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                <div className="flex flex-col gap-0.5 max-w-[240px]">
+                                                    <span className="text-sm font-medium text-gray-900 truncate" title={opt.marketplaceName || opt.variantName}>
+                                                        {opt.marketplaceName || opt.variantName || opt.label}
+                                                    </span>
+                                                    <div className="flex flex-col text-xs text-gray-500">
                                                         {opt.marketplaceSku && (
-                                                            <span><span className="text-gray-400">SKU:</span> {opt.marketplaceSku}</span>
+                                                            <span className="truncate">
+                                                                <span className="font-medium text-gray-400">Marketplace SKU:</span> {opt.marketplaceSku}
+                                                            </span>
                                                         )}
+                                                        <span className="text-gray-500 truncate">
+                                                            <span className="font-medium text-gray-400">Product Name:</span> {opt.variantName || opt.label}
+                                                        </span>
                                                     </div>
-                                                )}
+                                                </div>
                                             </div>
                                         );
                                     }}
@@ -617,19 +710,71 @@ export default function OrderModal({ open, onClose, editing }) {
                             buttonClassName="h-9 w-full"
                             placeholder="Select Remark Type"
                         />
+                        <div className="mt-4">
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Remarks</label>
+                            <textarea
+                                className="w-full rounded-lg border border-gray-300 p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
+                                rows={3}
+                                placeholder="Add optional remarks..."
+                                value={remarks}
+                                onChange={e => setRemarks(e.target.value)}
+                            />
+                        </div>
                     </div>
                     <div className="bg-gray-50 rounded-xl p-5 border border-gray-100 flex flex-col justify-between">
-                        <div className="space-y-2 text-sm">
+                        <div className="space-y-3 text-sm">
                             <div className="flex justify-between text-gray-500">
-                                <span>Total Revenue</span>
-                                <span className="font-medium text-gray-900">{totalRevenue.toFixed(2)}</span>
+                                <span>Subtotal (Items)</span>
+                                <span className="font-medium text-gray-900">{itemsTotalRevenue.toFixed(2)}</span>
                             </div>
-                            <div className="flex justify-between text-gray-500">
-                                <span>Total Cost</span>
-                                <span className="font-medium text-gray-900">{totalCost.toFixed(2)}</span>
+
+                            <div className="flex justify-between items-center text-gray-500">
+                                <span>Shipping Charges</span>
+                                <div className="w-24">
+                                    <input
+                                        type="number"
+                                        value={shippingCharges}
+                                        onChange={e => setShippingCharges(e.target.value)}
+                                        className="w-full text-right bg-white border border-gray-200 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-200 outline-none"
+                                        placeholder="0.00"
+                                    />
+                                </div>
                             </div>
+
+                            <div className="flex justify-between items-center text-gray-500">
+                                <span>Tax ($)</span>
+                                <div className="w-24">
+                                    <input
+                                        type="number"
+                                        value={tax}
+                                        onChange={e => setTax(e.target.value)}
+                                        className="w-full text-right bg-white border border-gray-200 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-200 outline-none"
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="flex justify-between items-center text-gray-500">
+                                <span>Other Charges</span>
+                                <div className="w-24">
+                                    <input
+                                        type="number"
+                                        value={otherCharges}
+                                        onChange={e => setOtherCharges(e.target.value)}
+                                        className="w-full text-right bg-white border border-gray-200 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-200 outline-none"
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                            </div>
+
                             <div className="h-px bg-gray-200 my-2" />
-                            <div className="flex justify-between items-center">
+
+                            <div className="flex justify-between text-gray-700 font-medium">
+                                <span>Total Order Amount</span>
+                                <span className="text-gray-900">{grandTotal.toFixed(2)}</span>
+                            </div>
+
+                            <div className="flex justify-between items-center pt-2">
                                 <span className="font-semibold text-gray-900">Net Profit</span>
                                 <span className={`text-xl font-bold ${netProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
                                     {netProfit.toFixed(2)}
@@ -640,6 +785,6 @@ export default function OrderModal({ open, onClose, editing }) {
                 </div>
 
             </div>
-        </Modal>
+        </Modal >
     );
 }

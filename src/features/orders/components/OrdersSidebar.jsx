@@ -7,9 +7,7 @@ import { useOrderCounts } from "../hooks/useOrders";
 // Status Mapping
 const STATUS_LABELS = {
     LABEL_PRINTED: "Label Printed",
-    PACKED: "Packed",
     SHIPPED: "Shipped",
-    DROP_OFF: "Drop Off",
     DELIVERED: "Delivered",
     RETURN: "Return",
     CANCEL: "Cancel",

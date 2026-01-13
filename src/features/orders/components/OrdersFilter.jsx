@@ -8,7 +8,8 @@ import DateRangePicker from "../../../components/ui/DateRangePicker";
 export default function OrdersFilter({
     filters, // { search, status, medium, courier, remark, dateRange }
     options, // { statusOptions, mediumOptions, courierOptions, remarkOptions }
-    onApply
+    onApply,
+    statusReadOnly = false
 }) {
     // Buffered State
     const [localFilters, setLocalFilters] = useState(filters);
@@ -95,7 +96,7 @@ export default function OrdersFilter({
                                 <div className="space-y-1.5">
                                     <div className="flex items-center justify-between">
                                         <label className="text-sm font-medium text-gray-700">Status</label>
-                                        {localFilters.status?.id !== "ALL" && (
+                                        {!statusReadOnly && localFilters.status?.id !== "ALL" && (
                                             <button
                                                 onClick={() => setLocalFilters(prev => ({ ...prev, status: options.statusOptions[0] }))}
                                                 className="text-xs text-emerald-600 hover:text-emerald-700 font-medium"
@@ -106,10 +107,15 @@ export default function OrdersFilter({
                                     </div>
                                     <HeadlessSelect
                                         value={localFilters.status}
-                                        onChange={(val) => setLocalFilters(prev => ({ ...prev, status: val }))}
+                                        onChange={(val) => !statusReadOnly && setLocalFilters(prev => ({ ...prev, status: val }))}
                                         options={options.statusOptions}
-                                        className="w-full"
+                                        className={`w-full ${statusReadOnly ? "opacity-60 cursor-not-allowed pointer-events-none" : ""}`}
                                     />
+                                    {statusReadOnly && (
+                                        <p className="text-[11px] text-gray-400">
+                                            Status is locked for this view.
+                                        </p>
+                                    )}
                                 </div>
 
                                 {/* Medium */}
