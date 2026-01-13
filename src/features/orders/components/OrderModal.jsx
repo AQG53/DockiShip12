@@ -112,7 +112,7 @@ export default function OrderModal({ open, onClose, editing }) {
         // So Net = (items + ship + tax + other) - itemsCost - tax 
         //        = items + ship + other - itemsCost.
 
-        const netProfit = tr - tc;
+        const netProfit = (tr - tc) + shipping + other;
 
         return {
             itemsTotalRevenue: tr, // Subtotal
