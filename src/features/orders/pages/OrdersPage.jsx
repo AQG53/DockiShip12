@@ -72,6 +72,7 @@ export default function OrdersPage() {
     const [channelFilter, setChannelFilter] = useState({ id: "", name: "All Channels" });
     const [courierFilter, setCourierFilter] = useState({ id: "", name: "All Couriers" });
     const [remarkFilter, setRemarkFilter] = useState({ id: "", name: "All Remarks" });
+    const [settledFilter, setSettledFilter] = useState({ id: "all", name: "All" });
     const [dateTypeFilter, setDateTypeFilter] = useState({ id: "order", name: "Order Date" });
 
     // Date Range (Unified)
@@ -146,7 +147,8 @@ export default function OrdersPage() {
         remarkTypeId: remarkFilter.id,
         dateType: dateTypeFilter.id,
         startDate: dateRange?.from ? dateRange.from.toISOString() : undefined,
-        endDate: dateRange?.to ? dateRange.to.toISOString() : (dateRange?.from ? dateRange.from.toISOString() : undefined), // Fallback if single date selected
+        endDate: dateRange?.to ? dateRange.to.toISOString() : (dateRange?.from ? dateRange.from.toISOString() : undefined),
+        isSettled: settledFilter.id !== "all" ? settledFilter.id : undefined,
         page,
         perPage,
     });
@@ -255,7 +257,8 @@ export default function OrdersPage() {
     const handleSettleConfirm = async () => {
         if (!settleTarget) return;
         try {
-            await updateMut.mutateAsync({ id: settleTarget.id, payload: { is_settled: true } });
+            const newValue = !settleTarget.is_settled;
+            await updateMut.mutateAsync({ id: settleTarget.id, payload: { is_settled: newValue } });
             setConfirmSettleOpen(false);
             setSettleSuccessOpen(true);
             setSettleTarget(null);
@@ -596,9 +599,18 @@ export default function OrdersPage() {
                     </span>
                     {/* Settled Chip */}
                     {row.is_settled ? (
-                        <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
+                        <button
+                            disabled={!canUpdate}
+                            onClick={(e) => {
+                                if (!canUpdate) return;
+                                e.stopPropagation();
+                                setSettleTarget(row);
+                                setConfirmSettleOpen(true);
+                            }}
+                            className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border transition-colors ${canUpdate ? "cursor-pointer hover:bg-emerald-200" : ""} bg-emerald-100 text-emerald-700 border-emerald-200`}
+                        >
                             Settled
-                        </span>
+                        </button>
                     ) : (
                         canUpdate && (
                             <button
@@ -651,6 +663,7 @@ export default function OrdersPage() {
         setCourierFilter(newFilters.courier);
         setRemarkFilter(newFilters.remark);
         setDateRange(newFilters.dateRange);
+        setSettledFilter(newFilters.settled || { id: "all", name: "All" });
 
         const statusId = newFilters.status.id;
         if (statusId === "ALL") navigate("/orders");
@@ -788,7 +801,8 @@ export default function OrdersPage() {
                     medium: channelFilter,
                     courier: courierFilter,
                     remark: remarkFilter,
-                    dateRange
+                    dateRange,
+                    settled: settledFilter
                 }}
                 options={{
                     statusOptions,
@@ -800,7 +814,7 @@ export default function OrdersPage() {
                 statusReadOnly={!!statusParam} // Read-only if specific status page
             />
 
-            {(statusFilter.id !== "ALL" || channelFilter.id || courierFilter.id || remarkFilter.id || dateRange) && (
+            {(statusFilter.id !== "ALL" || channelFilter.id || courierFilter.id || remarkFilter.id || dateRange || settledFilter.id !== "all") && (
                 <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
                     <span className="text-xs font-medium text-gray-500">Applied:</span>
 
@@ -808,6 +822,12 @@ export default function OrdersPage() {
                         <div className="flex items-center gap-1 bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full text-[11px] font-medium border border-gray-200">
                             {statusFilter.name}
                             <button onClick={() => setStatusFilter(statusOptions[0])} className="hover:text-red-500"><X size={10} /></button>
+                        </div>
+                    )}
+                    {settledFilter.id !== "all" && (
+                        <div className="flex items-center gap-1 bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full text-[11px] font-medium border border-gray-200">
+                            {settledFilter.name}
+                            <button onClick={() => setSettledFilter({ id: "all", name: "All" })} className="hover:text-red-500"><X size={10} /></button>
                         </div>
                     )}
 
@@ -1028,8 +1048,8 @@ export default function OrdersPage() {
                 onConfirm={handleSettleConfirm}
                 type="info"
                 title="Settle Order"
-                message={`Are you sure you want to mark order ${settleTarget?.orderId || ""} as settled? This action cannot be undone.`}
-                confirmLabel="Yes, Settle Order"
+                message={`Are you sure you want to mark order ${settleTarget?.orderId || ""} as ${settleTarget?.is_settled ? "unsettled" : "settled"}?` + (settleTarget?.is_settled ? "" : " This action cannot be undone.")}
+                confirmLabel="Confirm"
                 showCancel={true}
                 cancelLabel="Cancel"
             />

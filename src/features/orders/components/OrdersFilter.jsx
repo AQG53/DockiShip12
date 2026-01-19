@@ -34,7 +34,8 @@ export default function OrdersFilter({
             medium: options.mediumOptions[0],
             courier: options.courierOptions[0],
             remark: options.remarkOptions[0],
-            dateRange: undefined
+            dateRange: undefined,
+            settled: { id: "all", name: "All" }
         });
     };
 
@@ -156,6 +157,31 @@ export default function OrdersFilter({
                                         value={localFilters.courier}
                                         onChange={(val) => setLocalFilters(prev => ({ ...prev, courier: val }))}
                                         options={options.courierOptions}
+                                        className="w-full"
+                                    />
+                                </div>
+
+                                {/* Settled */}
+                                <div className="space-y-1.5">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-sm font-medium text-gray-700">Settlement</label>
+                                        {localFilters.settled?.id && localFilters.settled?.id !== "all" && (
+                                            <button
+                                                onClick={() => setLocalFilters(prev => ({ ...prev, settled: { id: "all", name: "All" } }))}
+                                                className="text-xs text-emerald-600 hover:text-emerald-700 font-medium"
+                                            >
+                                                Reset
+                                            </button>
+                                        )}
+                                    </div>
+                                    <HeadlessSelect
+                                        value={localFilters.settled || { id: "all", name: "All" }}
+                                        onChange={(val) => setLocalFilters(prev => ({ ...prev, settled: val }))}
+                                        options={[
+                                            { id: "all", name: "All" },
+                                            { id: "true", name: "Settled Only" },
+                                            { id: "false", name: "Unsettled Only" }
+                                        ]}
                                         className="w-full"
                                     />
                                 </div>

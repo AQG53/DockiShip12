@@ -91,9 +91,7 @@ export default function OrderModal({ open, onClose, editing }) {
         }
     };
 
-    // Derived Financials
-    // Derived Financials
-    const { itemsTotalRevenue, totalCost, grandTotal, netProfit } = useMemo(() => {
+    const { itemsTotalRevenue, totalCost, grandTotal, totalEarning } = useMemo(() => {
         let tc = 0, tr = 0;
         items.forEach(item => {
             tc += (parseFloat(item.totalCost) || 0);
@@ -105,20 +103,14 @@ export default function OrderModal({ open, onClose, editing }) {
         const other = parseFloat(otherCharges) || 0;
 
         const grandTotal = tr + shipping + taxVal + other;
-        // Net Profit = (ItemsRev + Shipping + Other) - ItemsCost - Tax?
-        // Or strictly: (GrandTotal) - (ItemsCost) - Tax (liability)?
-        // Backend: orderTotalAmount.minus(orderTotalCost).minus(tax);
-        // where orderTotalAmount = itemsTotal + ship + tax + other
-        // So Net = (items + ship + tax + other) - itemsCost - tax 
-        //        = items + ship + other - itemsCost.
-
-        const netProfit = (tr - tc) + shipping + other;
+        // Total Earning = Sale Subtotal - Total Cost - Shipping - Tax - Other Charges
+        const totalEarning = tr - tc - shipping - taxVal - other;
 
         return {
-            itemsTotalRevenue: tr, // Subtotal
+            itemsTotalRevenue: tr, // Sale Subtotal
             totalCost: tc,
             grandTotal,
-            netProfit
+            totalEarning
         };
     }, [items, shippingCharges, tax, otherCharges]);
 
@@ -203,12 +195,15 @@ export default function OrderModal({ open, onClose, editing }) {
         if (!product) return;
 
         // Add to items - prefill with avgCostPerUnit for unit cost
-        // Determine cost source for info tooltip
+        // Fallback: avgCostPerUnit -> costPrice -> lastPurchasePrice
         let unitCost = 0;
         let costSource = null;
         if (product.avgCostPerUnit != null && parseFloat(product.avgCostPerUnit) > 0) {
             unitCost = product.avgCostPerUnit;
             costSource = 'avgCost';
+        } else if (product.costPrice != null && parseFloat(product.costPrice) > 0) {
+            unitCost = product.costPrice;
+            costSource = 'costPrice';
         } else if (product.lastPurchasePrice != null && parseFloat(product.lastPurchasePrice) > 0) {
             unitCost = product.lastPurchasePrice;
             costSource = 'lastPurchase';
@@ -603,7 +598,7 @@ export default function OrderModal({ open, onClose, editing }) {
                                     <th className="px-2 py-3 font-medium text-gray-500 w-[10%] text-center">Qty</th>
                                     <th className="px-2 py-3 font-medium text-gray-500 w-[15%] text-center">Unit Cost</th>
                                     <th className="px-2 py-3 font-medium text-gray-500 w-[15%] text-center">Unit Sale Price</th>
-                                    <th className="px-4 py-3 font-medium text-gray-500 w-[15%] text-right">Subtotal</th>
+                                    <th className="px-4 py-3 font-medium text-gray-500 w-[15%] text-right">Sale Subtotal</th>
                                     <th className="px-2 py-3 w-[5%]"></th>
                                 </tr>
                             </thead>
@@ -724,7 +719,12 @@ export default function OrderModal({ open, onClose, editing }) {
                     <div className="bg-gray-50 rounded-xl p-5 border border-gray-100 flex flex-col justify-between">
                         <div className="space-y-3 text-sm">
                             <div className="flex justify-between text-gray-500">
-                                <span>Subtotal (Items)</span>
+                                <span>Total Cost Price</span>
+                                <span className="font-medium text-gray-900">{totalCost.toFixed(2)}</span>
+                            </div>
+
+                            <div className="flex justify-between text-gray-500">
+                                <span>Sale Subtotal</span>
                                 <span className="font-medium text-gray-900">{itemsTotalRevenue.toFixed(2)}</span>
                             </div>
 
@@ -775,9 +775,9 @@ export default function OrderModal({ open, onClose, editing }) {
                             </div>
 
                             <div className="flex justify-between items-center pt-2">
-                                <span className="font-semibold text-gray-900">Net Profit</span>
-                                <span className={`text-xl font-bold ${netProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                                    {netProfit.toFixed(2)}
+                                <span className="font-semibold text-gray-900">Total Earning</span>
+                                <span className={`text-xl font-bold ${totalEarning >= 0 ? "text-green-600" : "text-red-600"}`}>
+                                    {totalEarning.toFixed(2)}
                                 </span>
                             </div>
                         </div>

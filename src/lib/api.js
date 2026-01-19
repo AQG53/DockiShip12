@@ -353,6 +353,7 @@ export async function listProductsForOrderSelection({ search, channelId, perPage
             displayName: listing.productName ?? product.name,
             stockOnHand: product.stockOnHand ?? 0,
             avgCostPerUnit: product.avgCostPerUnit ?? null,
+            costPrice: product.originalPrice ?? null,
             lastPurchasePrice: product.lastPurchasePrice ?? null,
           });
         }
@@ -380,6 +381,7 @@ export async function listProductsForOrderSelection({ search, channelId, perPage
             displayName: product.name,
             stockOnHand: product.stockOnHand ?? 0,
             avgCostPerUnit: product.avgCostPerUnit ?? null,
+            costPrice: product.originalPrice ?? null,
             lastPurchasePrice: product.lastPurchasePrice ?? null,
           });
         }
@@ -441,6 +443,7 @@ export async function listProductsForOrderSelection({ search, channelId, perPage
               displayName: listing.productName ?? variantName,
               stockOnHand: variant.stockOnHand ?? 0,
               avgCostPerUnit: variant.avgCostPerUnit ?? null,
+              costPrice: variant.originalPrice ?? null,
               lastPurchasePrice: variant.lastPurchasePrice ?? null,
             });
           }
@@ -471,6 +474,7 @@ export async function listProductsForOrderSelection({ search, channelId, perPage
               displayName: variantName,
               stockOnHand: variant.stockOnHand ?? 0,
               avgCostPerUnit: variant.avgCostPerUnit ?? null,
+              costPrice: variant.originalPrice ?? null,
               lastPurchasePrice: variant.lastPurchasePrice ?? null,
             });
           }

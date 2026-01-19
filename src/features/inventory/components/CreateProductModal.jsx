@@ -9,9 +9,12 @@ import {
     useCreateMarketplaceChannel,
     useProductMarketplaceListings,
     useAddProductMarketplaceListing,
+    useUpdateProductMarketplaceListing,
     useDeleteProductMarketplaceListing,
 } from "../hooks/useProducts";
+import MarketplaceListingRow from "./MarketplaceListingRow";
 
+import { useAnimatedAlert } from "../../../components/ui/AnimatedAlert";
 import toast from "react-hot-toast";
 import {
     Dialog,
@@ -266,7 +269,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
 
     // --- Marketplaces state ---
     const [selectedProductName, setSelectedProductName] = useState("Select");
-    const [selectedChannelId, setSelectedChannelId] = useState(null);
+    const [selectedChannelIds, setSelectedChannelIds] = useState([]);
 
     // inline creation is now handled inside dropdowns via SelectSearchAdd
 
@@ -276,6 +279,12 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const [listingPrice, setListingPrice] = useState("");
     const [selectedVariantForListing, setSelectedVariantForListing] = useState("product");
     const [assign, setAssign] = useState("");
+
+    // Global Alert Hook
+    const { success, error } = useAnimatedAlert();
+    // Aliases for compatibility
+    const showSuccess = (message) => success("Success", message);
+    const showError = (message) => error("Error", message);
 
     // UI: focus and hinting for provider→channel flow
     const channelSelectRef = useRef(null);
@@ -318,6 +327,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     // Mutations
     const { mutateAsync: createChannel, isPending: creatingChannel } = useCreateMarketplaceChannel();
     const { mutateAsync: addListing, isPending: addingListing } = useAddProductMarketplaceListing(effectiveProductId ?? "");
+    const { mutateAsync: updateListing, isPending: updatingListing } = useUpdateProductMarketplaceListing(effectiveProductId ?? "");
     const { mutateAsync: deleteListing, isPending: deletingListing } = useDeleteProductMarketplaceListing(effectiveProductId ?? "");
     const [confirm, setConfirm] = useState({ open: false, id: null, label: "" });
 
@@ -462,7 +472,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
 
         // marketplaces
         setSelectedProductName("Select");
-        setSelectedChannelId(null);
+        setSelectedChannelIds([]);
         setListingSku("");
         setListingUnits("");
         setListingPrice("");
@@ -1150,7 +1160,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             let createdOrUpdated = null;
             if (!edit) {
                 createdOrUpdated = await createProductMut(payload);
-                toast.success(isDraft ? "Draft saved" : "Product created");
+                showSuccess(isDraft ? "Draft saved" : "Product created");
                 // Link any selected suppliers after create with per-supplier price
                 try {
                     const pid = createdOrUpdated?.id;
@@ -1166,7 +1176,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                     }
                 } catch (e) {
                     console.error(e);
-                    toast.error('Product created but failed to link some suppliers');
+                    showError('Product created but failed to link some suppliers');
                 }
             } else {
                 // 1) always patch parent-level fields first
@@ -1231,7 +1241,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                         await updateVariant({ productId: effectiveProductId, variantId: productDetail.variantId, payload: { sku: parentPayload.sku } });
                     } catch (e) {
                         console.error(e);
-                        toast.error('Failed to sync variant SKU');
+                        showError('Failed to sync variant SKU');
                     }
                 }
 
@@ -1325,10 +1335,10 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                     }
                 } catch (e) {
                     console.error(e);
-                    toast.error('Failed to save supplier links');
+                    showError('Failed to save supplier links');
                 }
 
-                toast.success(isDraft ? "Draft updated" : "Product updated");
+                showSuccess(isDraft ? "Draft updated" : "Product updated");
             }
 
             // Upload product-level images (if selected)
@@ -1406,7 +1416,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                 onClose?.();
             }
         } catch (e) {
-            toast.error(e?.response?.data?.message || e?.message || "Failed to save");
+            showError(e?.response?.data?.message || e?.message || "Failed to save");
         } finally {
             setSavingUi(false);
         }
@@ -2254,11 +2264,11 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                                 try {
                                                                                                     const pid = productDetail?.id || productId;
                                                                                                     await uploadImages({ productId: pid, files, variantId: v.id });
-                                                                                                    toast.success('Variant images uploaded');
+                                                                                                    showSuccess('Variant images uploaded');
                                                                                                     e.target.value = '';
                                                                                                 } catch (err) {
                                                                                                     console.error(err);
-                                                                                                    toast.error('Failed to upload variant images');
+                                                                                                    showError('Failed to upload variant images');
                                                                                                 }
                                                                                             }}
                                                                                         />
@@ -2891,10 +2901,10 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                         Add Listing
                                                     </div>
 
-                                                    <div className={`p-4 grid ${(Array.isArray(variants) && variants.length > 0) ? 'grid-cols-[1.4fr_1.0fr_1.2fr_0.8fr_0.7fr_0.7fr_0.7fr_0.7fr_50px]' : 'grid-cols-[1.4fr_1.0fr_0.9fr_0.8fr_0.7fr_0.7fr_0.7fr_50px]'} gap-3 items-end`}>
+                                                    <div className="p-4 flex gap-3 items-end">
                                                         {/* Variant pick (moved first, required) */}
                                                         {Array.isArray(variants) && variants.length > 0 && (
-                                                            <div>
+                                                            <div className="min-w-[140px]">
                                                                 <label className={label}>Attach To <span className="text-red-500">*</span></label>
                                                                 <SelectCompact
                                                                     value={selectedVariantForListing}
@@ -2912,8 +2922,8 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                         )}
 
                                                         {/* Product Name (was Provider) */}
-                                                        <div>
-                                                            <label className={label}>Product Name</label>
+                                                        <div className="flex-1 min-w-[120px]">
+                                                            <label className={label}>Product Name <span className="text-red-500">*</span></label>
                                                             <input
                                                                 className={input}
                                                                 placeholder="Enter product name"
@@ -2923,20 +2933,21 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                         </div>
 
                                                         {/* Marketplace Name (was Channel) */}
-                                                        <div>
-                                                            <label className={label}>Marketplace</label>
+                                                        <div className="flex-1 min-w-[120px]">
+                                                            <label className={label}>Marketplace <span className="text-red-500">*</span></label>
                                                             <SelectCompact
                                                                 ref={channelSelectRef}
-                                                                value={selectedChannelId || ""}
-                                                                onChange={(v) => setSelectedChannelId(v)}
+                                                                value={selectedChannelIds}
+                                                                onChange={(v) => setSelectedChannelIds(Array.isArray(v) ? v : [v])}
                                                                 options={channelOptions.map(c => {
                                                                     if (typeof c === 'string') return { value: c, label: c };
                                                                     const val = c.marketplace || c.name || c.value || c.id;
                                                                     const lab = c.marketplace || c.name || c.label || c.id;
                                                                     return { value: val, label: lab };
                                                                 })}
-                                                                placeholder="Select Marketplace"
+                                                                placeholder="Select Marketplace(s)"
                                                                 filterable
+                                                                multiple
                                                                 disabled={Array.isArray(variants) && variants.length > 0 && !selectedVariantForListing}
                                                                 onAddNew={() => {
                                                                     setNewMarketplaceName("");
@@ -3008,12 +3019,12 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                                 try {
                                                                                                     await createChannel({ marketplace: trimmed });
                                                                                                     await refetchChannels();
-                                                                                                    setSelectedChannelId(trimmed);
-                                                                                                    toast.success(`Added marketplace: ${trimmed} `);
+                                                                                                    setSelectedChannelIds(prev => [...prev, trimmed]);
+                                                                                                    showSuccess(`Added marketplace: ${trimmed} `);
                                                                                                     setMarketplaceModalOpen(false);
                                                                                                 } catch (e) {
                                                                                                     console.error(e);
-                                                                                                    toast.error("Failed to add marketplace");
+                                                                                                    showError("Failed to add marketplace");
                                                                                                 }
                                                                                             }}
                                                                                         >
@@ -3028,20 +3039,10 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                             </Dialog>
                                                         </Transition>
 
-                                                        {/* SKU (optional) */}
-                                                        <div>
-                                                            <Field label="Listing SKU">
-                                                                <input
-                                                                    className={input}
-                                                                    placeholder="AMZ-123-XL"
-                                                                    value={listingSku}
-                                                                    onChange={(e) => setListingSku(e.target.value)}
-                                                                />
-                                                            </Field>
-                                                        </div>
+                                                        {/* SKU is auto-generated */}
 
                                                         {/* Units */}
-                                                        <div>
+                                                        <div className="w-[70px]">
                                                             <Field label="Units *">
                                                                 <input
                                                                     className={input}
@@ -3053,7 +3054,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                         </div>
 
                                                         {/* Selling Price */}
-                                                        <div>
+                                                        <div className="w-[80px]">
                                                             <Field label="Price">
                                                                 <input
                                                                     className={input}
@@ -3114,49 +3115,50 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                     disabled={
                                                                         addingListing ||
                                                                         !effectiveProductId ||
-                                                                        !selectedChannelId ||
+                                                                        selectedChannelIds.length === 0 ||
                                                                         !listingUnits.trim()
                                                                     }
                                                                     onClick={async () => {
                                                                         try {
-                                                                            // Use selectedProductName (input) and selectedChannelId (name) directly
-                                                                            const channelName = selectedChannelId;
                                                                             const prodName = selectedProductName === 'Select' ? '' : selectedProductName;
 
                                                                             if (!prodName.trim()) {
-                                                                                toast.error("Enter a product name");
+                                                                                showError("Enter a product name");
                                                                                 return;
                                                                             }
 
-                                                                            const payload = {
-                                                                                productName: prodName,
-                                                                                marketplace: channelName,
-                                                                                channelId: selectedChannelId,
-                                                                                units: Number(listingUnits),
-                                                                            };
-                                                                            const selectedChan = (allChannels || []).find(c => c.id === selectedChannelId);
-                                                                            if (selectedChan) payload.marketplace = selectedChan.marketplace;
-                                                                            if (listingSku && listingSku.trim()) {
-                                                                                payload.externalSku = listingSku.trim();
-                                                                            }
-                                                                            if (listingPrice && listingPrice.trim()) {
-                                                                                payload.price = parseFloat(listingPrice);
-                                                                            }
-                                                                            if (selectedVariantForListing && selectedVariantForListing !== "product") {
-                                                                                payload.variantId = selectedVariantForListing;
+                                                                            // Loop through all selected marketplaces and create a listing for each
+                                                                            for (const channelId of selectedChannelIds) {
+                                                                                const payload = {
+                                                                                    productName: prodName,
+                                                                                    marketplace: channelId,
+                                                                                    channelId: channelId,
+                                                                                    units: Number(listingUnits),
+                                                                                };
+                                                                                const selectedChan = (allChannels || []).find(c => c.id === channelId);
+                                                                                if (selectedChan) payload.marketplace = selectedChan.marketplace;
+                                                                                // Auto-generate unique SKU for each listing
+                                                                                payload.externalSku = `ML-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+                                                                                if (listingPrice && listingPrice.trim()) {
+                                                                                    payload.price = parseFloat(listingPrice);
+                                                                                }
+                                                                                if (selectedVariantForListing && selectedVariantForListing !== "product") {
+                                                                                    payload.variantId = selectedVariantForListing;
+                                                                                }
+
+                                                                                await addListing(payload);
                                                                             }
 
-                                                                            await addListing(payload);
-                                                                            toast.success("Listing added");
+                                                                            showSuccess(`${selectedChannelIds.length} listing(s) added`);
                                                                             setListingSku("");
                                                                             setListingUnits("");
                                                                             setListingPrice("");
                                                                             setSelectedProductName("Select");
-                                                                            setSelectedChannelId(null);
+                                                                            setSelectedChannelIds([]);
                                                                             setSelectedVariantForListing("product");
                                                                             await refetchListings();
                                                                         } catch (e) {
-                                                                            toast.error(e?.response?.data?.message || e?.message || "Failed to add listing");
+                                                                            showError(e?.response?.data?.message || e?.message || "Failed to add listing");
                                                                         }
                                                                     }}
                                                                 >
@@ -3172,7 +3174,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                     <div className={`grid ${variantEnabled ? 'grid-cols-[1.1fr_1.2fr_0.9fr_0.7fr_0.6fr_0.6fr_0.6fr_0.9fr_70px]' : 'grid-cols-[1.1fr_1.2fr_0.9fr_0.7fr_0.6fr_0.6fr_0.6fr_70px]'} text-[12px] font-medium text-gray-700`}>
                                                         <div className="bg-gray-50 px-3 py-2">Product Name</div>
                                                         <div className="bg-gray-50 px-3 py-2">Marketplace</div>
-                                                        <div className="bg-gray-50 px-3 py-2">SKU</div>
+                                                        <div className="bg-gray-50 px-3 py-2">Product ID</div>
                                                         <div className="bg-gray-50 px-3 py-2 text-center">Price</div>
                                                         <div className="bg-gray-50 px-3 py-2 text-center">Units</div>
                                                         <div className="bg-gray-50 px-3 py-2 text-center">Assign</div>
@@ -3185,51 +3187,26 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                         <div className="p-3 text-[13px] text-gray-600">Loading…</div>
                                                     ) : (Array.isArray(listings) && listings.length > 0) ? (
                                                         <div className="divide-y divide-gray-100">
-                                                            {listings.map((l) => {
-                                                                const provider = l?.productName ?? l?.channel?.provider ?? ""; // this maps to 'Product Name' column
-                                                                const channelName = (l?.channel?.marketplace ?? l?.channel?.name ?? "") + (l?.channel?.provider ? ` (${l.channel.provider})` : "");
-                                                                const sku = l?.externalSku ?? l?.sku ?? "";
-                                                                const units = Number.isFinite(l?.units) ? l.units : (l?.units ?? "");
-                                                                const price = l?.price != null ? Number(l.price).toFixed(2) : null;
-                                                                const variantId = l?.variantId ?? l?.productVariantId ?? null;
-
-                                                                // Calculate Assign
-                                                                let stock = 0;
-                                                                if (variantId) {
-                                                                    const v = variants.find(v => String(v.id) === String(variantId));
-                                                                    if (v) stock = v.stockOnHand ?? 0;
-                                                                } else {
-                                                                    stock = productDetail?.stockOnHand ?? 0;
-                                                                }
-                                                                const unitsNum = parseInt(units, 10);
-                                                                const assignVal = (unitsNum > 0 && stock > 0) ? Math.floor(stock / unitsNum) : 0;
-
-                                                                return (
-                                                                    <div key={l.id} className={`grid ${variantEnabled ? 'grid-cols-[1.1fr_1.2fr_0.9fr_0.7fr_0.6fr_0.6fr_0.6fr_0.9fr_70px]' : 'grid-cols-[1.1fr_1.2fr_0.9fr_0.7fr_0.6fr_0.6fr_0.6fr_70px]'} bg-white text-[13px] text-gray-700 items-center`}>
-                                                                        <div className="px-3 py-2">{provider || "—"}</div>
-                                                                        <div className="px-3 py-2">{channelName || "—"}</div>
-                                                                        <div className="px-3 py-2 text-[13px]">{sku || "—"}</div>
-                                                                        <div className="px-3 py-2 text-center">{price ? `$${price}` : "—"}</div>
-                                                                        <div className="px-3 py-2 text-center">{units}</div>
-                                                                        <div className="px-3 py-2 text-center">{assignVal}</div>
-                                                                        <div className="px-3 py-2 text-center text-gray-500">{stock}</div>
-                                                                        {variantEnabled && <div className="px-3 py-2">{findVariantLabel(variantId)}</div>}
-                                                                        <div className="px-2 py-2 flex items-center justify-center">
-                                                                            <button
-                                                                                type="button"
-                                                                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-50"
-                                                                                disabled={deletingListing}
-                                                                                title="Delete listing"
-                                                                                //description=
-                                                                                //message="Are you sure you want to delete this listing?"
-                                                                                onClick={() => setConfirm({ open: true, id: l.id, label: `${provider || "Marketplace"} • ${channelName || "Listing"} ` })}
-                                                                            >
-                                                                                <Trash2 size={16} />
-                                                                            </button>
-                                                                        </div>
-                                                                    </div>
-                                                                );
-                                                            })}
+                                                            {listings.map((l) => (
+                                                                <MarketplaceListingRow
+                                                                    key={l.id}
+                                                                    listing={l}
+                                                                    variants={variants}
+                                                                    variantEnabled={variantEnabled}
+                                                                    productDetail={productDetail}
+                                                                    allChannels={allChannels}
+                                                                    onUpdate={async (id, payload) => {
+                                                                        await updateListing({ listingId: id, payload });
+                                                                        await refetchListings();
+                                                                    }}
+                                                                    onDelete={() => setConfirm({
+                                                                        open: true,
+                                                                        id: l.id,
+                                                                        label: `${l.productName || l.channel?.provider || "Marketplace"} • ${l.channel?.marketplace || "Listing"}`
+                                                                    })}
+                                                                    findVariantLabel={findVariantLabel}
+                                                                />
+                                                            ))}
                                                         </div>
                                                     ) : (
                                                         <div className="p-3 text-[13px] text-gray-600">No listings yet.</div>
@@ -3253,10 +3230,10 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                 if (!confirm.id) return;
                                                 try {
                                                     await deleteListing(confirm.id);
-                                                    toast.success("Listing deleted");
+                                                    showSuccess("Listing deleted");
                                                     await refetchListings();
                                                 } catch (e) {
-                                                    toast.error(e?.response?.data?.message || e?.message || "Failed to delete");
+                                                    showError(e?.response?.data?.message || e?.message || "Failed to delete");
                                                 } finally {
                                                     setConfirm({ open: false, id: null, label: "" });
                                                 }
@@ -3289,7 +3266,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                             const m = collectMissing({ isDraft: true });
                                             setMissing(m);
                                             if (Object.keys(m).length) {
-                                                toast.error("Please fill required fields for Draft.");
+                                                showError("Please fill required fields for Draft.");
                                                 return;
                                             }
                                             handleSave("single", { isDraft: true });
@@ -3305,7 +3282,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                             const m = collectMissing({ isDraft: false });
                                             setMissing(m);
                                             if (Object.keys(m).length) {
-                                                toast.error("Please complete required fields.");
+                                                showError("Please complete required fields.");
                                                 return;
                                             }
                                             handleSave("again");
@@ -3329,7 +3306,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                             const m = collectMissing({ isDraft: false });
                                             setMissing(m);
                                             if (Object.keys(m).length) {
-                                                toast.error("Please complete required fields.");
+                                                showError("Please complete required fields.");
                                                 return;
                                             }
                                             handleSave("single");
@@ -3547,6 +3524,8 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                     </div>
                 </Dialog>
             </Transition>
+
+
         </Transition >
     );
 }
