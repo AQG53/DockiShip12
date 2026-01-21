@@ -21,6 +21,7 @@ export function DataTable({
     rowKey = (row) => row.id,
     emptyMessage,
     toolbar,
+    rowClassName = "",
 }) {
     const gridClass = gridCols || `grid-cols-${columns.length}`;
 
@@ -58,7 +59,7 @@ export function DataTable({
                         {rows.map((row) => (
                             <li
                                 key={rowKey(row)}
-                                className={`grid ${gridClass} text-[13px] text-gray-800 hover:bg-gray-50/50 transition-colors min-w-max group [&>*:first-child]:pl-4 [&>*:last-child]:pr-4`}
+                                className={`grid ${gridClass} text-[13px] text-gray-800 hover:bg-gray-50/50 transition-colors min-w-max group [&>*:first-child]:pl-4 [&>*:last-child]:pr-4 ${typeof rowClassName === 'function' ? rowClassName(row) : rowClassName}`}
                             >
                                 {columns.map((col) => (
                                     <div key={col.key} className={`${col.className || ""} py-3 flex items-center`}>

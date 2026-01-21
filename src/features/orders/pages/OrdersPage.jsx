@@ -81,6 +81,12 @@ export default function OrdersPage() {
     // Pagination
     const [page, setPage] = useState(1);
     const [perPage, setPerPage] = useState(25);
+    const [highlightOrderId, setHighlightOrderId] = useState(null);
+
+    const handleOrderSaved = (id) => {
+        setHighlightOrderId(id);
+        setTimeout(() => setHighlightOrderId(null), 3000);
+    };
 
     const statusOptions = useMemo(() => [
         { id: "ALL", name: "All Status" },
@@ -280,10 +286,10 @@ export default function OrdersPage() {
                     checked={orders.length > 0 && selectedIds.size === orders.length}
                 />
             ),
-            className: "!pr-0 !pl-4 w-[40px]",
+            className: "!pr-0 !pl-4 w-[40px] !items-start",
             headerClassName: "!pl-4 w-[40px]",
             render: (row) => (
-                <div onClick={e => e.stopPropagation()} className="flex items-center justify-center h-full">
+                <div onClick={e => e.stopPropagation()} className="flex items-center justify-center min-h-[3rem] py-1">
                     <input
                         type="checkbox"
                         className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -491,7 +497,7 @@ export default function OrdersPage() {
 
         {
             key: "totalAmount",
-            label: "Unit S. Price",
+            label: "S. Price",
             className: "!items-start",
             render: (row) => {
                 if (row.items && row.items.length > 0) {
@@ -502,7 +508,7 @@ export default function OrdersPage() {
                         <div className="flex flex-col w-full">
                             {visibleItems.map((item, idx) => (
                                 <div key={idx} className="flex items-center min-h-[3rem] py-1 border-b border-gray-100 last:border-0 text-gray-900 text-[13px]">
-                                    {item.unitPrice !== undefined ? Number(item.unitPrice).toFixed(2) : "—"}
+                                    {item.totalAmount !== undefined ? Number(item.totalAmount).toFixed(2) : "—"}
                                 </div>
                             ))}
                             {/* Spacer to align with button in product column */}
@@ -513,6 +519,34 @@ export default function OrdersPage() {
                 return (
                     <div className="flex items-center min-h-[3rem] py-1 text-gray-900 text-[13px]">
                         {row.totalAmount !== undefined ? Number(row.totalAmount).toFixed(2) : "—"}
+                    </div>
+                );
+            }
+        },
+        {
+            key: "totalCost",
+            label: "Total P. Price",
+            className: "!items-start",
+            render: (row) => {
+                if (row.items && row.items.length > 0) {
+                    const isExpanded = expandedOrderIds.has(row.id);
+                    const visibleItems = isExpanded ? row.items : row.items.slice(0, 3);
+
+                    return (
+                        <div className="flex flex-col w-full">
+                            {visibleItems.map((item, idx) => (
+                                <div key={idx} className="flex items-center min-h-[3rem] py-1 border-b border-gray-100 last:border-0 text-gray-500 text-[13px]">
+                                    {item.totalCost !== undefined ? Number(item.totalCost).toFixed(2) : "—"}
+                                </div>
+                            ))}
+                            {/* Spacer to align with button in product column */}
+                            {row.items.length > 3 && <div className="h-[24px] mt-1 mb-1" />}
+                        </div>
+                    );
+                }
+                return (
+                    <div className="flex items-center min-h-[3rem] py-1 text-gray-500 text-[13px]">
+                        {row.totalCost !== undefined ? Number(row.totalCost).toFixed(2) : "—"}
                     </div>
                 );
             }
@@ -701,7 +735,8 @@ export default function OrdersPage() {
                 "Product",
                 "Qty",
                 "Unit C. Price",
-                "Unit S. Price",
+                "S. Price",
+                "Total P. Price",
                 "Shipping",
                 "Tax",
                 "Other",
@@ -732,7 +767,8 @@ export default function OrdersPage() {
                             q(productName),
                             q(item.quantity),
                             q(item.unitCost !== undefined ? Number(item.unitCost).toFixed(2) : "—"),
-                            q(item.unitPrice !== undefined ? Number(item.unitPrice).toFixed(2) : "—"),
+                            q(item.totalAmount !== undefined ? Number(item.totalAmount).toFixed(2) : "—"),
+                            q(item.totalCost !== undefined ? Number(item.totalCost).toFixed(2) : "—"),
                             q(isFirst ? (order.shippingCharges || "0.00") : ""),
                             q(isFirst ? (order.tax || "0.00") : ""),
                             q(isFirst ? (order.otherCharges || "0.00") : ""),
@@ -753,6 +789,7 @@ export default function OrdersPage() {
                         q(order.quantity),
                         q(order.unitCost || "—"),
                         q(order.totalAmount || "—"),
+                        q(order.totalCost || "—"),
                         q(order.shippingCharges || "0.00"),
                         q(order.tax || "0.00"),
                         q(order.otherCharges || "0.00"),
@@ -911,7 +948,8 @@ export default function OrdersPage() {
                 rows={orders}
                 isLoading={isLoading}
                 toolbar={toolbar}
-                gridCols="grid-cols-[40px_minmax(100px,0.7fr)_minmax(130px,0.9fr)_minmax(110px,0.7fr)_minmax(240px,1.4fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.5fr)_minmax(80px,0.5fr)_minmax(80px,0.5fr)_minmax(90px,0.6fr)_minmax(100px,0.8fr)_minmax(140px,1fr)_minmax(120px,0.9fr)_160px]"
+                gridCols="grid-cols-[40px_minmax(100px,0.7fr)_minmax(130px,0.9fr)_minmax(110px,0.7fr)_minmax(240px,1.4fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.5fr)_minmax(80px,0.5fr)_minmax(80px,0.5fr)_minmax(90px,0.6fr)_minmax(100px,0.8fr)_minmax(140px,1fr)_minmax(120px,0.9fr)_160px]"
+                rowClassName={(row) => row.id === highlightOrderId ? "bg-amber-100 transition-colors duration-1000" : ""}
             />
 
             {/* Pagination Controls */}
@@ -989,7 +1027,7 @@ export default function OrdersPage() {
                 title="Bulk Update Status"
                 widthClass="max-w-sm"
             >
-                <div className="min-h-[320px]">
+                <div className="py-2">
                     <p className="text-sm text-gray-600 mb-4">
                         Update status for {selectedIds.size} orders.
                     </p>
@@ -1013,6 +1051,7 @@ export default function OrdersPage() {
                 open={modalOpen}
                 onClose={() => setModalOpen(false)}
                 editing={editing}
+                onSuccess={handleOrderSaved}
             />
 
             <AnimatedAlert

@@ -69,12 +69,12 @@ export default function MarketplaceListingRow({
         const originalChannelId = listing.channelId || listing.channel?.id;
         if (channelId !== originalChannelId) {
             payload.channelId = channelId;
-            const ch = allChannels.find(c => c.id === channelId);
-            if (ch) payload.marketplace = ch.marketplace;
+            // payload.marketplace is inferred by backend from channelId, but we can send it key if needed. 
+            // The DTO allows channelId validation logic.
         }
 
-        const originalSku = listing.externalSku || listing.sku || "";
-        if (sku !== originalSku) payload.externalSku = sku;
+        // SKU is read-only in edit mode
+        // if (sku !== originalSku) payload.externalSku = sku; 
 
         const originalPrice = listing.price != null ? parseFloat(listing.price) : NaN;
         const newPrice = parseFloat(price);
@@ -96,7 +96,7 @@ export default function MarketplaceListingRow({
             toast.success("Updated listing");
         } catch (e) {
             console.error(e);
-            toast.error("Failed to update listing");
+            toast.error(e?.response?.data?.message || "Failed to update listing");
         } finally {
             setIsSaving(false);
         }
@@ -140,18 +140,9 @@ export default function MarketplaceListingRow({
                 )}
             </div>
 
-            {/* SKU */}
-            <div className="px-3 py-2">
-                {isEditing ? (
-                    <input
-                        className="w-full rounded border border-gray-200 px-2 py-1 text-[13px] focus:border-blue-500 focus:outline-none"
-                        value={sku}
-                        placeholder="SKU"
-                        onChange={(e) => setSku(e.target.value)}
-                    />
-                ) : (
-                    <div title={sku}>{sku || "—"}</div>
-                )}
+            {/* SKU (Read-Only) */}
+            <div className="px-3 py-2 text-gray-500">
+                <div title={sku}>{sku || "—"}</div>
             </div>
 
             {/* Price */}

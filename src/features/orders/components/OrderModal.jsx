@@ -31,7 +31,7 @@ const IMG_PLACEHOLDER =
         '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><rect width="100%" height="100%" fill="#f3f4f6"/><g fill="#9ca3af"><circle cx="26" cy="30" r="8"/><path d="M8 60l15-15 10 10 12-12 27 27H8z"/></g></svg>'
     );
 
-export default function OrderModal({ open, onClose, editing }) {
+export default function OrderModal({ open, onClose, editing, onSuccess }) {
     const createMut = useCreateOrder();
     const updateMut = useUpdateOrder();
     const alert = useAnimatedAlert();
@@ -103,8 +103,8 @@ export default function OrderModal({ open, onClose, editing }) {
         const other = parseFloat(otherCharges) || 0;
 
         const grandTotal = tr + shipping + taxVal + other;
-        // Total Earning = Sale Subtotal - Total Cost - Shipping - Tax - Other Charges
-        const totalEarning = tr - tc - shipping - taxVal - other;
+        // Total Earning = Sale Subtotal - (Shipping + Tax + Other charges)
+        const totalEarning = tr - (shipping + taxVal + other);
 
         return {
             itemsTotalRevenue: tr, // Sale Subtotal
@@ -228,6 +228,7 @@ export default function OrderModal({ open, onClose, editing }) {
             totalCost: unitCost, // qty * unitCost
             totalAmount: product.channelPrice ?? product.retailPrice ?? 0,
             stockOnHand: product.stockOnHand ?? 0, // Store stock for validation
+            units: product.channelUnits ?? 1, // Units from marketplace listing
         };
 
         setItems(prev => [...prev, newItem]);
@@ -338,7 +339,8 @@ export default function OrderModal({ open, onClose, editing }) {
                 quantity: parseFloat(item.quantity) || 1,
                 unitCost: parseFloat(item.unitCost) || 0,
                 unitPrice: parseFloat(item.unitPrice) || 0,
-                otherFee: parseFloat(item.otherFee) || 0
+                otherFee: parseFloat(item.otherFee) || 0,
+                channelListingId: item.listingId || null  // Direct reference for units lookup
             }))
         };
 
@@ -372,6 +374,8 @@ export default function OrderModal({ open, onClose, editing }) {
                     toast.error("Some attachments failed to upload", { id: loadingToast });
                 }
             }
+
+            if (onSuccess) onSuccess(savedOrderId);
 
             onClose();
         } catch (err) {
@@ -594,9 +598,10 @@ export default function OrderModal({ open, onClose, editing }) {
                         <table className="w-full text-left text-sm">
                             <thead className="bg-gray-50 border-b border-gray-100">
                                 <tr>
-                                    <th className="px-4 py-3 font-medium text-gray-500 w-[40%]">Product</th>
-                                    <th className="px-2 py-3 font-medium text-gray-500 w-[10%] text-center">Qty</th>
-                                    <th className="px-2 py-3 font-medium text-gray-500 w-[15%] text-center">Unit Cost</th>
+                                    <th className="px-4 py-3 font-medium text-gray-500 w-[45%]">Product</th>
+                                    <th className="px-2 py-3 font-medium text-gray-500 w-[8%] text-center">Units</th>
+                                    <th className="px-2 py-3 font-medium text-gray-500 w-[8%] text-center">Qty</th>
+                                    {/* Unit Cost Hidden */}
                                     <th className="px-2 py-3 font-medium text-gray-500 w-[15%] text-center">Unit Sale Price</th>
                                     <th className="px-4 py-3 font-medium text-gray-500 w-[15%] text-right">Sale Subtotal</th>
                                     <th className="px-2 py-3 w-[5%]"></th>
@@ -605,7 +610,7 @@ export default function OrderModal({ open, onClose, editing }) {
                             <tbody className="divide-y divide-gray-50">
                                 {items.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6} className="px-4 py-12 text-center text-gray-400 italic bg-gray-50/30">
+                                        <td colSpan={7} className="px-4 py-12 text-center text-gray-400 italic bg-gray-50/30">
                                             No items added. <br />Use the search bar above to add products.
                                         </td>
                                     </tr>
@@ -642,6 +647,11 @@ export default function OrderModal({ open, onClose, editing }) {
                                                     </div>
                                                 </div>
                                             </td>
+                                            <td className="px-2 py-3 align-top text-center">
+                                                <span className="inline-flex items-center justify-center h-8 px-2 text-sm font-medium text-gray-600 bg-gray-100 rounded">
+                                                    {item.units ?? 1}
+                                                </span>
+                                            </td>
                                             <td className="px-2 py-3 align-top">
                                                 <input
                                                     type="number"
@@ -651,17 +661,8 @@ export default function OrderModal({ open, onClose, editing }) {
                                                     min="1"
                                                 />
                                             </td>
-                                            <td className="px-2 py-3 align-top">
-                                                <div className="relative group">
-                                                    <input
-                                                        type="number"
-                                                        className="w-full h-8 px-2 text-right border border-gray-200 rounded bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all"
-                                                        value={item.unitCost}
-                                                        onChange={e => updateItem(idx, 'unitCost', e.target.value)}
-                                                        step="0.01"
-                                                    />
-
-                                                </div>
+                                            <td className="px-2 py-3 align-top hidden">
+                                                {/* Hidden Unit Cost Input */}
                                             </td>
                                             <td className="px-2 py-3 align-top">
                                                 <input
@@ -718,10 +719,7 @@ export default function OrderModal({ open, onClose, editing }) {
                     </div>
                     <div className="bg-gray-50 rounded-xl p-5 border border-gray-100 flex flex-col justify-between">
                         <div className="space-y-3 text-sm">
-                            <div className="flex justify-between text-gray-500">
-                                <span>Total Cost Price</span>
-                                <span className="font-medium text-gray-900">{totalCost.toFixed(2)}</span>
-                            </div>
+                            {/* Total Cost Price Hidden */}
 
                             <div className="flex justify-between text-gray-500">
                                 <span>Sale Subtotal</span>
@@ -769,10 +767,7 @@ export default function OrderModal({ open, onClose, editing }) {
 
                             <div className="h-px bg-gray-200 my-2" />
 
-                            <div className="flex justify-between text-gray-700 font-medium">
-                                <span>Total Order Amount</span>
-                                <span className="text-gray-900">{grandTotal.toFixed(2)}</span>
-                            </div>
+                            {/* Total Order Amount Hidden */}
 
                             <div className="flex justify-between items-center pt-2">
                                 <span className="font-semibold text-gray-900">Total Earning</span>

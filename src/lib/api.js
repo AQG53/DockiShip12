@@ -968,7 +968,7 @@ export async function deleteRemarkType(id) {
 // =====================
 // Order Management (Manual)
 // =====================
-export async function listOrders({ search, status, startDate, endDate, mediumId, courierId, remarkTypeId, dateType, page, perPage } = {}) {
+export async function listOrders({ search, status, startDate, endDate, mediumId, courierId, remarkTypeId, isSettled, dateType, page, perPage } = {}) {
   const params = {};
   if (search) params.search = search;
   if (status && status !== 'ALL') params.status = status;
@@ -977,6 +977,7 @@ export async function listOrders({ search, status, startDate, endDate, mediumId,
   if (mediumId) params.mediumId = mediumId;
   if (courierId) params.courierId = courierId;
   if (remarkTypeId) params.remarkTypeId = remarkTypeId;
+  if (isSettled) params.isSettled = isSettled;
   if (dateType) params.dateType = dateType;
   if (page) params.page = page;
   if (perPage) params.perPage = perPage;
