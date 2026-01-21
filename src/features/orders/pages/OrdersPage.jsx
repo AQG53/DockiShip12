@@ -352,7 +352,7 @@ export default function OrdersPage() {
                             {visibleItems.map((item, idx) => {
                                 // RESOLVE PRODUCT INFO
                                 const listing = item.channelListing;
-                                const product = listing?.product || item.product;
+                                const product = listing?.product || listing?.productVariant?.product || item.product;
                                 const variant = listing?.productVariant || item.productVariant;
 
                                 const url = product?.images?.[0]?.url;
@@ -597,7 +597,6 @@ export default function OrdersPage() {
         {
             key: "netProfit",
             label: "Profit",
-            className: "!items-start",
             className: "!items-start",
             render: (row) => {
                 let val = 0;
