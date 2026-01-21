@@ -118,11 +118,9 @@ export default function ViewOrderModal({ open, onClose, order }) {
         let cost = 0;
         if (order.items && order.items.length > 0) {
             order.items.forEach(item => {
-                const qty = parseFloat(item.quantity) || 0;
-                const price = parseFloat(item.unitPrice) || 0;
-                const unitCost = parseFloat(item.unitCost) || 0;
-                rev += (qty * price);
-                cost += (qty * unitCost);
+                // Use stored totals from backend to ensure accuracy
+                rev += parseFloat(item.totalAmount) || 0;
+                cost += parseFloat(item.totalCost) || 0;
             });
         } else {
             // Fallback for legacy simple orders without items
@@ -134,8 +132,8 @@ export default function ViewOrderModal({ open, onClose, order }) {
         const tax = parseFloat(order.tax) || 0;
         const other = parseFloat(order.otherCharges) || 0;
 
-        // Total Amount = Items + Shipping + Tax + Other
-        const total = rev + shipping + tax + other;
+        // Total Earning = Items - Shipping - Tax - Other
+        const total = rev - shipping - tax - other;
 
         const profit = rev - cost - shipping - tax - other;
 
@@ -243,15 +241,24 @@ export default function ViewOrderModal({ open, onClose, order }) {
                             <tr>
                                 <th className="px-4 py-3 font-medium text-gray-500 w-[50%]">Product</th>
                                 <th className="px-2 py-3 font-medium text-gray-500 w-[10%] text-center">Qty</th>
-                                <th className="px-2 py-3 font-medium text-gray-500 w-[15%] text-center">Unit Cost</th>
+                                {/* <th className="px-2 py-3 font-medium text-gray-500 w-[15%] text-center">Unit Cost</th> */}
                                 <th className="px-2 py-3 font-medium text-gray-500 w-[15%] text-center">Unit Sale Price</th>
-                                <th className="px-4 py-3 font-medium text-gray-500 w-[10%] text-right">Subtotal</th>
+                                <th className="px-4 py-3 font-medium text-gray-500 w-[15%] text-right whitespace-nowrap">Total Sale Price</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50">
                             {order.items && order.items.length > 0 ? (
                                 order.items.map((item, idx) => {
-                                    const imageUrl = item.product?.images?.[0]?.url;
+                                    // RESOLVE PRODUCT INFO
+                                    const listing = item.channelListing;
+                                    const variant = listing?.productVariant || item.productVariant;
+                                    const product = listing?.product || variant?.product || item.product;
+
+                                    const imageUrl = product?.images?.[0]?.url;
+                                    const name = listing?.productName || item.productDescription || product?.name || "Product";
+                                    const sku = variant?.sku || product?.sku || "";
+                                    const units = listing?.units || 1;
+
                                     return (
                                         <tr key={item.id || idx} className="hover:bg-gray-50/50 transition-colors">
                                             <td className="px-4 py-3 align-top">
@@ -266,16 +273,17 @@ export default function ViewOrderModal({ open, onClose, order }) {
                                                     </div>
                                                     <div>
                                                         <p className="font-medium text-gray-900 line-clamp-1">
-                                                            {item.productDescription || item.product?.name || "Product"}
+                                                            {name}
                                                         </p>
                                                         <p className="text-xs text-gray-400 truncate">
-                                                            {(item.productVariant?.sku || item.product?.sku)}
+                                                            {sku}
                                                         </p>
                                                     </div>
                                                 </div>
                                             </td>
                                             <td className="px-2 py-3 align-top text-center text-gray-900 font-medium">{item.quantity}</td>
-                                            <td className="px-2 py-3 align-top text-center text-gray-500">{formatPrice(item.unitCost)}</td>
+                                            {/* <td className="px-2 py-3 align-top text-center text-gray-500">{formatPrice(item.unitCost)}</td> */}
+                                            {/* <td className="px-2 py-3 align-top text-center text-gray-500">{formatPrice(item.totalCost)}</td> */}
                                             <td className="px-2 py-3 align-top text-center text-gray-500">{formatPrice(item.unitPrice)}</td>
                                             <td className="px-4 py-3 align-top text-right text-gray-900 font-medium">{formatPrice(item.totalAmount)}</td>
                                         </tr>
@@ -283,7 +291,7 @@ export default function ViewOrderModal({ open, onClose, order }) {
                                 })
                             ) : (
                                 <tr>
-                                    <td colSpan={5} className="px-4 py-8 text-center text-gray-400 italic">
+                                    <td colSpan={4} className="px-4 py-8 text-center text-gray-400 italic">
                                         No items or legacy order format.
                                         {/* Fallback for legacy simple orders if needed, though mostly items exist now */}
                                         {order.productDescription && (
@@ -302,7 +310,7 @@ export default function ViewOrderModal({ open, onClose, order }) {
                 <div className="bg-gray-50 rounded-lg p-4 mt-6">
                     <div className="flex flex-col gap-2">
                         <div className="flex justify-between text-sm">
-                            <span className="text-gray-500">Subtotal (Items)</span>
+                            <span className="text-gray-500">Total Sale Price</span>
                             <span className="font-medium text-gray-900">{formatPrice(itemsRevenue)}</span>
                         </div>
                         <div className="flex justify-between text-sm">
@@ -319,13 +327,13 @@ export default function ViewOrderModal({ open, onClose, order }) {
                         </div>
                         <div className="h-px bg-gray-200 my-1"></div>
                         <div className="flex justify-between text-base font-bold text-gray-900">
-                            <span>Total Order Amount</span>
+                            <span>Total Earning</span>
                             <span>{formatPrice(calculatedTotal)}</span>
                         </div>
-                        <div className="flex justify-between text-sm font-semibold mt-2">
+                        {/* <div className="flex justify-between text-sm font-semibold mt-2">
                             <span className="text-gray-900">Net Profit</span>
                             <span className={profitClass}>{formatPrice(calculatedProfit)}</span>
-                        </div>
+                        </div> */}
                     </div>
                 </div>
             </CardSection>

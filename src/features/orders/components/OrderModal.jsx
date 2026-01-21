@@ -91,7 +91,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
         }
     };
 
-    const { itemsTotalRevenue, totalCost, grandTotal, totalEarning } = useMemo(() => {
+    const { itemsTotalRevenue, totalCost: itemsTotalCost, grandTotal, totalEarning } = useMemo(() => {
         let tc = 0, tr = 0;
         items.forEach(item => {
             tc += (parseFloat(item.totalCost) || 0);
@@ -142,30 +142,37 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
             if (editing.items && editing.items.length > 0) {
                 // Multi-product structure
                 setItems(editing.items.map(i => {
+                    // RESOLVE PRODUCT INFO: Prioritize ChannelListing -> Fallback to legacy
+                    const listing = i.channelListing;
+                    const variant = listing?.productVariant || i.productVariant;
+                    const product = listing?.product || variant?.product || i.product;
                     // Build variant name (product name + size/color)
-                    const productName = i.product?.name || "Unknown Product";
+                    const productName = product?.name || listing?.productName || i.productDescription || "Unknown Product";
                     const variantParts = [productName];
-                    if (i.productVariant?.sizeText) variantParts.push(`Size ${i.productVariant.sizeText}`);
-                    if (i.productVariant?.colorText) variantParts.push(i.productVariant.colorText);
+                    if (variant?.size?.name) variantParts.push(`Size ${variant.size.name}`);
+                    if (variant?.color?.name) variantParts.push(variant.color.name);
                     const variantName = variantParts.join(' - ');
 
                     return {
                         id: Math.random().toString(36).substr(2, 9), // temp UI ID
-                        productId: i.productId,
-                        variantId: i.productVariantId,
+                        channelListingId: i.channelListingId,
+                        listingId: i.channelListingId, // consistency
+                        productId: product?.id,
+                        variantId: variant?.id,
                         displayName: i.productDescription || productName,
                         variantName, // Product/variant name for display
-                        marketplaceName: i.productDescription || null, // Marketplace listing name
-                        marketplaceSku: i.productVariant?.sku || i.product?.sku || null, // Marketplace SKU
-                        sku: i.productVariant?.sku || i.product?.sku || "",
-                        imageUrl: i.product?.images?.[0]?.url || null,
+                        marketplaceName: listing?.productName || i.productDescription || null, // Marketplace listing name
+                        marketplaceSku: variant?.sku || product?.sku || null, // Marketplace SKU
+                        sku: variant?.sku || product?.sku || "",
+                        imageUrl: product?.images?.[0]?.url || null,
                         quantity: i.quantity,
                         unitCost: i.unitCost, // backend decimal
                         unitPrice: i.unitPrice, // backend decimal
                         otherFee: i.otherFee,
                         totalCost: i.totalCost,
                         totalAmount: i.totalAmount,
-                        stockOnHand: i.productVariant?.stockOnHand ?? 0,
+                        stockOnHand: variant?.stockOnHand ?? product?.ProductVariant?.[0]?.stockOnHand ?? 0,
+                        units: listing?.units ?? 1,
                     };
                 }));
             } else {
@@ -196,68 +203,72 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
 
         // Add to items - prefill with avgCostPerUnit for unit cost
         // Fallback: avgCostPerUnit -> costPrice -> lastPurchasePrice
-        let unitCost = 0;
+        let baseUnitCost = 0;
         let costSource = null;
         if (product.avgCostPerUnit != null && parseFloat(product.avgCostPerUnit) > 0) {
-            unitCost = product.avgCostPerUnit;
+            baseUnitCost = parseFloat(product.avgCostPerUnit);
             costSource = 'avgCost';
         } else if (product.costPrice != null && parseFloat(product.costPrice) > 0) {
-            unitCost = product.costPrice;
+            baseUnitCost = parseFloat(product.costPrice);
             costSource = 'costPrice';
         } else if (product.lastPurchasePrice != null && parseFloat(product.lastPurchasePrice) > 0) {
-            unitCost = product.lastPurchasePrice;
+            baseUnitCost = parseFloat(product.lastPurchasePrice);
             costSource = 'lastPurchase';
         }
 
+        const units = product.channelUnits || 1;
+
+        // Single Unit Cost (e.g. 15)
+        const unitCost = baseUnitCost.toFixed(2);
+
+        // Pack Cost (e.g. 30) for Total Calculation
+        const packCost = baseUnitCost * units;
+
         const newItem = {
             id: Math.random().toString(36).substr(2, 9),
-            listingId: product.id, // Store listing ID (which is product.id from the option)
+            listingId: product.id,
             productId: product.productId,
-            variantId: product.variantId || null, // if it's a variant
+            variantId: product.variantId || null,
             displayName: product.displayName,
-            variantName: product.variantName || product.name, // Product/variant name for display
-            marketplaceName: product.marketplaceName || null, // Marketplace listing name
-            marketplaceSku: product.marketplaceSku || null, // Marketplace SKU
+            variantName: product.variantName || product.name,
+            marketplaceName: product.marketplaceName || null,
+            marketplaceSku: product.marketplaceSku || null,
             sku: product.sku,
             imageUrl: product.imageUrl,
             quantity: 1,
-            unitCost,
-            costSource, // Track where cost came from: 'avgCost', 'lastPurchase', or null
-            unitPrice: product.channelPrice ?? product.retailPrice ?? 0, // default sale price
+            unitCost: unitCost, // Display Single Unit Cost
+            costSource,
+            unitPrice: product.channelPrice ?? product.retailPrice ?? 0,
             otherFee: 0,
-            totalCost: unitCost, // qty * unitCost
+            totalCost: packCost.toFixed(2), // qty(1) * packCost
             totalAmount: product.channelPrice ?? product.retailPrice ?? 0,
-            stockOnHand: product.stockOnHand ?? 0, // Store stock for validation
-            units: product.channelUnits ?? 1, // Units from marketplace listing
+            stockOnHand: product.stockOnHand ?? 0,
+            units: units,
         };
 
         setItems(prev => [...prev, newItem]);
-        // Reset search handled by SelectCompact implicitly if we don't bind value, but we bind value="" in return
     };
 
     const updateItem = (index, field, value) => {
         const newItems = [...items];
         const item = newItems[index];
 
-        // Ensure 2 decimal places for financial fields
         if (['unitCost', 'unitPrice'].includes(field)) {
-            // Only allow valid number input or empty
             item[field] = value;
         } else {
             item[field] = value;
         }
 
-        // Recalculate line totals
         const qty = parseFloat(item.quantity) || 0;
-        const cost = parseFloat(item.unitCost) || 0;
+        const cost = parseFloat(item.unitCost) || 0; // Single Unit Cost
         const price = parseFloat(item.unitPrice) || 0;
+        const units = item.units || 1;
 
-        // Update fields with fixed decimals IF they are being committed or used for calculation, 
-        // but for input typing we might needed raw string. 
-        // Actually, let's keep it simple: just calculate totals based on parsed values.
+        // Total Cost = Single Cost * Units * Qty
+        item.totalCost = (cost * units * qty).toFixed(2);
 
-        item.totalCost = (qty * cost).toFixed(2);
-        item.totalAmount = (qty * price).toFixed(2); // Revenue
+        // Total Amount = Sale Price * Qty (Sale Price is per pack/listing)
+        item.totalAmount = (qty * price).toFixed(2);
 
         setItems(newItems);
     };
@@ -325,7 +336,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
             orderId,
             tenantChannelId: tenantChannelId || null,
             courierMediumId: courierMediumId || null,
-            trackingId,
+            trackingId: trackingId || null,
             status,
             remarkTypeId: remarkTypeId || null,
             remarks,
@@ -334,9 +345,9 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
             otherCharges: parseFloat(otherCharges) || 0,
             items: items.map(item => ({
                 productId: item.productId,
-                productVariantId: item.variantId,
                 productDescription: item.displayName, // Snapshot name
                 quantity: parseFloat(item.quantity) || 1,
+                // Send Single Unit Cost (Backend will handle total calc)
                 unitCost: parseFloat(item.unitCost) || 0,
                 unitPrice: parseFloat(item.unitPrice) || 0,
                 otherFee: parseFloat(item.otherFee) || 0,
@@ -601,7 +612,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                                     <th className="px-4 py-3 font-medium text-gray-500 w-[45%]">Product</th>
                                     <th className="px-2 py-3 font-medium text-gray-500 w-[8%] text-center">Units</th>
                                     <th className="px-2 py-3 font-medium text-gray-500 w-[8%] text-center">Qty</th>
-                                    {/* Unit Cost Hidden */}
+                                    {/* <th className="px-2 py-3 font-medium text-gray-500 w-[15%] text-center">Unit Cost</th> */}
                                     <th className="px-2 py-3 font-medium text-gray-500 w-[15%] text-center">Unit Sale Price</th>
                                     <th className="px-4 py-3 font-medium text-gray-500 w-[15%] text-right">Sale Subtotal</th>
                                     <th className="px-2 py-3 w-[5%]"></th>
@@ -661,9 +672,15 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                                                     min="1"
                                                 />
                                             </td>
-                                            <td className="px-2 py-3 align-top hidden">
-                                                {/* Hidden Unit Cost Input */}
-                                            </td>
+                                            {/* <td className="px-2 py-3 align-top">
+                                                <input
+                                                    type="number"
+                                                    className="w-full h-8 px-2 text-right border border-gray-200 rounded bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+                                                    value={item.unitCost}
+                                                    onChange={e => updateItem(idx, 'unitCost', e.target.value)}
+                                                    step="0.01"
+                                                />
+                                            </td> */}
                                             <td className="px-2 py-3 align-top">
                                                 <input
                                                     type="number"
@@ -719,7 +736,11 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                     </div>
                     <div className="bg-gray-50 rounded-xl p-5 border border-gray-100 flex flex-col justify-between">
                         <div className="space-y-3 text-sm">
-                            {/* Total Cost Price Hidden */}
+                            {/* Total Cost Price */}
+                            {/* <div className="flex justify-between text-gray-500">
+                                <span>Total Cost Price</span>
+                                <span className="font-medium text-gray-900">{itemsTotalCost.toFixed(2)}</span>
+                            </div> */}
 
                             <div className="flex justify-between text-gray-500">
                                 <span>Sale Subtotal</span>
@@ -771,10 +792,16 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
 
                             <div className="flex justify-between items-center pt-2">
                                 <span className="font-semibold text-gray-900">Total Earning</span>
-                                <span className={`text-xl font-bold ${totalEarning >= 0 ? "text-green-600" : "text-red-600"}`}>
+                                <span className="font-bold text-gray-900">
                                     {totalEarning.toFixed(2)}
                                 </span>
                             </div>
+                            {/* <div className="flex justify-between items-center pt-1">
+                                <span className="font-semibold text-gray-900">Net Profit</span>
+                                <span className={`text-xl font-bold ${grandTotal - itemsTotalCost >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                                    {(totalEarning - itemsTotalCost).toFixed(2)}
+                                </span>
+                            </div> */}
                         </div>
                     </div>
                 </div>

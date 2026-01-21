@@ -350,9 +350,22 @@ export default function OrdersPage() {
                     return (
                         <div className="flex flex-col w-full">
                             {visibleItems.map((item, idx) => {
-                                const url = item.product?.images?.[0]?.url;
-                                const name = item.productDescription || item.product?.name || "Product";
-                                const variantInfo = item.productVariant?.sizeText || item.productVariant?.sku || "";
+                                // RESOLVE PRODUCT INFO
+                                const listing = item.channelListing;
+                                const product = listing?.product || item.product;
+                                const variant = listing?.productVariant || item.productVariant;
+
+                                const url = product?.images?.[0]?.url;
+                                const name = item.productDescription || listing?.productName || product?.name || "Product";
+
+                                const variantParts = [];
+                                if (variant?.size?.name) variantParts.push(variant.size.name);
+                                else if (variant?.sizeText) variantParts.push(variant.sizeText);
+
+                                if (variant?.color?.name) variantParts.push(variant.color.name);
+                                else if (variant?.colorText) variantParts.push(variant.colorText);
+
+                                const variantInfo = variantParts.join(" · ");
 
                                 return (
                                     <div key={idx} className="flex items-center gap-3 min-h-[3rem] py-1 border-b border-gray-100 last:border-0 w-full text-left">
@@ -585,8 +598,20 @@ export default function OrdersPage() {
             key: "netProfit",
             label: "Profit",
             className: "!items-start",
+            className: "!items-start",
             render: (row) => {
-                const val = row.netProfit !== undefined ? Number(row.netProfit) : 0;
+                let val = 0;
+                // Frontend Calculation: (Sum(Item Sales) - Sum(Item Cost)) - Charges
+                if (row.items && row.items.length > 0) {
+                    const itemsRev = row.items.reduce((acc, i) => acc + (parseFloat(i.totalAmount) || 0), 0);
+                    const itemsCost = row.items.reduce((acc, i) => acc + (parseFloat(i.totalCost) || 0), 0);
+                    const charges = (parseFloat(row.shippingCharges) || 0) + (parseFloat(row.tax) || 0) + (parseFloat(row.otherCharges) || 0);
+                    val = itemsRev - itemsCost - charges;
+                } else {
+                    // Fallback for orders without items loaded or legacy
+                    val = row.netProfit !== undefined ? Number(row.netProfit) : 0;
+                }
+
                 return (
                     <div className={`flex items-center min-h-[3rem] py-1 text-[13px] ${val >= 0 ? "text-emerald-600" : "text-rose-500"}`}>
                         {val.toFixed(2)}
