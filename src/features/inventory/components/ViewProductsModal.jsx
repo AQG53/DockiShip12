@@ -388,6 +388,23 @@ export default function ViewProductModal({ open, onClose, product }) {
                           {formatDate(p.updatedAt)}
                         </p>
                       </div>
+
+                      <div className="col-span-2">
+                        <p className={label}>Images</p>
+                        {imagesByVariant.productLevel.length === 0 ? (
+                          <p className="text-xs text-gray-500">
+                            No images
+                          </p>
+                        ) : (
+                          <div className="mt-2">
+                            <ImageGallery
+                              images={imagesByVariant.productLevel}
+                              absImg={absImg}
+                              placeholder={IMG_PLACEHOLDER}
+                            />
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
 

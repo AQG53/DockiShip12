@@ -13,6 +13,8 @@ import {
     getOrderCounts,
     listProductsForOrderSelection,
     bulkUpdateOrder,
+    uploadOrderLabel,
+    deleteOrderLabel,
 } from "../../../lib/api";
 
 // --- Products for Selection (Flattened) ---
@@ -82,6 +84,26 @@ export function useBulkUpdateOrder() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: ({ ids, status }) => bulkUpdateOrder(ids, status),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["orders"] });
+        },
+    });
+}
+
+export function useUploadOrderLabel() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ orderId, formData }) => uploadOrderLabel(orderId, formData),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["orders"] });
+        },
+    });
+}
+
+export function useDeleteOrderLabel() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (orderId) => deleteOrderLabel(orderId),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["orders"] });
         },

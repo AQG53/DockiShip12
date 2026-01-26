@@ -6,13 +6,9 @@ import { useAnimatedAlert } from "../../../components/ui/AnimatedAlert";
 import {
     useCreateOrder,
     useUpdateOrder,
-    useOrderColors,
-    useCreateOrderColor,
-    useOrderSizes,
-    useCreateOrderSize,
-    useOrderCategories,
-    useCreateOrderCategory,
     useProductsForSelection,
+    useUploadOrderLabel,
+    useDeleteOrderLabel,
 } from "../hooks/useOrders";
 import { useRemarkTypes } from "../../settings/hooks/useRemarkTypes";
 import { useSearchMarketplaceChannels } from "../../../hooks/useProducts";
@@ -34,6 +30,8 @@ const IMG_PLACEHOLDER =
 export default function OrderModal({ open, onClose, editing, onSuccess }) {
     const createMut = useCreateOrder();
     const updateMut = useUpdateOrder();
+    const uploadLabelMut = useUploadOrderLabel();
+    const deleteLabelMut = useDeleteOrderLabel();
     const alert = useAnimatedAlert();
 
     // Meta hooks
@@ -47,7 +45,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
     const [courierMediumId, setCourierMediumId] = useState("");
     const [orderId, setOrderId] = useState("");
     const [trackingId, setTrackingId] = useState("");
-    const [status, setStatus] = useState("LABEL_PRINTED");
+    const [status, setStatus] = useState("PENDING");
     const [remarkTypeId, setRemarkTypeId] = useState("");
     const [remarks, setRemarks] = useState("");
 
@@ -66,6 +64,10 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
     // Attachment State
     const [existingAttachments, setExistingAttachments] = useState([]);
     const [newAttachments, setNewAttachments] = useState([]);
+
+    // Label State
+    const [existingLabel, setExistingLabel] = useState(null); // url string
+    const [newLabel, setNewLabel] = useState(null); // File object
 
     // Handlers
     const handleFileSelect = (e) => {
@@ -138,6 +140,14 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
             }
             setNewAttachments([]); // Clear new attachments on open
 
+            // Populate Label
+            if (editing.label) {
+                setExistingLabel(editing.label);
+            } else {
+                setExistingLabel(null);
+            }
+            setNewLabel(null);
+
             // Populate Items
             if (editing.items && editing.items.length > 0) {
                 // Multi-product structure
@@ -185,13 +195,17 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
             setTenantChannelId("");
             setCourierMediumId("");
             setTrackingId("");
-            setStatus("LABEL_PRINTED");
+            setStatus("PENDING");
             setRemarkTypeId("");
             setRemarks("");
             setShippingCharges(0);
             setTax(0);
             setOtherCharges(0);
             setItems([]);
+            setExistingLabel(null);
+            setNewLabel(null);
+            setExistingAttachments([]);
+            setNewAttachments([]);
         }
     }, [editing, open]);
 
@@ -379,10 +393,31 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                         return uploadOrderAttachment(savedOrderId, fd);
                     }));
                     toast.dismiss(loadingToast);
-                    // toast.success removed as per request
                 } catch (err) {
                     console.error("Upload error", err);
                     toast.error("Some attachments failed to upload", { id: loadingToast });
+                }
+            }
+
+            // Upload Label
+            if (newLabel) {
+                const labelToast = toast.loading("Uploading label...");
+                try {
+                    const fd = new FormData();
+                    fd.append('file', newLabel);
+                    // Use mutation to ensure invalidation
+                    const updatedOrder = await uploadLabelMut.mutateAsync({ orderId: savedOrderId, formData: fd });
+
+                    // Update local state to show immediately
+                    if (updatedOrder?.label) {
+                        setExistingLabel(updatedOrder.label);
+                        setNewLabel(null);
+                    }
+
+                    toast.dismiss(labelToast);
+                } catch (err) {
+                    console.error("Label upload error", err);
+                    toast.error("Label failed to upload", { id: labelToast });
                 }
             }
 
@@ -408,7 +443,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
     const courierOpts = couriers.map(c => ({ value: c.id, label: c.shortName || c.fullName }));
     const remarkTypeOpts = remarkTypes.map(r => ({ value: r.id, label: r.name }));
     const statusOptions = [
-        "LABEL_PRINTED", "SHIPPED",
+        "PENDING", "LABEL_UPLOADED", "LABEL_PRINTED", "PACKED", "SHIPPED",
         "DELIVERED", "RETURN", "CANCEL", "REFUND"
     ].map(s => ({ value: s, label: s.replace(/_/g, " ") }));
 
@@ -547,6 +582,75 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                         </div>
                     ) : (
                         <p className="text-xs text-gray-400 italic">No attachments added.</p>
+                    )}
+                </div>
+
+                {/* Label Section */}
+                <div className="bg-gray-50/50 p-4 rounded-xl border border-gray-100">
+                    <div className="flex justify-between items-center mb-3">
+                        <h3 className="text-xs font-semibold text-gray-900 uppercase tracking-wider">Label</h3>
+                        <label className="cursor-pointer text-xs font-medium text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                            <Plus size={14} />
+                            {existingLabel || newLabel ? 'Replace Label' : 'Add Label'}
+                            <input type="file" className="hidden" onChange={(e) => {
+                                if (e.target.files?.[0]) {
+                                    setNewLabel(e.target.files[0]);
+                                }
+                                e.target.value = null;
+                            }} />
+                        </label>
+                    </div>
+
+                    {(existingLabel || newLabel) ? (
+                        <div className="flex items-center justify-between p-2 rounded bg-white border border-gray-200 text-sm">
+                            <div className="flex items-center gap-2 overflow-hidden">
+                                <Paperclip size={14} className="text-gray-400 flex-shrink-0" />
+                                {newLabel ? (
+                                    <>
+                                        <span className="truncate text-gray-700">{newLabel.name}</span>
+                                        <span className="text-xs text-blue-400 flex-shrink-0">(New)</span>
+                                    </>
+                                ) : (
+                                    <a href={absImg(existingLabel)} target="_blank" rel="noopener noreferrer" className="truncate text-blue-600 hover:underline">
+                                        View Current Label
+                                    </a>
+                                )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {/* Delete existing label if present */}
+                                {existingLabel && !newLabel && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            alert.confirm("Delete Label?", "Are you sure you want to delete this label? Status will revert to Pending.", async () => {
+                                                try {
+                                                    await deleteLabelMut.mutateAsync(editing.id);
+                                                    setExistingLabel(null);
+                                                    if (status === 'LABEL_UPLOADED') {
+                                                        setStatus('PENDING'); // Update persistent local state
+                                                    }
+                                                    toast.success("Label deleted");
+                                                    if (onSuccess) onSuccess(editing.id); // Refresh parent
+                                                } catch (e) {
+                                                    toast.error("Failed to delete label");
+                                                }
+                                            });
+                                        }}
+                                        className="text-gray-400 hover:text-red-500"
+                                        title="Delete Label"
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
+                                )}
+                                {newLabel && (
+                                    <button onClick={() => setNewLabel(null)} className="text-gray-400 hover:text-red-500">
+                                        <X size={14} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    ) : (
+                        <p className="text-xs text-gray-400 italic">No label uploaded.</p>
                     )}
                 </div>
 

@@ -1008,6 +1008,13 @@ export async function bulkUpdateOrder(ids, status) {
   return res.data;
 }
 
+export async function downloadBulkLabels(ids) {
+  const res = await axiosInstance.post(`/orders/bulk-label-download`, { ids }, {
+    responseType: 'blob'
+  });
+  return res.data;
+}
+
 export async function deleteOrder(id) {
   const res = await axiosInstance.delete(`/orders/${id}`);
   return res.data;
@@ -1054,6 +1061,18 @@ export async function uploadOrderAttachment(orderId, formData) {
 
 export async function deleteOrderAttachment(orderId, attachmentId) {
   const res = await axiosInstance.delete(`/orders/${orderId}/attachments/${attachmentId}`);
+  return res.data;
+}
+
+export async function uploadOrderLabel(orderId, formData) {
+  const res = await axiosInstance.post(`/orders/${orderId}/label`, formData, {
+    headers: { 'Content-Type': undefined }
+  });
+  return res.data;
+}
+
+export async function deleteOrderLabel(orderId) {
+  const res = await axiosInstance.delete(`/orders/${orderId}/label`);
   return res.data;
 }
 

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, Fragment } from "react";
-import { Package, Plus, Pencil, Trash2, Search, Copy, Check, X, Download } from "lucide-react";
+import { Package, Plus, Pencil, Trash2, Search, Copy, Check, X, Download, Printer } from "lucide-react";
 import { useLocation, useNavigate } from "react-router";
 import { DataTable } from "../../../components/ui/DataTable";
 import { Button } from "../../../components/ui/Button";
@@ -17,7 +17,12 @@ import useUserPermissions from "../../auth/hooks/useUserPermissions";
 import toast from "react-hot-toast";
 import ImageGallery from "../../../components/ImageGallery";
 import DateRangePicker from "../../../components/ui/DateRangePicker";
-import { listOrders } from "../../../lib/api";
+import {
+    listOrders,
+    bulkUpdateOrder,
+    deleteOrder,
+    downloadBulkLabels
+} from "../../../lib/api";
 import { AnimatedAlert } from "../../../components/ui/AnimatedAlert";
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
@@ -90,7 +95,10 @@ export default function OrdersPage() {
 
     const statusOptions = useMemo(() => [
         { id: "ALL", name: "All Status" },
+        { id: "PENDING", name: "Pending" },
+        { id: "LABEL_UPLOADED", name: "Label Uploaded" },
         { id: "LABEL_PRINTED", name: "Label Printed" },
+        { id: "PACKED", name: "Packed" },
         { id: "SHIPPED", name: "Shipped" },
         { id: "DELIVERED", name: "Delivered" },
         { id: "RETURN", name: "Return" },
@@ -222,16 +230,65 @@ export default function OrdersPage() {
 
     const handleBulkUpdate = async () => {
         if (selectedIds.size === 0) return;
+        if (!bulkStatus) return;
         try {
             await bulkUpdateMut.mutateAsync({
                 ids: Array.from(selectedIds),
                 status: bulkStatus
             });
-            toast.success(`Updated ${selectedIds.size} orders`);
+            toast.success("Orders updated");
             setBulkStatusModalOpen(false);
             setSelectedIds(new Set());
         } catch (err) {
             toast.error("Failed to update orders");
+        }
+    };
+
+    const handleBulkDownloadLabels = async () => {
+        const toastId = toast.loading("Preparing labels...");
+        try {
+            const ids = Array.from(selectedIds);
+
+            // 1. Download PDF
+            const blob = await downloadBulkLabels(ids);
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `labels-${new Date().toISOString().split('T')[0]}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+
+            // 2. Auto-Update Status for LABEL_UPLOADED -> LABEL_PRINTED
+            // We need to find which orders out of the selected ones are currently LABEL_UPLOADED
+            const allOrders = orderData.rows || [];
+            const idsToUpdate = [];
+
+            ids.forEach(id => {
+                const order = allOrders.find(o => o.id === id);
+                if (order && order.status === 'LABEL_UPLOADED') {
+                    idsToUpdate.push(id);
+                }
+            });
+
+            if (idsToUpdate.length > 0) {
+                await bulkUpdateMut.mutateAsync({
+                    ids: idsToUpdate,
+                    status: 'LABEL_PRINTED'
+                });
+                toast.success(`Downloaded and marked ${idsToUpdate.length} orders as Printed`, { id: toastId });
+            } else {
+                toast.success("Labels downloaded", { id: toastId });
+            }
+            setSelectedIds(new Set());
+        } catch (err) {
+            console.error(err);
+            // Check for specific backend error
+            if (err.response?.data?.message) {
+                toast.error(err.response.data.message, { id: toastId });
+            } else {
+                toast.error("Failed to download labels", { id: toastId });
+            }
         }
     };
 
@@ -509,34 +566,6 @@ export default function OrdersPage() {
         },
 
         {
-            key: "totalAmount",
-            label: "S. Price",
-            className: "!items-start",
-            render: (row) => {
-                if (row.items && row.items.length > 0) {
-                    const isExpanded = expandedOrderIds.has(row.id);
-                    const visibleItems = isExpanded ? row.items : row.items.slice(0, 3);
-
-                    return (
-                        <div className="flex flex-col w-full">
-                            {visibleItems.map((item, idx) => (
-                                <div key={idx} className="flex items-center min-h-[3rem] py-1 border-b border-gray-100 last:border-0 text-gray-900 text-[13px]">
-                                    {item.totalAmount !== undefined ? Number(item.totalAmount).toFixed(2) : "—"}
-                                </div>
-                            ))}
-                            {/* Spacer to align with button in product column */}
-                            {row.items.length > 3 && <div className="h-[24px] mt-1 mb-1" />}
-                        </div>
-                    );
-                }
-                return (
-                    <div className="flex items-center min-h-[3rem] py-1 text-gray-900 text-[13px]">
-                        {row.totalAmount !== undefined ? Number(row.totalAmount).toFixed(2) : "—"}
-                    </div>
-                );
-            }
-        },
-        {
             key: "totalCost",
             label: "Total P. Price",
             className: "!items-start",
@@ -560,6 +589,34 @@ export default function OrdersPage() {
                 return (
                     <div className="flex items-center min-h-[3rem] py-1 text-gray-500 text-[13px]">
                         {row.totalCost !== undefined ? Number(row.totalCost).toFixed(2) : "—"}
+                    </div>
+                );
+            }
+        },
+        {
+            key: "totalAmount",
+            label: "S. Price",
+            className: "!items-start",
+            render: (row) => {
+                if (row.items && row.items.length > 0) {
+                    const isExpanded = expandedOrderIds.has(row.id);
+                    const visibleItems = isExpanded ? row.items : row.items.slice(0, 3);
+
+                    return (
+                        <div className="flex flex-col w-full">
+                            {visibleItems.map((item, idx) => (
+                                <div key={idx} className="flex items-center min-h-[3rem] py-1 border-b border-gray-100 last:border-0 text-gray-900 text-[13px]">
+                                    {item.totalAmount !== undefined ? Number(item.totalAmount).toFixed(2) : "—"}
+                                </div>
+                            ))}
+                            {/* Spacer to align with button in product column */}
+                            {row.items.length > 3 && <div className="h-[24px] mt-1 mb-1" />}
+                        </div>
+                    );
+                }
+                return (
+                    <div className="flex items-center min-h-[3rem] py-1 text-gray-900 text-[13px]">
+                        {row.totalAmount !== undefined ? Number(row.totalAmount).toFixed(2) : "—"}
                     </div>
                 );
             }
@@ -690,8 +747,8 @@ export default function OrdersPage() {
         {
             key: "actions",
             label: "Actions",
-            headerClassName: "sticky right-0 z-20 !bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)] justify-center",
-            className: "sticky right-0 z-10 !bg-white group-hover:!bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)] h-full flex items-center justify-center",
+            headerClassName: "sticky right-0 z-20 !bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)] justify-center pl-4 w-[200px]",
+            className: "sticky right-0 z-10 !bg-white group-hover:!bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)] h-full flex items-center justify-start pl-4 w-[200px]",
             render: (row) => (
                 <div className="flex items-center gap-1">
                     <Button variant="secondary" size="xs" className="rounded-md" onClick={(e) => { e.stopPropagation(); setViewOrder(row); setViewOpen(true); }}>
@@ -705,6 +762,52 @@ export default function OrdersPage() {
                     {canDelete && (
                         <Button variant="secondary" size="xs" className="rounded-md text-red-600 hover:bg-red-50" onClick={(e) => { e.stopPropagation(); setTarget(row); setConfirmOpen(true); }}>
                             Delete
+                        </Button>
+                    )}
+                    {/* Download Label Action */}
+                    {row.label && (
+                        <Button
+                            variant="secondary"
+                            size="xs"
+                            className="rounded-md text-gray-600 hover:bg-gray-100"
+                            title="Download/Print Label"
+                            onClick={async (e) => {
+                                e.stopPropagation();
+
+                                // 1. Download Label (Force Download)
+                                try {
+                                    const fileUrl = absImg(row.label);
+                                    const response = await fetch(fileUrl);
+                                    const blob = await response.blob();
+                                    const url = window.URL.createObjectURL(blob);
+
+                                    const link = document.createElement('a');
+                                    link.href = url;
+                                    link.download = row.label.split('/').pop() || 'label.pdf';
+                                    document.body.appendChild(link);
+                                    link.click();
+                                    document.body.removeChild(link);
+                                    window.URL.revokeObjectURL(url);
+                                } catch (e) {
+                                    console.error("Download failed, falling back to new tab", e);
+                                    window.open(absImg(row.label), '_blank');
+                                }
+
+                                // 2. Auto-status update if needed
+                                if (row.status === 'LABEL_UPLOADED') {
+                                    try {
+                                        await updateMut.mutateAsync({
+                                            id: row.id,
+                                            payload: { status: 'LABEL_PRINTED' }
+                                        });
+                                        toast.success("Marked as Label Printed");
+                                    } catch (err) {
+                                        console.error("Failed to update status on print", err);
+                                    }
+                                }
+                            }}
+                        >
+                            <Printer size={14} />
                         </Button>
                     )}
                 </div>
@@ -1035,6 +1138,13 @@ export default function OrdersPage() {
                         className="text-sm hover:text-blue-300 font-medium transition-colors"
                     >
                         Change Status
+                    </button>
+                    <div className="h-4 w-px bg-gray-700" />
+                    <button
+                        onClick={handleBulkDownloadLabels}
+                        className="text-sm hover:text-blue-300 font-medium transition-colors flex items-center gap-2"
+                    >
+                        <Printer size={16} /> <span>Download Labels</span>
                     </button>
                     <button
                         onClick={() => setSelectedIds(new Set())}

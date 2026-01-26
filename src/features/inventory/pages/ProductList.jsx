@@ -418,7 +418,18 @@ function mapProductsToRows(apiRows, auth) {
       ? p.type
       : (hasVariants && variants.length > 1 ? `Variant (${variants.length})` : 'Simple');
 
-    const imageUrl = Array.isArray(p?.images) && p.images.length > 0 ? (p.images[0]?.url || null) : null;
+    let imageUrl = null;
+    if (Array.isArray(p?.images) && p.images.length > 0) {
+      // Prioritize Parent Image (no detections of variant ID in path = URL parts check)
+      const parentImg = p.images.find(img => {
+        const u = img.url || "";
+        if (!u.includes('/uploads/')) return true; // fallback for legacy/external
+        const parts = u.split('/uploads/')[1]?.split('/') || [];
+        // Parent: <tenant>/<file> (length 2). Variant: <tenant>/<varId>/<file> (length 3+)
+        return parts.length === 2;
+      });
+      imageUrl = parentImg?.url || p.images[0]?.url || null;
+    }
 
     const currency = auth?.tenant?.currency || "PKR";
     const fmt = (n) => {
