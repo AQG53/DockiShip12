@@ -508,6 +508,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                                 addNewLabel={null}
                                 buttonClassName="h-9"
                                 placeholder="Select Status"
+                                disabled={!editing}
                             />
                         </div>
                         <div>

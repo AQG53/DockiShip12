@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect, Fragment } from "react";
-import { Package, Plus, Pencil, Trash2, Search, Copy, Check, X, Download, Printer } from "lucide-react";
+import { useState, useMemo, useEffect, useRef, Fragment } from "react";
+import { Package, Plus, Pencil, Trash2, Search, Copy, Check, X, Download, Printer, Truck, CheckCircle, Upload } from "lucide-react";
 import { useLocation, useNavigate } from "react-router";
 import { DataTable } from "../../../components/ui/DataTable";
 import { Button } from "../../../components/ui/Button";
@@ -7,7 +7,7 @@ import OrdersFilter from "../components/OrdersFilter"; // New Filter Component
 import { ConfirmModal } from "../../../components/ConfirmModal";
 import OrderModal from "../components/OrderModal";
 import ViewOrderModal from "../components/ViewOrderModal";
-import { useOrders, useDeleteOrder, useUpdateOrder, useBulkUpdateOrder } from "../hooks/useOrders";
+import { useOrders, useDeleteOrder, useUpdateOrder, useBulkUpdateOrder, useUploadOrderLabel } from "../hooks/useOrders";
 import SelectCompact from "../../../components/SelectCompact"; // Ensure imported
 import { Modal } from "../../../components/ui/Modal";
 import { useSearchMarketplaceChannels } from "../../../hooks/useProducts";
@@ -317,6 +317,44 @@ export default function OrdersPage() {
     const [settleTarget, setSettleTarget] = useState(null);
     const updateMut = useUpdateOrder();
 
+    // Upload Label Logic
+    const uploadLabelMut = useUploadOrderLabel();
+    const fileInputRef = useRef(null);
+    const [uploadTargetId, setUploadTargetId] = useState(null);
+
+    const handleUploadClick = (orderId) => {
+        setUploadTargetId(orderId);
+        if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+            fileInputRef.current.click();
+        }
+    };
+
+    const handleFileChange = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file || !uploadTargetId) return;
+
+        if (file.type !== 'application/pdf') {
+            toast.error("Only PDF files are allowed");
+            // Clear input
+            if (fileInputRef.current) fileInputRef.current.value = "";
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const toastId = toast.loading("Uploading label...");
+        try {
+            await uploadLabelMut.mutateAsync({ orderId: uploadTargetId, formData });
+            toast.success("Label uploaded and status updated", { id: toastId });
+            setUploadTargetId(null);
+        } catch (err) {
+            console.error(err);
+            toast.error("Failed to upload label", { id: toastId });
+        }
+    };
+
     const handleSettleConfirm = async () => {
         if (!settleTarget) return;
         try {
@@ -363,7 +401,7 @@ export default function OrdersPage() {
             render: (row) => (
                 <div className="flex items-center min-h-[3rem] py-1">
                     <span className="text-gray-700 text-[13px]">
-                        {row.date ? new Date(row.date).toLocaleDateString() : "—"}
+                        {row.date ? new Date(row.date).toLocaleDateString(undefined, { timeZone: 'UTC' }) : "—"}
                     </span>
                 </div>
             )
@@ -371,7 +409,8 @@ export default function OrdersPage() {
         {
             key: "orderId",
             label: "Order ID",
-            className: "!items-start",
+            className: "!items-start min-w-[200px]",
+            headerClassName: "min-w-[200px]",
             render: (row) => (
                 <div className="flex items-center gap-1 min-h-[3rem] py-1">
                     <span className="text-gray-900 text-[13px] truncate" title={row.orderId}>
@@ -411,9 +450,12 @@ export default function OrdersPage() {
                                 const listing = item.channelListing;
                                 const product = listing?.product || listing?.productVariant?.product || item.product;
                                 const variant = listing?.productVariant || item.productVariant;
-
-                                const url = product?.images?.[0]?.url;
                                 const name = item.productDescription || listing?.productName || product?.name || "Product";
+                                const images = product?.images?.map(img => ({
+                                    url: img.url,
+                                    alt: name,
+                                    productName: name
+                                })) || [];
 
                                 const variantParts = [];
                                 if (variant?.size?.name) variantParts.push(variant.size.name);
@@ -429,7 +471,7 @@ export default function OrdersPage() {
                                         {/* Thumbnail */}
                                         <div className="flex-shrink-0">
                                             <ImageGallery
-                                                images={url ? [{ url, alt: name, productName: name }] : []}
+                                                images={images}
                                                 absImg={absImg}
                                                 placeholder={IMG_PLACEHOLDER}
                                                 compact={true}
@@ -467,14 +509,11 @@ export default function OrdersPage() {
                 // Legacy Fallback
                 const images = [];
                 if (row.product?.images?.length > 0) {
-                    const url = row.product.images[0].url;
-                    if (url) {
-                        images.push({
-                            url,
-                            alt: row.productDescription,
-                            productName: row.productDescription
-                        });
-                    }
+                    images.push(...row.product.images.map(img => ({
+                        url: img.url,
+                        alt: row.productDescription,
+                        productName: row.productDescription
+                    })));
                 }
                 const productName = row.product?.name || row.productVariant?.sku || row.productDescription || "—";
                 const variantInfo = row.productVariant?.sizeText || row.productVariant?.colorText
@@ -747,8 +786,8 @@ export default function OrdersPage() {
         {
             key: "actions",
             label: "Actions",
-            headerClassName: "sticky right-0 z-20 !bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)] justify-center pl-4 w-[200px]",
-            className: "sticky right-0 z-10 !bg-white group-hover:!bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)] h-full flex items-center justify-start pl-4 w-[200px]",
+            headerClassName: "sticky right-0 z-20 !bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)] justify-center pl-4 w-[220px]",
+            className: "sticky right-0 z-10 !bg-white group-hover:!bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)] h-full flex items-center justify-start pl-4 w-[220px]",
             render: (row) => (
                 <div className="flex items-center gap-1">
                     <Button variant="secondary" size="xs" className="rounded-md" onClick={(e) => { e.stopPropagation(); setViewOrder(row); setViewOpen(true); }}>
@@ -762,6 +801,21 @@ export default function OrdersPage() {
                     {canDelete && (
                         <Button variant="secondary" size="xs" className="rounded-md text-red-600 hover:bg-red-50" onClick={(e) => { e.stopPropagation(); setTarget(row); setConfirmOpen(true); }}>
                             Delete
+                        </Button>
+                    )}
+                    {/* Upload Label Action - PENDING */}
+                    {(row.status === 'PENDING' || row.status === 'Pending') && canUpdate && (
+                        <Button
+                            variant="secondary"
+                            size="xs"
+                            className="rounded-md text-blue-600 hover:bg-blue-50"
+                            title="Upload Label"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleUploadClick(row.id);
+                            }}
+                        >
+                            <Upload size={14} />
                         </Button>
                     )}
                     {/* Download Label Action */}
@@ -800,14 +854,83 @@ export default function OrdersPage() {
                                             id: row.id,
                                             payload: { status: 'LABEL_PRINTED' }
                                         });
-                                        toast.success("Marked as Label Printed");
-                                    } catch (err) {
-                                        console.error("Failed to update status on print", err);
+                                        toast.success("Order marked as Printed");
+                                    } catch (e) {
+                                        console.error("Auto-status update failed", e);
                                     }
                                 }
                             }}
                         >
                             <Printer size={14} />
+                        </Button>
+                    )}
+                    {/* Pack Action */}
+                    {row.status === 'LABEL_PRINTED' && canUpdate && (
+                        <Button
+                            variant="secondary"
+                            size="xs"
+                            className="rounded-md text-amber-600 hover:bg-amber-50"
+                            title="Mark as Packed"
+                            onClick={async (e) => {
+                                e.stopPropagation();
+                                try {
+                                    await updateMut.mutateAsync({
+                                        id: row.id,
+                                        payload: { status: 'PACKED' }
+                                    });
+                                    toast.success("Order marked as Packed");
+                                } catch (err) {
+                                    toast.error("Failed to update status");
+                                }
+                            }}
+                        >
+                            <Package size={14} />
+                        </Button>
+                    )}
+                    {/* Ship Action */}
+                    {row.status === 'PACKED' && canUpdate && (
+                        <Button
+                            variant="secondary"
+                            size="xs"
+                            className="rounded-md text-emerald-600 hover:bg-emerald-50"
+                            title="Mark as Shipped"
+                            onClick={async (e) => {
+                                e.stopPropagation();
+                                try {
+                                    await updateMut.mutateAsync({
+                                        id: row.id,
+                                        payload: { status: 'SHIPPED' }
+                                    });
+                                    toast.success("Order marked as Shipped");
+                                } catch (err) {
+                                    toast.error("Failed to update status");
+                                }
+                            }}
+                        >
+                            <Truck size={14} />
+                        </Button>
+                    )}
+                    {/* Deliver Action */}
+                    {row.status === 'SHIPPED' && canUpdate && (
+                        <Button
+                            variant="secondary"
+                            size="xs"
+                            className="rounded-md text-emerald-700 hover:bg-emerald-100"
+                            title="Mark as Delivered"
+                            onClick={async (e) => {
+                                e.stopPropagation();
+                                try {
+                                    await updateMut.mutateAsync({
+                                        id: row.id,
+                                        payload: { status: 'DELIVERED' }
+                                    });
+                                    toast.success("Order marked as Delivered");
+                                } catch (err) {
+                                    toast.error("Failed to update status");
+                                }
+                            }}
+                        >
+                            <CheckCircle size={14} />
                         </Button>
                     )}
                 </div>
@@ -888,7 +1011,7 @@ export default function OrdersPage() {
                         const isFirst = idx === 0;
 
                         const row = [
-                            q(isFirst ? (order.date ? new Date(order.date).toLocaleDateString() : "") : ""),
+                            q(isFirst ? (order.date ? new Date(order.date).toLocaleDateString(undefined, { timeZone: 'UTC' }) : "") : ""),
                             q(isFirst ? order.orderId : ""),
                             q(isFirst ? order.tenantChannel?.marketplace : ""),
                             q(productName),
@@ -909,7 +1032,7 @@ export default function OrdersPage() {
                 } else {
                     // Fallback for orders without items (legacy)
                     const row = [
-                        q(order.date ? new Date(order.date).toLocaleDateString() : ""),
+                        q(order.date ? new Date(order.date).toLocaleDateString(undefined, { timeZone: 'UTC' }) : ""),
                         q(order.orderId),
                         q(order.tenantChannel?.marketplace),
                         q(order.productDescription || "—"),
@@ -1146,6 +1269,82 @@ export default function OrdersPage() {
                     >
                         <Printer size={16} /> <span>Download Labels</span>
                     </button>
+
+                    {/* Mark Packed - Only in LABEL_PRINTED */}
+                    {statusFilter.id === 'LABEL_PRINTED' && (
+                        <>
+                            <div className="h-4 w-px bg-gray-700" />
+                            <button
+                                onClick={async () => {
+                                    if (selectedIds.size === 0) return;
+                                    try {
+                                        await bulkUpdateMut.mutateAsync({
+                                            ids: Array.from(selectedIds),
+                                            status: 'PACKED'
+                                        });
+                                        toast.success("Orders marked as Packed");
+                                        setSelectedIds(new Set());
+                                    } catch (err) {
+                                        toast.error("Failed to update orders");
+                                    }
+                                }}
+                                className="text-sm hover:text-amber-300 font-medium transition-colors flex items-center gap-2"
+                            >
+                                <Package size={16} /> <span>Mark Packed</span>
+                            </button>
+                        </>
+                    )}
+
+                    {/* Mark Shipped - Only in PACKED */}
+                    {statusFilter.id === 'PACKED' && (
+                        <>
+                            <div className="h-4 w-px bg-gray-700" />
+                            <button
+                                onClick={async () => {
+                                    if (selectedIds.size === 0) return;
+                                    try {
+                                        await bulkUpdateMut.mutateAsync({
+                                            ids: Array.from(selectedIds),
+                                            status: 'SHIPPED'
+                                        });
+                                        toast.success("Orders marked as Shipped");
+                                        setSelectedIds(new Set());
+                                    } catch (err) {
+                                        toast.error("Failed to update orders");
+                                    }
+                                }}
+                                className="text-sm hover:text-emerald-300 font-medium transition-colors flex items-center gap-2"
+                            >
+                                <Truck size={16} /> <span>Mark Shipped</span>
+                            </button>
+                        </>
+                    )}
+
+                    {/* Mark Delivered - Only in SHIPPED */}
+                    {statusFilter.id === 'SHIPPED' && (
+                        <>
+                            <div className="h-4 w-px bg-gray-700" />
+                            <button
+                                onClick={async () => {
+                                    if (selectedIds.size === 0) return;
+                                    try {
+                                        await bulkUpdateMut.mutateAsync({
+                                            ids: Array.from(selectedIds),
+                                            status: 'DELIVERED'
+                                        });
+                                        toast.success("Orders marked as Delivered");
+                                        setSelectedIds(new Set());
+                                    } catch (err) {
+                                        toast.error("Failed to update orders");
+                                    }
+                                }}
+                                className="text-sm hover:text-emerald-400 font-medium transition-colors flex items-center gap-2"
+                            >
+                                <CheckCircle size={16} /> <span>Mark Delivered</span>
+                            </button>
+                        </>
+                    )}
+
                     <button
                         onClick={() => setSelectedIds(new Set())}
                         className="p-1 hover:bg-gray-800 rounded-full ml-2"
@@ -1235,6 +1434,15 @@ export default function OrdersPage() {
                 message="The order has been successfully marked as settled."
                 confirmLabel="Done"
             />
-        </div>
+
+            {/* Hidden File Input */}
+            <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                accept="application/pdf"
+                onChange={handleFileChange}
+            />
+        </div >
     );
 }

@@ -192,7 +192,7 @@ export default function PurchaseOrderViewModal({ po, loading, onClose, currency 
                                             const subtotal = qty * price;
                                             const tax = subtotal * (taxRate / 100);
                                             const lineTotal = subtotal + tax;
-                                            const variant = item.productVariant || {};
+                                            const variant = item.productVar || item.productVariant || {};
                                             const product = item.product || {};
                                             return (
                                                 <tr key={item.id}>
@@ -211,11 +211,12 @@ export default function PurchaseOrderViewModal({ po, loading, onClose, currency 
                                                             {product.name || "Product"}
                                                         </div>
                                                         <div className="text-xs text-gray-500">SKU: {variant.sku || product.sku || "—"}</div>
-                                                        {variant.sizeText && (
-                                                            <div className="text-xs text-gray-500">Size: {variant.sizeText}</div>
-                                                        )}
-                                                        {variant.colorText && (
-                                                            <div className="text-xs text-gray-500">Color: {variant.colorText}</div>
+                                                        {(variant.sizeText || variant.colorText) && (
+                                                            <div className="text-xs text-gray-500">
+                                                                {variant.sizeText && `Size: ${variant.sizeText}`}
+                                                                {variant.sizeText && variant.colorText && " • "}
+                                                                {variant.colorText && `Color: ${variant.colorText}`}
+                                                            </div>
                                                         )}
                                                     </td>
                                                     <td className="px-3 py-3 text-center align-middle text-gray-600">{qty}</td>

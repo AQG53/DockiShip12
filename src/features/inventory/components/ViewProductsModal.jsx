@@ -172,6 +172,147 @@ export default function ViewProductModal({ open, onClose, product }) {
     { id: "marketplaces", label: "Marketplaces" },
   ];
 
+  const renderProductInfo = (title, productData, images, isVariant = false) => {
+    // Only determine Cost Price if it's a simple product or we are treating it as one
+    // For parent product in a variant scenario, cost price might be ambiguous or a range, 
+    // but here we are rendering specific data passed in 'productData'.
+    const costPrice = productData?.avgCostPerUnit ?? productData?.lastPurchasePrice ?? productData?.originalPrice;
+
+    return (
+      <div className={card}>
+        <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center gap-2">
+          <Package className="w-4 h-4 text-gray-500" />
+          <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+        </div>
+
+        <div className="p-4 flex gap-6">
+          <div className="flex-1 grid grid-cols-2 gap-4">
+            <div className="col-span-2">
+              <p className={label}>Product Name</p>
+              <p className={`${value} text-lg`}>{productData.name || "—"}</p>
+            </div>
+
+            <div>
+              <p className={label}>{isVariant ? "Variant SKU" : "SKU"}</p>
+              <p className={value}>{productData.sku || "—"}</p>
+            </div>
+
+            <div>
+              <p className={label}>Brand</p>
+              <p className={value}>{productData.brand || "—"}</p>
+            </div>
+
+            <div>
+              <p className={label}>Status</p>
+              <span
+                className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${productData.status === "active"
+                  ? "bg-green-100 text-green-700"
+                  : "bg-gray-200 text-gray-700"
+                  }`}
+              >
+                {productData.status?.toUpperCase() || "—"}
+              </span>
+            </div>
+
+            {!isVariant && (
+              <div>
+                <p className={label}>Size</p>
+                <p className={value}>{productData.sizeText || "—"}</p>
+              </div>
+            )}
+
+
+            {!isVariant && (
+              <div>
+                <p className={label}>Color</p>
+                <p className={value}>{productData.colorText || "—"}</p>
+              </div>
+            )}
+
+
+            <div>
+              <p className={label}>Origin Country</p>
+              <p className={value}>{productData.originCountry || "—"}</p>
+            </div>
+
+            <div>
+              <p className={label}>Selling Price</p>
+              <p className={value}>
+                {productData?.retailPrice != null
+                  ? formatPrice(productData.retailPrice)
+                  : "—"}
+              </p>
+            </div>
+
+            <div>
+              <p className={label}>Cost Price</p>
+              <p className={value}>
+                {costPrice != null ? formatPrice(costPrice) : "—"}
+              </p>
+            </div>
+
+            <div>
+              <p className={label}>Stock on Hand</p>
+              <p className={value}>
+                {productData?.stock ?? productData?.stockOnHand ?? "—"}
+              </p>
+            </div>
+
+            {productData?.weight != null && (
+              <div>
+                <p className={label}>Weight</p>
+                <p className={value}>
+                  {productData.weight} {productData.weightUnit || ""}
+                </p>
+              </div>
+            )}
+
+            {(productData?.length != null ||
+              productData?.width != null ||
+              productData?.height != null) && (
+                <div>
+                  <p className={label}>
+                    Dimensions (L × W × H)
+                  </p>
+                  <p className={value}>
+                    {productData?.length ?? "—"} ×{" "}
+                    {productData?.width ?? "—"} ×{" "}
+                    {productData?.height ?? "—"}{" "}
+                    {productData?.dimensionUnit || ""}
+                  </p>
+                </div>
+              )}
+
+            <div className="col-span-2">
+              <p className={label}>Last Updated</p>
+              <p className={value}>
+                {formatDate(productData.updatedAt)}
+              </p>
+            </div>
+          </div>
+
+          {/* Right Side Image */}
+          <div className="w-1/3 min-w-[200px]">
+            <p className={label}>Images</p>
+            {images.length === 0 ? (
+              <div className="mt-2 h-40 bg-gray-100 rounded-lg flex items-center justify-center text-xs text-gray-400">
+                No images
+              </div>
+            ) : (
+              <div className="mt-2">
+                <ImageGallery
+                  images={images}
+                  absImg={absImg}
+                  placeholder={IMG_PLACEHOLDER}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <ViewModal
       open={open}
@@ -207,206 +348,13 @@ export default function ViewProductModal({ open, onClose, product }) {
           {tab === "details" && (
             <>
               {/* Simple Product Info */}
-              {!hasVariants && (
-                <div className={card}>
-                  <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center gap-2">
-                    <Package className="w-4 h-4 text-gray-500" />
-                    <h3 className="text-sm font-semibold text-gray-900">Product</h3>
-                  </div>
-
-                  <div className="p-4 grid grid-cols-2 gap-4">
-                    <div className="col-span-2">
-                      <p className={label}>Product Name</p>
-                      <p className={`${value} text-lg`}>
-                        {p.name || "—"}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className={label}>SKU</p>
-                      <p className={value}>{p.sku || "—"}</p>
-                    </div>
-
-                    <div>
-                      <p className={label}>Brand</p>
-                      <p className={value}>{p.brand || "—"}</p>
-                    </div>
-
-                    <div>
-                      <p className={label}>Status</p>
-                      <span
-                        className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${p.status === "active"
-                          ? "bg-green-100 text-green-700"
-                          : "bg-gray-200 text-gray-700"
-                          }`}
-                      >
-                        {p.status?.toUpperCase() || "—"}
-                      </span>
-                    </div>
-
-                    <div>
-                      <p className={label}>Size</p>
-                      <p className={value}>{p.sizeText || "—"}</p>
-                    </div>
-
-                    <div>
-                      <p className={label}>Color</p>
-                      <p className={value}>{p.colorText || "—"}</p>
-                    </div>
-
-
-
-                    <div>
-                      <p className={label}>Origin Country</p>
-                      <p className={value}>
-                        {p.originCountry || "—"}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className={label}>Retail Price</p>
-                      <p className={value}>
-                        {p?.retailPrice != null
-                          ? formatPrice(p.retailPrice)
-                          : "—"}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className={label}>Stock on Hand</p>
-                      <p className={value}>
-                        {p?.stock ?? p?.stockOnHand ?? "—"}
-                      </p>
-                    </div>
-
-                    {p?.weight != null && (
-                      <div>
-                        <p className={label}>Weight</p>
-                        <p className={value}>
-                          {p.weight} {p.weightUnit || ""}
-                        </p>
-                      </div>
-                    )}
-
-                    {(p?.length != null ||
-                      p?.width != null ||
-                      p?.height != null) && (
-                        <div>
-                          <p className={label}>
-                            Dimensions (L × W × H)
-                          </p>
-                          <p className={value}>
-                            {p?.length ?? "—"} ×{" "}
-                            {p?.width ?? "—"} ×{" "}
-                            {p?.height ?? "—"}{" "}
-                            {p?.dimensionUnit || ""}
-                          </p>
-                        </div>
-                      )}
-
-                    <div>
-                      <p className={label}>Last Updated</p>
-                      <p className={value}>
-                        {formatDate(p.updatedAt)}
-                      </p>
-                    </div>
-
-                    <div className="col-span-2">
-                      <p className={label}>Images</p>
-                      {imagesByVariant.productLevel.length === 0 ? (
-                        <p className="text-xs text-gray-500">
-                          No images
-                        </p>
-                      ) : (
-                        <div className="mt-2">
-                          <ImageGallery
-                            images={imagesByVariant.productLevel}
-                            absImg={absImg}
-                            placeholder={IMG_PLACEHOLDER}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
+              {!hasVariants && renderProductInfo("Product", p, imagesByVariant.productLevel)}
 
               {/* Parent Product with Variants */}
               {hasVariants && (
                 <>
                   {/* Parent Product Info */}
-                  <div className={card}>
-                    <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center gap-2">
-                      <Package className="w-4 h-4 text-gray-500" />
-                      <h3 className="text-sm font-semibold text-gray-900">Parent Product</h3>
-                    </div>
-
-                    <div className="p-4 grid grid-cols-2 gap-4">
-                      <div className="col-span-2">
-                        <p className={label}>Product Name</p>
-                        <p className={`${value} text-lg`}>
-                          {p.name || "—"}
-                        </p>
-                      </div>
-
-                      <div>
-                        <p className={label}>Parent SKU</p>
-                        <p className={value}>
-                          {p.sku || "—"}
-                        </p>
-                      </div>
-
-                      <div>
-                        <p className={label}>Brand</p>
-                        <p className={value}>
-                          {p.brand || "—"}
-                        </p>
-                      </div>
-
-                      <div>
-                        <p className={label}>Status</p>
-                        <span
-                          className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${p.status === "active"
-                            ? "bg-green-100 text-green-700"
-                            : "bg-gray-200 text-gray-700"
-                            }`}
-                        >
-                          {p.status?.toUpperCase() || "—"}
-                        </span>
-                      </div>
-
-                      <div>
-                        <p className={label}>Origin Country</p>
-                        <p className={value}>
-                          {p.originCountry || "—"}
-                        </p>
-                      </div>
-
-                      <div className="col-span-2">
-                        <p className={label}>Last Updated</p>
-                        <p className={value}>
-                          {formatDate(p.updatedAt)}
-                        </p>
-                      </div>
-
-                      <div className="col-span-2">
-                        <p className={label}>Images</p>
-                        {imagesByVariant.productLevel.length === 0 ? (
-                          <p className="text-xs text-gray-500">
-                            No images
-                          </p>
-                        ) : (
-                          <div className="mt-2">
-                            <ImageGallery
-                              images={imagesByVariant.productLevel}
-                              absImg={absImg}
-                              placeholder={IMG_PLACEHOLDER}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                  {renderProductInfo("Parent Product", p, imagesByVariant.productLevel)}
 
                   {/* Variants */}
                   <div className={card}>
@@ -418,6 +366,7 @@ export default function ViewProductModal({ open, onClose, product }) {
                     <div className="p-4 space-y-3">
                       {variantList.map((variant, idx) => {
                         const imgs = imagesByVariant.byVar.get(variant.id) || [];
+                        const costPrice = variant.avgCostPerUnit ?? variant.lastPurchasePrice ?? variant.originalPrice;
                         return (
                           <div
                             key={variant.id || idx}
@@ -454,15 +403,15 @@ export default function ViewProductModal({ open, onClose, product }) {
                             </div>
 
                             {/* Variant Details */}
-                            <div className="p-4">
-                              <div className="grid grid-cols-3 gap-4 mb-4">
+                            <div className="p-4 flex gap-6">
+                              <div className="flex-1 grid grid-cols-3 gap-4 mb-4">
                                 <div>
-                                  <p className={label}>Retail Price</p>
+                                  <p className={label}>Selling Price</p>
                                   <p className={value}>{variant.retailPrice != null ? formatPrice(variant.retailPrice) : "—"}</p>
                                 </div>
                                 <div>
-                                  <p className={label}>Selling Price</p>
-                                  <p className={value}>{variant.sellingPrice != null ? formatPrice(variant.sellingPrice) : "—"}</p>
+                                  <p className={label}>Cost Price</p>
+                                  <p className={value}>{costPrice != null ? formatPrice(costPrice) : "—"}</p>
                                 </div>
                                 <div>
                                   <p className={label}>Stock on Hand</p>
@@ -497,10 +446,10 @@ export default function ViewProductModal({ open, onClose, product }) {
                               </div>
 
                               {/* Images */}
-                              <div>
+                              <div className="w-1/3 min-w-[150px]">
                                 <p className={label}>Images</p>
                                 {imgs.length === 0 ? (
-                                  <p className="text-xs text-gray-500 mt-1">No images</p>
+                                  <div className="mt-2 h-20 bg-gray-100 rounded-lg flex items-center justify-center text-xs text-gray-400">No images</div>
                                 ) : (
                                   <div className="mt-2">
                                     <ImageGallery
@@ -659,5 +608,3 @@ export default function ViewProductModal({ open, onClose, product }) {
     </ViewModal>
   );
 }
-
-
