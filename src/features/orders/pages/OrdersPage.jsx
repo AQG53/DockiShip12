@@ -53,6 +53,16 @@ const CopyButton = ({ text }) => {
     );
 };
 
+// Formatting helper: Always use UTC to show "server date" (wall clock)
+const formatDate = (date) => {
+    if (!date) return "—";
+    return new Date(date).toLocaleDateString(undefined, { timeZone: 'UTC' });
+};
+const formatDateCSV = (date) => {
+    if (!date) return "";
+    return new Date(date).toLocaleDateString(undefined, { timeZone: 'UTC' });
+};
+
 export default function OrdersPage() {
     const [search, setSearch] = useState("");
     const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -401,7 +411,7 @@ export default function OrdersPage() {
             render: (row) => (
                 <div className="flex items-center min-h-[3rem] py-1">
                     <span className="text-gray-700 text-[13px]">
-                        {row.date ? new Date(row.date).toLocaleDateString(undefined, { timeZone: 'UTC' }) : "—"}
+                        {formatDate(row.date)}
                     </span>
                 </div>
             )
@@ -1011,7 +1021,7 @@ export default function OrdersPage() {
                         const isFirst = idx === 0;
 
                         const row = [
-                            q(isFirst ? (order.date ? new Date(order.date).toLocaleDateString(undefined, { timeZone: 'UTC' }) : "") : ""),
+                            q(isFirst ? formatDateCSV(order.date) : ""),
                             q(isFirst ? order.orderId : ""),
                             q(isFirst ? order.tenantChannel?.marketplace : ""),
                             q(productName),
@@ -1032,7 +1042,7 @@ export default function OrdersPage() {
                 } else {
                     // Fallback for orders without items (legacy)
                     const row = [
-                        q(order.date ? new Date(order.date).toLocaleDateString(undefined, { timeZone: 'UTC' }) : ""),
+                        q(formatDateCSV(order.date)),
                         q(order.orderId),
                         q(order.tenantChannel?.marketplace),
                         q(order.productDescription || "—"),
