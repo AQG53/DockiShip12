@@ -110,7 +110,7 @@ export default function ImageGallery({ images = [], absImg, placeholder, classNa
 
                     {/* Compact Multiple Indicator */}
                     {compact && images.length > 1 && (
-                        <div className="absolute bottom-0.5 right-0.5 bg-black/60 text-white text-[8px] px-1 rounded-sm">
+                        <div className="absolute top-0 left-0 bg-blue-600 text-white text-[8px] font-bold px-1 py-0 leading-tight rounded-tl-sm rounded-br overflow-hidden z-10 shadow-sm opacity-90">
                             +{images.length - 1}
                         </div>
                     )}

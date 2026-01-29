@@ -167,9 +167,11 @@ export function AnimatedAlertProvider({ children }) {
         message: "",
         confirmLabel: "OK",
         onConfirm: null,
+        showCancel: false,
+        cancelLabel: "Cancel",
     });
 
-    const showAlert = useCallback(({ type = "info", title, message, confirmLabel = "OK", onConfirm }) => {
+    const showAlert = useCallback(({ type = "info", title, message, confirmLabel = "OK", onConfirm, showCancel = false, cancelLabel = "Cancel" }) => {
         setAlertState({
             open: true,
             type,
@@ -177,6 +179,8 @@ export function AnimatedAlertProvider({ children }) {
             message,
             confirmLabel,
             onConfirm,
+            showCancel,
+            cancelLabel,
         });
     }, []);
 
@@ -197,8 +201,20 @@ export function AnimatedAlertProvider({ children }) {
         showAlert({ type: "info", title, message, confirmLabel });
     }, [showAlert]);
 
+    const confirm = useCallback((title, message, onConfirm, confirmLabel = "Delete", cancelLabel = "Cancel") => {
+        showAlert({
+            type: "error", // Use error/warning style for destructive consistency
+            title,
+            message,
+            onConfirm,
+            confirmLabel,
+            showCancel: true,
+            cancelLabel
+        });
+    }, [showAlert]);
+
     return (
-        <AlertContext.Provider value={{ showAlert, success, error, info }}>
+        <AlertContext.Provider value={{ showAlert, success, error, info, confirm }}>
             {children}
             <AnimatedAlert
                 open={alertState.open}
@@ -208,6 +224,8 @@ export function AnimatedAlertProvider({ children }) {
                 message={alertState.message}
                 confirmLabel={alertState.confirmLabel}
                 onConfirm={alertState.onConfirm}
+                showCancel={alertState.showCancel}
+                cancelLabel={alertState.cancelLabel}
             />
         </AlertContext.Provider>
     );

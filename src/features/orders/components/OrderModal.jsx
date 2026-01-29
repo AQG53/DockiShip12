@@ -312,6 +312,8 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
         if (!isReturning) {
             const overStockItems = items.filter(item => {
                 const qty = parseFloat(item.quantity) || 0;
+                const units = item.units || 1;
+                const required = qty * units;
                 let available = item.stockOnHand || 0;
 
                 // 2. If editing an ACTIVE order, add back the *original* quantity to available stock
@@ -328,18 +330,24 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                             (!item.variantId && orig.productId === item.productId && !orig.productVariantId)
                         );
                         if (original) {
-                            available += (original.quantity || 0);
+                            const origUnits = original.channelListing?.units || 1; // get original units
+                            available += ((original.quantity || 0) * origUnits); // add back FULL QUANTITY (units * qty)
                         }
                     }
                 }
 
-                return qty > available;
+                return required > available;
             });
 
             if (overStockItems.length > 0) {
+                const names = overStockItems.map(i => {
+                    const req = (parseFloat(i.quantity) || 0) * (i.units || 1);
+                    return `${i.displayName} (Req: ${req}, Avail: ${i.stockOnHand})`;
+                }).join(", ");
+
                 alert.error(
                     "Insufficient Stock",
-                    `Quantity exceeds available stock for: ${overStockItems.map(i => i.displayName).join(", ")}`
+                    `Quantity exceeds available stock for: ${names}`
                 );
                 return;
             }
@@ -459,7 +467,8 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                 label: p.variantName || p.name, // Use variantName for display label
                 variantName: p.variantName || p.name,
                 marketplaceName: p.marketplaceName,
-                marketplaceSku: p.marketplaceSku,
+                //marketplaceSku: p.marketplaceSku,
+                sku: p.sku,
                 imageUrl: p.imageUrl,
             }));
     }, [productOptions, items]);
@@ -593,9 +602,15 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                         <label className="cursor-pointer text-xs font-medium text-blue-600 hover:text-blue-800 flex items-center gap-1">
                             <Plus size={14} />
                             {existingLabel || newLabel ? 'Replace Label' : 'Add Label'}
-                            <input type="file" className="hidden" onChange={(e) => {
-                                if (e.target.files?.[0]) {
-                                    setNewLabel(e.target.files[0]);
+                            <input type="file" accept=".pdf,application/pdf" className="hidden" onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+                                        alert.error("Invalid File", "Only PDF files are allowed for labels.");
+                                        e.target.value = null;
+                                        return;
+                                    }
+                                    setNewLabel(file);
                                 }
                                 e.target.value = null;
                             }} />
@@ -619,7 +634,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                             </div>
                             <div className="flex items-center gap-2">
                                 {/* Delete existing label if present */}
-                                {existingLabel && !newLabel && (
+                                {existingLabel && !newLabel && ['LABEL_PRINTED', 'LABEL_UPLOADED'].includes(status) && (
                                     <button
                                         type="button"
                                         onClick={() => {
@@ -627,7 +642,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                                                 try {
                                                     await deleteLabelMut.mutateAsync(editing.id);
                                                     setExistingLabel(null);
-                                                    if (status === 'LABEL_UPLOADED') {
+                                                    if (['LABEL_PRINTED', 'LABEL_UPLOADED'].includes(status)) {
                                                         setStatus('PENDING'); // Update persistent local state
                                                     }
                                                     toast.success("Label deleted");
@@ -697,6 +712,11 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                                                                 <span className="font-medium text-gray-400">Marketplace SKU:</span> {opt.marketplaceSku}
                                                             </span>
                                                         )}
+                                                        {opt.sku && (
+                                                            <span className="truncate">
+                                                                <span className="font-medium text-gray-400">Internal SKU:</span> {opt.sku}
+                                                            </span>
+                                                        )}
                                                         <span className="text-gray-500 truncate">
                                                             <span className="font-medium text-gray-400">Product Name:</span> {opt.variantName || opt.label}
                                                         </span>
@@ -747,9 +767,12 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                                                                 {item.marketplaceName && (
                                                                     <span><span className="text-gray-400">Listing:</span> {item.marketplaceName}</span>
                                                                 )}
-                                                                {item.marketplaceSku && (
-                                                                    <span><span className="text-gray-400">SKU:</span> {item.marketplaceSku}</span>
+                                                                {item.sku && (
+                                                                    <span><span className="text-gray-400">Internal SKU:</span> {item.sku}</span>
                                                                 )}
+                                                                {/* {item.marketplaceSku && (
+                                                                    <span><span className="text-gray-400">Marketplace SKU:</span> {item.marketplaceSku}</span>
+                                                                )} */}
                                                             </div>
                                                         )}
                                                         <div className="flex items-center gap-2 text-xs text-gray-400">

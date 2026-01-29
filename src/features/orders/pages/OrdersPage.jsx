@@ -486,7 +486,7 @@ export default function OrdersPage() {
                                                 placeholder={IMG_PLACEHOLDER}
                                                 compact={true}
                                                 className="h-8 w-8"
-                                                thumbnailClassName="h-8 w-8 bg-white"
+                                                thumbnailClassName="h-10 w-10 bg-white"
                                             />
                                         </div>
                                         {/* Text */}

@@ -341,7 +341,7 @@ export async function listProductsForOrderSelection({ search, channelId, perPage
             variantId: null,
             name: product.name,
             variantName: product.name,
-            sku: listing.externalSku ?? product.sku,
+            sku: product.sku ?? listing.externalSku,
             marketplaceName: listing.productName ?? product.name, // Listing specific name preferred
             marketplaceSku: listing.externalSku ?? null,
             imageUrl: productImage,
@@ -422,6 +422,21 @@ export async function listProductsForOrderSelection({ search, channelId, perPage
 
             const uniqueId = listing.id ? String(listing.id) : `V_${variant.id}_${listing.externalSku || Math.random()}`;
 
+            // Resolve Variant Image
+            // Logic mirrored from ViewProductModal: Check URL structure for variant ID
+            let variantImage = productImage;
+            if (Array.isArray(product.images)) {
+              const match = product.images.find(img => {
+                const u = String(img.url || "");
+                const parts = u.split("/uploads/")[1]?.split("/") || [];
+                // URL structure assumption: .../uploads/<tenant>/<variantId>/...
+                // ViewProductModal uses: maybeVar = parts.length >= 3 ? parts[1] : null;
+                const maybeVar = parts.length >= 3 ? parts[1] : null;
+                return maybeVar === variant.id;
+              });
+              if (match) variantImage = match.url;
+            }
+
             flattened.push({
               id: uniqueId, // Use Listing ID
               type: 'variant',
@@ -431,10 +446,10 @@ export async function listProductsForOrderSelection({ search, channelId, perPage
               variantName,
               // If we used parent listing, SKU might be parent listing's SKU.
               // But typically variant listing should map to variant.
-              sku: listing.externalSku ?? variant.sku,
+              sku: variant.sku ?? listing.externalSku,
               marketplaceName: listing.productName ?? null,
               marketplaceSku: listing.externalSku ?? null,
-              imageUrl: productImage,
+              imageUrl: variantImage,
               retailPrice: variant.retailPrice ?? product.retailPrice ?? null,
               channelPrice: listing.price ?? null,
               channelUnits: listing.units ?? null,
