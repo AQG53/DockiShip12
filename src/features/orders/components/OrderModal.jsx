@@ -634,7 +634,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                             </div>
                             <div className="flex items-center gap-2">
                                 {/* Delete existing label if present */}
-                                {existingLabel && !newLabel && ['LABEL_PRINTED', 'LABEL_UPLOADED'].includes(status) && (
+                                {existingLabel && !newLabel && (
                                     <button
                                         type="button"
                                         onClick={() => {
@@ -642,9 +642,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                                                 try {
                                                     await deleteLabelMut.mutateAsync(editing.id);
                                                     setExistingLabel(null);
-                                                    if (['LABEL_PRINTED', 'LABEL_UPLOADED'].includes(status)) {
-                                                        setStatus('PENDING'); // Update persistent local state
-                                                    }
+                                                    setStatus('PENDING'); // Always revert to PENDING
                                                     toast.success("Label deleted");
                                                     if (onSuccess) onSuccess(editing.id); // Refresh parent
                                                 } catch (e) {

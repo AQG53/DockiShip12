@@ -150,17 +150,17 @@ export default function OrdersPage() {
 
     const channelOptions = useMemo(() => [
         { id: "", name: "All Channels" },
-        ...channels.map(c => ({ id: c.id, name: c.marketplace || c.name }))
+        ...(Array.isArray(channels) ? channels : []).map(c => ({ id: c.id, name: c.marketplace || c.name }))
     ], [channels]);
 
     const courierOptions = useMemo(() => [
         { id: "", name: "All Couriers" },
-        ...couriers.map(c => ({ id: c.id, name: c.shortName || c.fullName }))
+        ...(Array.isArray(couriers) ? couriers : []).map(c => ({ id: c.id, name: c.shortName || c.fullName }))
     ], [couriers]);
 
     const remarkOptions = useMemo(() => [
         { id: "", name: "All Remarks" },
-        ...remarkTypes.map(r => ({ id: r.id, name: r.name }))
+        ...(Array.isArray(remarkTypes) ? remarkTypes : []).map(r => ({ id: r.id, name: r.name }))
     ], [remarkTypes]);
 
     const { data: orderData, isLoading } = useOrders({
@@ -242,11 +242,31 @@ export default function OrdersPage() {
         if (selectedIds.size === 0) return;
         if (!bulkStatus) return;
         try {
-            await bulkUpdateMut.mutateAsync({
+            const res = await bulkUpdateMut.mutateAsync({
                 ids: Array.from(selectedIds),
                 status: bulkStatus
             });
-            toast.success("Orders updated");
+
+            // Check response for detailed results
+            if (res && typeof res.success === 'number') {
+                // Determine if failure is due to labels
+                const labelErrors = res.errors?.filter(e => e.error?.includes("Label not found")) || [];
+                const otherErrors = res.failed - labelErrors.length;
+
+                if (res.failed === 0) {
+                    toast.success(`Successfully updated ${res.success} orders`);
+                } else {
+                    let parts = [];
+                    if (res.success > 0) parts.push(`Updated ${res.success} orders.`);
+                    if (labelErrors.length > 0) parts.push(`${labelErrors.length} failed (no label).`);
+                    if (otherErrors > 0) parts.push(`${otherErrors} failed (other errors).`);
+
+                    toast.error(parts.join(" "));
+                }
+            } else {
+                toast.success("Orders updated");
+            }
+
             setBulkStatusModalOpen(false);
             setSelectedIds(new Set());
         } catch (err) {
@@ -461,11 +481,32 @@ export default function OrdersPage() {
                                 const product = listing?.product || listing?.productVariant?.product || item.product;
                                 const variant = listing?.productVariant || item.productVariant;
                                 const name = item.productDescription || listing?.productName || product?.name || "Product";
-                                const images = product?.images?.map(img => ({
+                                const rawImages = product?.images || [];
+                                let displayImages = [];
+
+                                if (variant?.id && rawImages.length > 0) {
+                                    // 1. Variant Specific
+                                    const vImages = rawImages.filter(img => img.url && img.url.includes(variant.id));
+                                    if (vImages.length > 0) displayImages = vImages;
+                                }
+
+                                if (displayImages.length === 0 && rawImages.length > 0) {
+                                    // 2. Parent Only (fallback)
+                                    // Logic: Parent images typically look like .../uploads/<tenant>/<file> (2 parts)
+                                    // Variant images look like .../uploads/<tenant>/<variant>/<file> (3 parts)
+                                    displayImages = rawImages.filter(img => {
+                                        const u = img.url || "";
+                                        if (!u.includes('/uploads/')) return true; // keep legacy/external
+                                        const parts = u.split('/uploads/')[1]?.split('/') || [];
+                                        return parts.length === 2;
+                                    });
+                                }
+
+                                const images = displayImages.map(img => ({
                                     url: img.url,
                                     alt: name,
                                     productName: name
-                                })) || [];
+                                }));
 
                                 const variantParts = [];
                                 if (variant?.size?.name) variantParts.push(variant.size.name);
@@ -487,6 +528,7 @@ export default function OrdersPage() {
                                                 compact={true}
                                                 className="h-8 w-8"
                                                 thumbnailClassName="h-10 w-10 bg-white"
+                                                badgeContent={item.quantity}
                                             />
                                         </div>
                                         {/* Text */}
@@ -517,14 +559,29 @@ export default function OrdersPage() {
                 }
 
                 // Legacy Fallback
-                const images = [];
-                if (row.product?.images?.length > 0) {
-                    images.push(...row.product.images.map(img => ({
-                        url: img.url,
-                        alt: row.productDescription,
-                        productName: row.productDescription
-                    })));
+                const rawImages = row.product?.images || [];
+                let displayImages = [];
+                const itemVariant = row.productVariant;
+
+                if (itemVariant?.id && rawImages.length > 0) {
+                    const vImages = rawImages.filter(img => img.url && img.url.includes(itemVariant.id));
+                    if (vImages.length > 0) displayImages = vImages;
                 }
+
+                if (displayImages.length === 0 && rawImages.length > 0) {
+                    displayImages = rawImages.filter(img => {
+                        const u = img.url || "";
+                        if (!u.includes('/uploads/')) return true;
+                        const parts = u.split('/uploads/')[1]?.split('/') || [];
+                        return parts.length === 2;
+                    });
+                }
+
+                const images = displayImages.map(img => ({
+                    url: img.url,
+                    alt: row.productDescription,
+                    productName: row.productDescription
+                }));
                 const productName = row.product?.name || row.productVariant?.sku || row.productDescription || "—";
                 const variantInfo = row.productVariant?.sizeText || row.productVariant?.colorText
                     ? [row.productVariant?.sizeText, row.productVariant?.colorText].filter(Boolean).join(" · ")
@@ -540,6 +597,7 @@ export default function OrdersPage() {
                                 compact={true}
                                 className="h-8 w-8"
                                 thumbnailClassName="h-8 w-8 bg-white"
+                                badgeContent={row.quantity}
                             />
                         </div>
                         <div className="flex flex-col gap-0.5 min-w-0">

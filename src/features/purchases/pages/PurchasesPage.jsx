@@ -927,6 +927,26 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
       variants.forEach((variant) => {
         const key = `${prod.id}::${variant.id}`;
         if (selectedKeys.has(key)) return;
+
+        // Image Selection Logic
+        const rawImages = prod.images || [];
+        let displayImages = [];
+        if (rawImages.length > 0) {
+          // 1. Variant Specific
+          const vImages = rawImages.filter(img => img.url && img.url.includes(variant.id));
+          if (vImages.length > 0) {
+            displayImages = vImages;
+          } else {
+            // 2. Parent Only (fallback)
+            displayImages = rawImages.filter(img => {
+              const u = img.url || "";
+              if (!u.includes('/uploads/')) return true;
+              const parts = u.split('/uploads/')[1]?.split('/') || [];
+              return parts.length === 2;
+            });
+          }
+        }
+
         rows.push({
           value: key,
           label: `${prod.name || "Unnamed product"} • ${variant.name || variant.sku || "Variant"}`,
@@ -967,7 +987,7 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
             (variant.attributes && variant.attributes.packagingQuantity) ||
             (prod.attributes && prod.attributes.packagingQuantity) ||
             null,
-          images: prod.images || [],
+          images: displayImages,
         });
       });
     });
@@ -984,13 +1004,12 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
     });
   };
 
-  const handleAddProduct = () => {
-    if (!selectedProduct || selectedProduct === "Select") {
-      toast.error("Select a product first");
+  const handleAddProduct = (val) => {
+    if (!val || val === "Select") {
       return;
     }
     const option = productSelectOptions.find(
-      (opt) => typeof opt !== "string" && opt.value === selectedProduct,
+      (opt) => typeof opt !== "string" && opt.value === val,
     );
     if (!option || typeof option === "string") {
       toast.error("Product not found");
@@ -1014,6 +1033,8 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
       )
     ) {
       toast.error("This product is already in the order");
+      // Reset selection even if error, so user can try again or select another
+      setSelectedProduct("Select");
       return;
     }
     // Use last item's tax rate if available
@@ -1277,36 +1298,38 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
                                 <label className="block text-[12px] font-medium text-gray-600">Search product</label>
                                 <SelectCompact
                                   value={selectedProduct}
-                                  onChange={setSelectedProduct}
+                                  onChange={(val) => handleAddProduct(val)}
                                   options={productSelectOptions}
                                   filterable
                                   disabled={loadingProducts || !form.supplierId}
+                                  hideCheck={true}
                                   renderOption={(opt) =>
                                     typeof opt === "string" ? (
                                       opt
                                     ) : (
-                                      <div className="flex flex-col">
-                                        <span>{opt.label}</span>
-                                        {opt.sku && (
-                                          <span className="text-[11px] text-gray-500">SKU: {opt.sku}</span>
-                                        )}
+                                      <div className="flex items-center gap-3">
+                                        <div className="flex-shrink-0 pointer-events-none">
+                                          <ImageGallery
+                                            images={opt.images?.slice(0, 1) || []}
+                                            absImg={absImg}
+                                            placeholder={IMG_PLACEHOLDER}
+                                            className="h-8 w-8"
+                                            thumbnailClassName="h-8 w-8 bg-white object-contain border border-gray-200 rounded"
+                                            compact={true}
+                                          />
+                                        </div>
+                                        <div className="flex flex-col">
+                                          <span>{opt.label}</span>
+                                          {opt.sku && (
+                                            <span className="text-[11px] text-gray-500">SKU: {opt.sku}</span>
+                                          )}
+                                        </div>
                                       </div>
                                     )
                                   }
                                 />
                               </div>
                               <div className="flex items-end gap-2">
-                                <button
-                                  type="button"
-                                  disabled={!form.supplierId}
-                                  className={`h-9 w-full rounded-lg border border-dashed text-sm font-semibold whitespace-nowrap px-4 ${!form.supplierId
-                                    ? "border-gray-300 text-gray-400 cursor-not-allowed"
-                                    : "border-amber-400 text-amber-700 hover:bg-amber-50"
-                                    }`}
-                                  onClick={handleAddProduct}
-                                >
-                                  Add product
-                                </button>
                                 <button
                                   type="button"
                                   disabled={!form.supplierId}
