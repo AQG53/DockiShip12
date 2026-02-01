@@ -390,6 +390,28 @@ export async function listProductsForOrderSelection({ search, channelId, perPage
     } else {
       // Product with variants
       for (const variant of variants) {
+        // Filter variants by search term if provided - check sku, sizeText, colorText
+        if (search) {
+          const searchLower = search.toLowerCase();
+          const variantSku = (variant.sku || '').toLowerCase();
+          const variantSize = (variant.sizeText || '').toLowerCase();
+          const variantColor = (variant.colorText || '').toLowerCase();
+
+          // Also check listing external SKUs
+          const variantListings = Array.isArray(variant.channelListings) ? variant.channelListings : (Array.isArray(variant.ChannelListing) ? variant.ChannelListing : []);
+          const listingSkuMatch = variantListings.some(l => (l.externalSku || '').toLowerCase().includes(searchLower));
+
+          const variantMatches =
+            variantSku.includes(searchLower) ||
+            variantSize.includes(searchLower) ||
+            variantColor.includes(searchLower) ||
+            listingSkuMatch;
+
+          if (!variantMatches) {
+            continue; // Skip variants that don't match the search term
+          }
+        }
+
         let listings = Array.isArray(variant.channelListings) ? variant.channelListings : (Array.isArray(variant.ChannelListing) ? variant.ChannelListing : []);
 
         // Check parent listings only for single-variant products... (Logic from before)
