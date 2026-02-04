@@ -10,7 +10,7 @@ const sections = [
     label: "Products",
     items: [
       { label: "Listing", to: "/inventory/products/simple" },
-      { label: "Inventory", to: "/inventory/list" }
+      //{ label: "Inventory", to: "/inventory/list" }
     ],
   },
   {
