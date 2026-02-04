@@ -303,6 +303,31 @@ export async function listProducts({ page, perPage, search, status, supplierId }
 }
 
 /**
+ * List inventory items for the inventory list page.
+ * Returns products/variants with stock levels, costs, and aggregated metrics.
+ */
+export async function listInventory({ page, perPage, search, warehouseId } = {}) {
+  const params = {};
+  if (page != null) params.page = page;
+  if (perPage != null) params.perPage = perPage;
+  if (search) params.search = search;
+  if (warehouseId) params.warehouseId = warehouseId;
+
+  const res = await axiosInstance.get("/inventory/list", { params });
+  const payload = res?.data ?? {};
+
+  const rows = payload?.rows ?? [];
+  const meta = payload?.meta ?? {
+    page: 1,
+    perPage: rows.length || 25,
+    total: rows.length,
+    totalPages: 1,
+  };
+
+  return { rows, meta };
+}
+
+/**
  * Fetch products with variants flattened for order selection dropdown.
  * Returns: [{ id, type: 'product'|'variant', productId, variantId, name, sku, imageUrl, retailPrice, sizeText, colorText, stockOnHand }]
  */
@@ -586,6 +611,17 @@ export async function updateProductVariant(productId, variantId, payload) {
 export async function addProductVariant(productId, payload) {
   const res = await axiosInstance.post(`/products/${productId}/variants`, payload);
   return res?.data?.data ?? res?.data ?? {};
+}
+
+
+export async function deleteProductVariant(productId, variantId) {
+  const res = await axiosInstance.delete(`/products/${productId}/variants/${variantId}`);
+  return res?.data?.ok === true || res?.status === 200 || res?.status === 204;
+}
+
+export async function checkVariantDeletability(productId, variantId) {
+  const res = await axiosInstance.get(`/products/${productId}/variants/${variantId}/check-delete`);
+  return res?.data?.ok === true;
 }
 
 // ---------- Images ----------

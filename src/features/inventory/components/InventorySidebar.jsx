@@ -9,7 +9,8 @@ const sections = [
     icon: Package,
     label: "Products",
     items: [
-      { label: "Listing", to: "/inventory/products/simple" }
+      { label: "Listing", to: "/inventory/products/simple" },
+      { label: "Inventory", to: "/inventory/list" }
     ],
   },
   {

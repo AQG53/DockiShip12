@@ -7,6 +7,8 @@ import {
   getProductById,
   updateProductParent,
   updateProductVariant,
+  deleteProductVariant,
+  checkVariantDeletability,
   addProductVariant,
   searchMarketplaceChannels,
   searchListingProductNames,
@@ -113,6 +115,20 @@ export function useAddVariant() {
   return useMutation({
     mutationKey: ["products", "variants", "add"],
     mutationFn: ({ productId, payload }) => addProductVariant(productId, payload),
+  });
+}
+
+export function useDeleteVariant() {
+  return useMutation({
+    mutationKey: ["products", "variants", "delete"],
+    mutationFn: ({ productId, variantId }) => deleteProductVariant(productId, variantId),
+  });
+}
+
+export function useCheckVariantDeletability() {
+  return useMutation({
+    mutationKey: ["products", "variants", "check-delete"],
+    mutationFn: ({ productId, variantId }) => checkVariantDeletability(productId, variantId),
   });
 }
 

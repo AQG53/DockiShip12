@@ -1,7 +1,7 @@
 
 import { Fragment, useMemo, useState, useEffect, useRef } from "react";
 import { useAuthCheck } from "../../auth/hooks/useAuthCheck";
-import { useProductMetaEnums, useCreateProduct, useUpdateProductParent, useUpdateVariant, useAddVariant, useUploadProductImages, useCategories, useCreateCategory, useGetProduct } from "../hooks/useProducts";
+import { useProductMetaEnums, useCreateProduct, useUpdateProductParent, useUpdateVariant, useAddVariant, useDeleteVariant, useCheckVariantDeletability, useUploadProductImages, useCategories, useCreateCategory, useGetProduct } from "../hooks/useProducts";
 import { useSuppliers } from "../../purchases/hooks/useSuppliers";
 import {
     useSearchMarketplaceChannels,
@@ -67,6 +67,8 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const { mutateAsync: updateParent, isPending: savingParent } = useUpdateProductParent();
     const { mutateAsync: updateVariant, isPending: savingVariant } = useUpdateVariant();
     const { mutateAsync: addVariant, isPending: addingVariant } = useAddVariant();
+    const { mutateAsync: deleteVariantMut, isPending: deletingVariant } = useDeleteVariant();
+    const { mutateAsync: checkVariantDelete, isPending: checkingDelete } = useCheckVariantDeletability();
     const { mutateAsync: uploadImages, isPending: uploadingImages } = useUploadProductImages();
 
     const CURRENCY = auth?.tenant?.currency;
@@ -159,6 +161,9 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const [images, setImages] = useState([]);
     const [variantImages, setVariantImages] = useState({}); // map: local variant id -> File[]
     const [imagePreviews, setImagePreviews] = useState([]);
+
+    // Deletion tracking
+    const [deletedVariantIds, setDeletedVariantIds] = useState(new Set());
 
     const fileInputRef = useRef(null);
     const variantInputsRef = useRef({});
@@ -469,6 +474,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         setImages([]);
         setSavedProducts([]);
         setVariantPrices({});
+        setDeletedVariantIds(new Set());
 
         // marketplaces
         setSelectedProductName("Select");
@@ -484,10 +490,21 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const computeAutoSku = (parentSku, v, index) => {
         const parent = (parentSku || "").trim();
         if (!parent) {
-            return `X-${index + 1}`;
+            return `VAR-${index + 1}`;
         }
-        const tail = v.sizeCode?.trim() || "X";
-        return `${parent}-${tail}`;
+        // Build suffix from size code and color code
+        const sizeCode = v.sizeCode?.trim() || "";
+        const colorCode = v.colorText?.trim() || "";
+
+        const parts = [];
+        if (sizeCode) parts.push(sizeCode);
+        if (colorCode) parts.push(colorCode);
+
+        if (parts.length > 0) {
+            return `${parent}-${parts.join("-")}`;
+        }
+        // Fallback to index-based unique suffix
+        return `${parent}-${index + 1}`;
     };
 
     // --- helpers to sync parent <-> variants ---
@@ -597,12 +614,15 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         setVariants((prev) => {
             if (prev.length === 0) return prev;
             const last = prev[prev.length - 1];
+            const newIndex = prev.length;
+            // Generate a unique SKU based on index, not copying the same one
+            const newSku = computeAutoSku(sku, { sizeCode: "" }, newIndex);
             return [
                 ...prev,
                 {
                     ...last,
                     id: `local-${randomId()}`,
-                    sku: computeAutoSku(sku, last, prev.length),
+                    sku: newSku,
                     autoSku: true,
                 },
             ];
@@ -638,11 +658,41 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const patchVariant = (id, patch) =>
         setVariants((prev) => prev.map((v) => (v.id === id ? { ...v, ...patch } : v)));
 
-    const deleteVariant = (id) => {
+    const deleteVariant = async (id) => {
+        // If it's a new local variant or we not in edit mode (all are effectively new/draft until saved, though edit mode implies we are on an existing product),
+        // checking against backend only makes sense if the variant ALREADY exists in backend.
+        // ID starting with 'local-' is definitely new.
+        // If we are in edit mode, non-local IDs are existing.
+
+        const isLocal = typeof id === 'string' && id.startsWith('local');
+        const effectiveProductId = productDetail?.id || productId;
+
+        if (!isLocal && effectiveProductId && id) {
+            // Check with backend if it's safe to delete
+            try {
+                // If this throws, it means we can't delete
+                await checkVariantDelete({ productId: effectiveProductId, variantId: id });
+            } catch (e) {
+                const msg = e?.response?.data?.message || "Cannot delete variant due to dependencies";
+                showError(msg); // Use animated sweet alert via useAnimatedAlert hook wrapped in showError
+                return; // STOP here. Do not remove from UI.
+            }
+        }
+
+        // If we reach here, either it's local (safe) or backend said it's safe.
+        // Proceed to hide from UI and mark for deletion on Save.
         setVariants((prev) => {
             const next = prev.filter((v) => v.id !== id);
             return next.map((v, i) => (v.autoSku ? { ...v, sku: computeAutoSku(sku, v, i) } : v));
         });
+
+        if (!isLocal) {
+            setDeletedVariantIds(prev => {
+                const next = new Set(prev);
+                next.add(id);
+                return next;
+            });
+        }
     };
 
     useEffect(() => {
@@ -1157,6 +1207,17 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             : buildSimplePayload({ isDraft });
 
         try {
+            // Check for duplicate variant SKUs before saving
+            if (usingVariants && variants.length > 1) {
+                const skus = variants.map(v => v.sku?.trim()?.toLowerCase()).filter(Boolean);
+                const uniqueSkus = new Set(skus);
+                if (skus.length !== uniqueSkus.size) {
+                    showError("Variant SKUs must be unique. Please ensure all variants have different SKUs.");
+                    setSavingUi(false);
+                    return;
+                }
+            }
+
             let createdOrUpdated = null;
             if (!edit) {
                 createdOrUpdated = await createProductMut(payload);
@@ -1242,6 +1303,28 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                     } catch (e) {
                         console.error(e);
                         showError('Failed to sync variant SKU');
+                    }
+                }
+
+                // 2a) Delete removed variants
+                if (usingVariants && deletedVariantIds.size > 0) {
+                    for (const vid of deletedVariantIds) {
+                        // The user requested: "if the variant is not attached to any po or any order do not allow delete and show appropirate error in animated sweet alert"
+                        // We try to delete here. If backend fails, we catch it.
+                        try {
+                            await deleteVariantMut({ productId: effectiveProductId, variantId: vid });
+                        } catch (e) {
+                            // If it fails due to dependency, we should potentially stop or just alert
+                            // The user wants an animated alert. showError uses `error` from useAnimatedAlert.
+                            const msg = e?.response?.data?.message || "Failed to delete variant";
+                            showError(msg);
+                            // If critical, we might want to stop the whole flow?
+                            // But maybe other updates should proceed? 
+                            // Usually if one part fails, we might want to stop.
+                            // However, let's allow other updates and just show the error for the deletion.
+                            // Re-throw if we want to abort the whole save (e.g. closing the modal)
+                            throw new Error(msg);
+                        }
                     }
                 }
 
@@ -1422,6 +1505,35 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         }
     };
 
+    const handleClose = () => {
+        if (savingBusy) return;
+
+        // Check for unsaved changes (dirty)
+        // Simplest check: deletedVariantIds has items
+        // Or if we have other changes. For now checking deletedVariantIds as requested.
+        const hasDeletedVariants = deletedVariantIds.size > 0;
+
+        // We can extend this to check other form fields vs initial state if needed, 
+        // but user specifically mentioned "if user deletes a variant ... prompt"
+        if (hasDeletedVariants) {
+            confirm({
+                title: "Unsaved Changes",
+                message: "You have unsaved changes (removed variants). Closing will discard these changes. Are you sure?",
+                confirmText: "Discard & Close",
+                cancelText: "Keep Editing",
+                onConfirm: () => {
+                    resetFormToDefaults();
+                    onClose?.();
+                }
+            });
+            return;
+        }
+
+        // Default close
+        resetFormToDefaults();
+        onClose?.();
+    };
+
     const card = "rounded-2xl border border-gray-200 bg-white shadow-sm";
     const input =
         "h-8 w-full rounded-lg border border-gray-300 bg-white px-2 text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10";
@@ -1435,7 +1547,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
 
     if (!open) return null;
 
-    const savingBusy = savingUi || saving || savingParent || savingVariant || addingVariant || uploadingImages;
+    const savingBusy = savingUi || saving || savingParent || savingVariant || addingVariant || uploadingImages || deletingVariant || checkingDelete;
 
     const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
     const IMG_PLACEHOLDER =
@@ -1450,11 +1562,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             <Dialog
                 as="div"
                 className="relative z-[70]"
-                onClose={() => {
-                    if (savingBusy) return; // prevent closing while saving
-                    resetFormToDefaults();
-                    onClose?.();
-                }}
+                onClose={handleClose}
             >
                 <TransitionChild
                     as={Fragment}
@@ -3259,38 +3367,41 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                         Cancel
                                     </button>
 
-                                    <button
-                                        className={outlineBtn}
-                                        disabled={savingBusy}
-                                        onClick={() => {
-                                            const m = collectMissing({ isDraft: true });
-                                            setMissing(m);
-                                            if (Object.keys(m).length) {
-                                                showError("Please fill required fields for Draft.");
-                                                return;
-                                            }
-                                            handleSave("single", { isDraft: true });
-                                        }}
-                                    >
-                                        Save to Draft
-                                    </button>
+                                    {!edit && (
+                                        <button
+                                            className={outlineBtn}
+                                            disabled={savingBusy}
+                                            onClick={() => {
+                                                const m = collectMissing({ isDraft: true });
+                                                setMissing(m);
+                                                if (Object.keys(m).length) {
+                                                    showError("Please fill required fields for Draft.");
+                                                    return;
+                                                }
+                                                handleSave("single", { isDraft: true });
+                                            }}
+                                        >
+                                            Save to Draft
+                                        </button>
+                                    )}
 
-                                    <button
-                                        className={primaryBtn}
-                                        disabled={savingBusy}
-                                        onClick={() => {
-                                            const m = collectMissing({ isDraft: false });
-                                            setMissing(m);
-                                            if (Object.keys(m).length) {
-                                                showError("Please complete required fields.");
-                                                return;
-                                            }
-                                            handleSave("again");
-                                        }}
-                                    >
-                                        Save & Add Another
-                                    </button>
-
+                                    {!edit && (
+                                        <button
+                                            className={primaryBtn}
+                                            disabled={savingBusy}
+                                            onClick={() => {
+                                                const m = collectMissing({ isDraft: false });
+                                                setMissing(m);
+                                                if (Object.keys(m).length) {
+                                                    showError("Please complete required fields.");
+                                                    return;
+                                                }
+                                                handleSave("again");
+                                            }}
+                                        >
+                                            Save & Add Another
+                                        </button>
+                                    )}
                                     <button
                                         className={primaryBtn}
                                         disabled={savingBusy}
