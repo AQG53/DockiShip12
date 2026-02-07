@@ -306,12 +306,13 @@ export async function listProducts({ page, perPage, search, status, supplierId }
  * List inventory items for the inventory list page.
  * Returns products/variants with stock levels, costs, and aggregated metrics.
  */
-export async function listInventory({ page, perPage, search, warehouseId } = {}) {
+export async function listInventory({ page, perPage, search, warehouseId, stockStatus } = {}) {
   const params = {};
   if (page != null) params.page = page;
   if (perPage != null) params.perPage = perPage;
   if (search) params.search = search;
   if (warehouseId) params.warehouseId = warehouseId;
+  if (stockStatus) params.stockStatus = stockStatus;
 
   const res = await axiosInstance.get("/inventory/list", { params });
   const payload = res?.data ?? {};

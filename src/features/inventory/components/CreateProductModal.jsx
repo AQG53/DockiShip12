@@ -11,6 +11,7 @@ import {
     useAddProductMarketplaceListing,
     useUpdateProductMarketplaceListing,
     useDeleteProductMarketplaceListing,
+    useBulkUpsertVariantMarketplaceListings,
 } from "../hooks/useProducts";
 import MarketplaceListingRow from "./MarketplaceListingRow";
 
@@ -237,6 +238,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const [mainPackagingType, setMainPackagingType] = useState("");
     const [mainPackagingQty, setMainPackagingQty] = useState("");
     const [mainStockOnHand, setMainStockOnHand] = useState("");
+    const [mainThreshold, setMainThreshold] = useState("");
 
     // --- new: supplier & pricing ---
     const [supplier, setSupplier] = useState("Select");
@@ -282,7 +284,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const [listingSku, setListingSku] = useState("");
     const [listingUnits, setListingUnits] = useState("");
     const [listingPrice, setListingPrice] = useState("");
-    const [selectedVariantForListing, setSelectedVariantForListing] = useState("product");
+    const [selectedVariantIdsForListing, setSelectedVariantIdsForListing] = useState([]);
     const [assign, setAssign] = useState("");
 
     // Global Alert Hook
@@ -332,6 +334,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     // Mutations
     const { mutateAsync: createChannel, isPending: creatingChannel } = useCreateMarketplaceChannel();
     const { mutateAsync: addListing, isPending: addingListing } = useAddProductMarketplaceListing(effectiveProductId ?? "");
+    const { mutateAsync: bulkAddListings, isPending: bulkAddingListings } = useBulkUpsertVariantMarketplaceListings(effectiveProductId ?? "");
     const { mutateAsync: updateListing, isPending: updatingListing } = useUpdateProductMarketplaceListing(effectiveProductId ?? "");
     const { mutateAsync: deleteListing, isPending: deletingListing } = useDeleteProductMarketplaceListing(effectiveProductId ?? "");
     const [confirm, setConfirm] = useState({ open: false, id: null, label: "" });
@@ -444,6 +447,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         setMainPackagingType("");
         setMainPackagingQty("");
         setMainStockOnHand("");
+        setMainThreshold("");
 
         setWeightMain("");
         setWeightUnit("lb");
@@ -482,7 +486,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         setListingSku("");
         setListingUnits("");
         setListingPrice("");
-        setSelectedVariantForListing("product");
+        setSelectedVariantIdsForListing([]);
         setAssign("");
         setProductNameIsCustom(false);
     }
@@ -634,7 +638,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             ...prev,
             {
                 // Use a local-only id to distinguish unsaved rows from server variants
-                id: `local - ${randomId()} `,
+                id: `local-${randomId()}`,
                 sizeCode: "",
                 sizeText: "—",
                 colorText: "",
@@ -910,6 +914,9 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         setMainStockOnHand(
             productDetail.stockOnHand != null ? String(productDetail.stockOnHand) : ""
         );
+        setMainThreshold(
+            productDetail.threshold != null ? String(productDetail.threshold) : ""
+        );
 
         // supplier (no primary; linking managed below)
         setSupplier("Select");
@@ -944,6 +951,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                     packagingType: v.packagingType || "",
                     packagingQuantity: v.packagingQuantity != null ? String(v.packagingQuantity) : "",
                     stockOnHand: v.stockOnHand ?? 0,
+                    threshold: v.threshold ?? 0,
                     avgCostPerUnit: v.avgCostPerUnit,
                     lastPurchasePrice: v.lastPurchasePrice,
                 };
@@ -1138,6 +1146,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                 lastPurchaseCurr: CURRENCY,
             } : {}),
             stockOnHand: mainStockOnHand ? Number(mainStockOnHand) : 0,
+            threshold: mainThreshold ? Number(mainThreshold) : 0,
             variants: [], // keep empty if no variants
         });
     };
@@ -1180,6 +1189,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                 lastPurchasePrice: priceRow.purchase != null && priceRow.purchase !== "" ? Number(priceRow.purchase) : undefined,
                 lastPurchaseCurr: CURRENCY,
                 stockOnHand: v.stockOnHand != null ? Number(v.stockOnHand) : 0,
+                threshold: v.threshold != null ? Number(v.threshold) : 0,
                 attributes: {}, // reserved
             };
         });
@@ -1290,6 +1300,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                     height: !usingVariants && isNonEmpty(dimH) ? Number(dimH) : undefined,
                     dimensionUnit: !usingVariants ? dimUnit : undefined,
                     stockOnHand: !usingVariants && mainStockOnHand ? Number(mainStockOnHand) : undefined,
+                    threshold: !usingVariants && mainThreshold ? Number(mainThreshold) : undefined,
                     // per-supplier pricing handled via links
                 };
                 const effectiveProductId = productDetail?.id || productId;
@@ -1366,6 +1377,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                             packagingType: packagingPayload.packagingType,
                             packagingQuantity: packagingPayload.packagingQuantity,
                             stockOnHand: v.stockOnHand != null ? Number(v.stockOnHand) : undefined,
+                            threshold: v.threshold != null ? Number(v.threshold) : undefined,
                             attributes: {}, // reserved
                         };
 
@@ -1641,7 +1653,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                             {/* Hide variant toggle/info entirely when editing a simple product */}
                                             <div className="grid grid-cols-12 gap-3">
                                                 {/* Product Name */}
-                                                <Field className="col-span-12 md:col-span-5" label="Product Name *">
+                                                <Field className="col-span-12 md:col-span-4" label="Product Name *">
                                                     <input
                                                         className={`${input} ${err("name") ? "border-red-400 ring-1 ring-red-200" : ""} `}
                                                         placeholder="Enter"
@@ -1661,7 +1673,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
 
                                                 {/* SKU (auto) */}
                                                 <Field
-                                                    className="col-span-12 md:col-span-3"
+                                                    className="col-span-12 md:col-span-4"
                                                     label={variantEnabled ? "Parent SKU (auto)" : "Stock SKU (auto)"}
                                                 >
                                                     <input
@@ -1764,6 +1776,23 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                 options={(enums?.ProductCondition || ["NEW", "USED", "RECONDITIONED"]).map(c => ({ value: c, label: labelize(c) }))}
                                                             />
                                                         </div>
+                                                        <div className="col-span-1">
+                                                            <label className={label}>Status <span className="text-red-500">*</span></label>
+                                                            <SelectCompact
+                                                                value={status}
+                                                                onChange={setStatus}
+                                                                options={(enums?.ProductStatus || ["active", "inactive", "archived"]).map(s => ({ value: s, label: labelize(s) }))}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        {/* Condition moved up */}
+                                                    </>
+                                                )}
+
+                                                <div className={`col-span-12 grid ${!variantEnabled ? "grid-cols-5" : "grid-cols-3"} gap-3`}>
+                                                    {!variantEnabled && (
                                                         <Field className="col-span-1" label="Stock">
                                                             <input
                                                                 type="number"
@@ -1775,23 +1804,21 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                 inputMode="numeric"
                                                             />
                                                         </Field>
-                                                    </div>
-                                                ) : (
-                                                    <>
-                                                        {/* Condition moved up */}
-                                                    </>
-                                                )}
-
-                                                <div className="col-span-12 grid grid-cols-12 gap-3">
-                                                    <div className="col-span-12 md:col-span-3">
-                                                        <label className={label}>Status <span className="text-red-500">*</span></label>
-                                                        <SelectCompact
-                                                            value={status}
-                                                            onChange={setStatus}
-                                                            options={(enums?.ProductStatus || ["active", "inactive", "archived"]).map(s => ({ value: s, label: labelize(s) }))}
-                                                        />
-                                                    </div>
-                                                    <div className="col-span-12 md:col-span-3 relative overflow-visible">
+                                                    )}
+                                                    {!variantEnabled && (
+                                                        <Field className="col-span-1" label="Threshold">
+                                                            <input
+                                                                type="number"
+                                                                min={0}
+                                                                className={input}
+                                                                placeholder="0"
+                                                                value={mainThreshold}
+                                                                onChange={(e) => setMainThreshold(sanitizeIntegerInput(e.target.value))}
+                                                                inputMode="numeric"
+                                                            />
+                                                        </Field>
+                                                    )}
+                                                    <div className="col-span-1 relative overflow-visible">
                                                         <label className={label}>Place of origin <span className="text-red-500">*</span></label>
                                                         <SelectCompact
                                                             value={origin}
@@ -1805,7 +1832,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                             <p className="mt-1 text-[11px] text-gray-500">Loading countries…</p>
                                                         )}
                                                     </div>
-                                                    <Field className="col-span-12 md:col-span-3" label="Brand">
+                                                    <Field className="col-span-1" label="Brand">
                                                         <input
                                                             className={input}
                                                             placeholder="Enter"
@@ -1815,7 +1842,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                     </Field>
 
                                                     {/* Category */}
-                                                    <Field className="col-span-12 md:col-span-3" label="Category">
+                                                    <Field className="col-span-1" label="Category">
                                                         <SelectCompact
                                                             value={category || "Select"}
                                                             onChange={(val) => setCategory(val)}
@@ -1829,75 +1856,75 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                 </div>
 
                                                 {!variantEnabled && (
-                                                    <div className="col-span-12 md:col-span-6 ">
-                                                        <label className={label}>Weight</label>
-                                                        <div className="grid grid-cols-12">
-                                                            {/* 1. Main Weight Input (6 cols) */}
-                                                            <div className="col-span-8 flex items-center rounded-lg border border-gray-300 bg-white focus-within:ring-2 focus-within:ring-gray-900/10 focus-within:border-gray-400 overflow-hidden">
-                                                                <input
-                                                                    className="h-8 w-full border-none bg-transparent px-2 text-[13px] text-gray-900 focus:outline-none focus:ring-0"
-                                                                    placeholder="Enter"
-                                                                    value={weightMain}
-                                                                    onChange={(e) => setWeightMain(sanitizeDecimalInput(e.target.value))}
-                                                                    inputMode="decimal"
-                                                                />
-                                                                <div className="h-8 flex items-center justify-center border-l border-gray-200 bg-gray-50 px-3 text-[13px] text-gray-500 select-none">
-                                                                    lb
-                                                                </div>
-                                                            </div>
-
-                                                            {/* 3. Sub Weight Input (4 cols) */}
-                                                            <div className="col-span-4 pl-2">
-                                                                <div className="flex items-center rounded-lg border border-gray-300 bg-white focus-within:ring-2 focus-within:ring-gray-900/10 focus-within:border-gray-400 overflow-hidden">
+                                                    <div className="col-span-12 grid grid-cols-5 gap-3">
+                                                        <div className="col-span-2">
+                                                            <label className={label}>Weight</label>
+                                                            <div className="grid grid-cols-12">
+                                                                {/* 1. Main Weight Input (7 cols) */}
+                                                                <div className="col-span-7 flex items-center rounded-lg border border-gray-300 bg-white focus-within:ring-2 focus-within:ring-gray-900/10 focus-within:border-gray-400 overflow-hidden">
                                                                     <input
                                                                         className="h-8 w-full border-none bg-transparent px-2 text-[13px] text-gray-900 focus:outline-none focus:ring-0"
-                                                                        placeholder="Oz"
-                                                                        value={weightSub}
-                                                                        onChange={(e) => setWeightSub(sanitizeDecimalInput(e.target.value))}
+                                                                        placeholder="Enter"
+                                                                        value={weightMain}
+                                                                        onChange={(e) => setWeightMain(sanitizeDecimalInput(e.target.value))}
                                                                         inputMode="decimal"
                                                                     />
-                                                                    <div className="h-8 flex items-center justify-center border-l border-gray-200 bg-gray-50 px-3 text-[13px] text-gray-500 select-none">
-                                                                        oz
+                                                                    <div className="h-8 flex items-center justify-center border-l border-gray-200 bg-gray-50 px-2 text-[13px] text-gray-500 select-none">
+                                                                        lb
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* 3. Sub Weight Input (5 cols) */}
+                                                                <div className="col-span-5 pl-2">
+                                                                    <div className="flex items-center rounded-lg border border-gray-300 bg-white focus-within:ring-2 focus-within:ring-gray-900/10 focus-within:border-gray-400 overflow-hidden">
+                                                                        <input
+                                                                            className="h-8 w-full border-none bg-transparent px-2 text-[13px] text-gray-900 focus:outline-none focus:ring-0"
+                                                                            placeholder="Oz"
+                                                                            value={weightSub}
+                                                                            onChange={(e) => setWeightSub(sanitizeDecimalInput(e.target.value))}
+                                                                            inputMode="decimal"
+                                                                        />
+                                                                        <div className="h-8 flex items-center justify-center border-l border-gray-200 bg-gray-50 px-2 text-[13px] text-gray-500 select-none">
+                                                                            oz
+                                                                        </div>
                                                                     </div>
                                                                 </div>
                                                             </div>
                                                         </div>
-                                                    </div>
-                                                )}
 
-                                                {!variantEnabled && (
-                                                    <div className="col-span-12 md:col-span-6">
-                                                        <label className={label}>Dimension</label>
-                                                        <div className="grid grid-cols-12 gap-2">
-                                                            <input
-                                                                className={`${input} ${err("dimL") ? "border-red-400 ring-1 ring-red-200" : ""} col-span-3`}
-                                                                placeholder="Length"
-                                                                value={dimL}
-                                                                onChange={(e) => setDimL(sanitizeDecimalInput(e.target.value))}
-                                                                inputMode="decimal"
-                                                            />
-                                                            <input
-                                                                className={`${input} ${err("dimW") ? "border-red-400 ring-1 ring-red-200" : ""} col-span-3`}
-                                                                placeholder="Width"
-                                                                value={dimW}
-                                                                onChange={(e) => setDimW(sanitizeDecimalInput(e.target.value))}
-                                                                inputMode="decimal"
-                                                            />
-                                                            <div className="col-span-6 grid grid-cols-2 gap-0">
+                                                        <div className="col-span-3">
+                                                            <label className={label}>Dimension</label>
+                                                            <div className="grid grid-cols-12 gap-2">
                                                                 <input
-                                                                    className={`${input} ${err("dimH") ? "border-red-400 ring-1 ring-red-200" : ""} rounded-r-none border-r-0`}
-                                                                    placeholder="Height"
-                                                                    value={dimH}
-                                                                    onChange={(e) => setDimH(sanitizeDecimalInput(e.target.value))}
+                                                                    className={`${input} ${err("dimL") ? "border-red-400 ring-1 ring-red-200" : ""} col-span-3`}
+                                                                    placeholder="Length"
+                                                                    value={dimL}
+                                                                    onChange={(e) => setDimL(sanitizeDecimalInput(e.target.value))}
                                                                     inputMode="decimal"
                                                                 />
-                                                                <div className="relative overflow-visible">
-                                                                    <SelectCompact
-                                                                        value={dimUnit}
-                                                                        onChange={setDimUnit}
-                                                                        options={dimUnits.map(u => ({ value: u, label: u }))}
-                                                                        buttonClassName="rounded-l-none"
+                                                                <input
+                                                                    className={`${input} ${err("dimW") ? "border-red-400 ring-1 ring-red-200" : ""} col-span-3`}
+                                                                    placeholder="Width"
+                                                                    value={dimW}
+                                                                    onChange={(e) => setDimW(sanitizeDecimalInput(e.target.value))}
+                                                                    inputMode="decimal"
+                                                                />
+                                                                <div className="col-span-6 grid grid-cols-2 gap-0">
+                                                                    <input
+                                                                        className={`${input} ${err("dimH") ? "border-red-400 ring-1 ring-red-200" : ""} rounded-r-none border-r-0`}
+                                                                        placeholder="Height"
+                                                                        value={dimH}
+                                                                        onChange={(e) => setDimH(sanitizeDecimalInput(e.target.value))}
+                                                                        inputMode="decimal"
                                                                     />
+                                                                    <div className="relative overflow-visible">
+                                                                        <SelectCompact
+                                                                            value={dimUnit}
+                                                                            onChange={setDimUnit}
+                                                                            options={dimUnits.map(u => ({ value: u, label: u }))}
+                                                                            buttonClassName="rounded-l-none"
+                                                                        />
+                                                                    </div>
                                                                 </div>
                                                             </div>
                                                         </div>
@@ -2036,8 +2063,8 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                         <span className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Basic Details</span>
                                                                                         <div className="h-px bg-gray-100 flex-1"></div>
                                                                                     </div>
-                                                                                    <div className="grid grid-cols-12 gap-2">
-                                                                                        <Field className="col-span-12 md:col-span-2" label="Size">
+                                                                                    <div className="grid grid-cols-5 gap-3">
+                                                                                        <Field className="col-span-1" label="Size">
                                                                                             <SelectCompact
                                                                                                 value={sizeLabel}
                                                                                                 onChange={(val) => {
@@ -2054,7 +2081,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                                 addNewLabel="Add new size…"
                                                                                             />
                                                                                         </Field>
-                                                                                        <Field className="col-span-12 md:col-span-2" label="Color">
+                                                                                        <Field className="col-span-1" label="Color">
                                                                                             <SelectCompact
                                                                                                 value={v.colorText || "—"}
                                                                                                 onChange={(val) => {
@@ -2069,7 +2096,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                                 filterable
                                                                                             />
                                                                                         </Field>
-                                                                                        <Field className="col-span-12 md:col-span-3" label="Packaging Type">
+                                                                                        <Field className="col-span-1" label="Packaging Type">
                                                                                             <SelectCompact
                                                                                                 value={v.packagingType || ""}
                                                                                                 onChange={(val) => {
@@ -2089,13 +2116,13 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                                 filterable
                                                                                             />
                                                                                         </Field>
-                                                                                        <Field className="col-span-12 md:col-span-3" label="Variant SKU *">
+                                                                                        <Field className="col-span-1" label="Variant SKU *">
                                                                                             <input className={`${input} ${err(`v:${v.id}:sku`) ? "border-red-400 ring-1 ring-red-200" : ""} `} placeholder="123-XL" value={v.sku} onChange={(e) => patchVariant(v.id, { sku: e.target.value, autoSku: false })} />
                                                                                         </Field>
-                                                                                        <Field className="col-span-12 md:col-span-2" label="Barcode">
+                                                                                        <Field className="col-span-1" label="Barcode">
                                                                                             <input className={input} placeholder="Optional" value={v.barcode} onChange={(e) => patchVariant(v.id, { barcode: e.target.value })} />
                                                                                         </Field>
-                                                                                        <Field className="col-span-12 md:col-span-2" label="Stock">
+                                                                                        <Field className="col-span-1" label="Stock">
                                                                                             <input
                                                                                                 type="number"
                                                                                                 min={0}
@@ -2103,6 +2130,17 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                                 placeholder="0"
                                                                                                 value={v.stockOnHand ?? ""}
                                                                                                 onChange={(e) => patchVariant(v.id, { stockOnHand: sanitizeIntegerInput(e.target.value) })}
+                                                                                                inputMode="numeric"
+                                                                                            />
+                                                                                        </Field>
+                                                                                        <Field className="col-span-1" label="Threshold">
+                                                                                            <input
+                                                                                                type="number"
+                                                                                                min={0}
+                                                                                                className={input}
+                                                                                                placeholder="0"
+                                                                                                value={v.threshold ?? ""}
+                                                                                                onChange={(e) => patchVariant(v.id, { threshold: sanitizeIntegerInput(e.target.value) })}
                                                                                                 inputMode="numeric"
                                                                                             />
                                                                                         </Field>
@@ -3015,8 +3053,8 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                             <div className="min-w-[140px]">
                                                                 <label className={label}>Attach To <span className="text-red-500">*</span></label>
                                                                 <SelectCompact
-                                                                    value={selectedVariantForListing}
-                                                                    onChange={(v) => setSelectedVariantForListing(v)}
+                                                                    value={selectedVariantIdsForListing}
+                                                                    onChange={(v) => setSelectedVariantIdsForListing(Array.isArray(v) ? v : [v])}
                                                                     options={[
                                                                         { value: "product", label: "Product (no variant)" },
                                                                         ...(variants.map(v => ({
@@ -3025,6 +3063,8 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                         })))
                                                                     ]}
                                                                     filterable
+                                                                    multiple
+                                                                    placeholder="Select Variant(s)"
                                                                 />
                                                             </div>
                                                         )}
@@ -3056,7 +3096,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                 placeholder="Select Marketplace(s)"
                                                                 filterable
                                                                 multiple
-                                                                disabled={Array.isArray(variants) && variants.length > 0 && !selectedVariantForListing}
+                                                                disabled={Array.isArray(variants) && variants.length > 0 && selectedVariantIdsForListing.length === 0}
                                                                 onAddNew={() => {
                                                                     setNewMarketplaceName("");
                                                                     setMarketplaceModalOpen(true);
@@ -3181,9 +3221,12 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                         let stock = 0;
                                                                         if (!variantEnabled) {
                                                                             stock = productDetail?.stockOnHand ?? 0;
-                                                                        } else if (selectedVariantForListing && selectedVariantForListing !== "product") {
-                                                                            const v = variants.find(v => String(v.id) === String(selectedVariantForListing));
-                                                                            if (v) stock = v.stockOnHand ?? 0;
+                                                                        } else if (selectedVariantIdsForListing.length > 0 && !selectedVariantIdsForListing.includes("product")) {
+                                                                            // Sum stock from all selected variants
+                                                                            stock = selectedVariantIdsForListing.reduce((sum, vid) => {
+                                                                                const v = variants.find(v => String(v.id) === String(vid));
+                                                                                return sum + (v?.stockOnHand ?? 0);
+                                                                            }, 0);
                                                                         }
                                                                         const u = parseInt(listingUnits, 10);
                                                                         return (u > 0 && stock > 0) ? Math.floor(stock / u) : 0;
@@ -3200,9 +3243,12 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                         let stockToShow = 0;
                                                                         if (!variantEnabled) {
                                                                             stockToShow = productDetail?.stockOnHand ?? 0;
-                                                                        } else if (selectedVariantForListing && selectedVariantForListing !== "product") {
-                                                                            const v = variants.find(v => String(v.id) === String(selectedVariantForListing));
-                                                                            if (v) stockToShow = v.stockOnHand ?? 0;
+                                                                        } else if (selectedVariantIdsForListing.length > 0 && !selectedVariantIdsForListing.includes("product")) {
+                                                                            // Sum stock from all selected variants
+                                                                            stockToShow = selectedVariantIdsForListing.reduce((sum, vid) => {
+                                                                                const v = variants.find(v => String(v.id) === String(vid));
+                                                                                return sum + (v?.stockOnHand ?? 0);
+                                                                            }, 0);
                                                                         }
                                                                         return stockToShow;
                                                                     })()}
@@ -3235,35 +3281,43 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                 return;
                                                                             }
 
-                                                                            // Loop through all selected marketplaces and create a listing for each
-                                                                            for (const channelId of selectedChannelIds) {
-                                                                                const payload = {
-                                                                                    productName: prodName,
-                                                                                    marketplace: channelId,
-                                                                                    channelId: channelId,
-                                                                                    units: Number(listingUnits),
-                                                                                };
-                                                                                const selectedChan = (allChannels || []).find(c => c.id === channelId);
-                                                                                if (selectedChan) payload.marketplace = selectedChan.marketplace;
-                                                                                // Auto-generate unique SKU for each listing
-                                                                                payload.externalSku = `ML-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
-                                                                                if (listingPrice && listingPrice.trim()) {
-                                                                                    payload.price = parseFloat(listingPrice);
-                                                                                }
-                                                                                if (selectedVariantForListing && selectedVariantForListing !== "product") {
-                                                                                    payload.variantId = selectedVariantForListing;
-                                                                                }
+                                                                            // Determine which variants to include
+                                                                            const effectiveVariantIds = selectedVariantIdsForListing.length > 0
+                                                                                ? selectedVariantIdsForListing
+                                                                                : ["product"]; // default to product-level if none selected
 
-                                                                                await addListing(payload);
+                                                                            // Build rows for bulk API
+                                                                            const rows = [];
+                                                                            for (const channelId of selectedChannelIds) {
+                                                                                const selectedChan = (allChannels || []).find(c => c.id === channelId);
+                                                                                for (const variantId of effectiveVariantIds) {
+                                                                                    const row = {
+                                                                                        productName: prodName,
+                                                                                        marketplace: selectedChan?.marketplace || channelId,
+                                                                                        channelId: channelId,
+                                                                                        units: Number(listingUnits),
+                                                                                        externalSku: `ML-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+                                                                                    };
+                                                                                    if (listingPrice && listingPrice.trim()) {
+                                                                                        row.price = parseFloat(listingPrice);
+                                                                                    }
+                                                                                    if (variantId && variantId !== "product") {
+                                                                                        row.variantId = variantId;
+                                                                                    }
+                                                                                    rows.push(row);
+                                                                                }
                                                                             }
 
-                                                                            showSuccess(`${selectedChannelIds.length} listing(s) added`);
+                                                                            // Single bulk API call
+                                                                            await bulkAddListings(rows);
+
+                                                                            showSuccess(`${rows.length} listing(s) added`);
                                                                             setListingSku("");
                                                                             setListingUnits("");
                                                                             setListingPrice("");
                                                                             setSelectedProductName("Select");
                                                                             setSelectedChannelIds([]);
-                                                                            setSelectedVariantForListing("product");
+                                                                            setSelectedVariantIdsForListing([]);
                                                                             await refetchListings();
                                                                         } catch (e) {
                                                                             showError(e?.response?.data?.message || e?.message || "Failed to add listing");

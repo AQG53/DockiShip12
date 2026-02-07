@@ -7,8 +7,8 @@ export default function InventoryLayout() {
         <div className="flex min-h-[calc(100vh-64px)] pt-16">
             <Navbar />
             <InventorySidebar />
-            <main className="flex-1 bg-white">
-                <div className="mx-auto max-w-6xl p-6">
+            <main className="flex-1 bg-white min-w-0 overflow-hidden">
+                <div className="mx-auto w-full p-6 h-full overflow-y-auto">
                     <Outlet />
                 </div>
             </main>
