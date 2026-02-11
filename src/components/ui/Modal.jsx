@@ -6,6 +6,9 @@ export function Modal({
     open,
     onClose,
     title,
+    titleRight,
+    sideContent,
+    sideContentClassName = "",
     children,
     footer,
     widthClass = "max-w-md",
@@ -37,36 +40,47 @@ export function Modal({
                             leaveFrom="opacity-100 scale-100"
                             leaveTo="opacity-0 scale-95"
                         >
-                            <Dialog.Panel
-                                className={`w-full ${widthClass} transform rounded-xl bg-white text-left align-middle shadow-xl transition-all flex flex-col max-h-[85vh]`}
-                            >
-                                {(title || showCloseButton) && (
-                                    <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 shrink-0">
-                                        <Dialog.Title
-                                            as="h3"
-                                            className="text-lg font-medium leading-6 text-gray-900"
-                                        >
-                                            {title}
-                                        </Dialog.Title>
-                                        {showCloseButton && (
-                                            <button
-                                                type="button"
-                                                className="rounded-md text-gray-400 hover:text-gray-500 focus:outline-none"
-                                                onClick={onClose}
+                            <Dialog.Panel className="flex items-start justify-center gap-4 w-full max-w-[calc(100vw-2rem)]">
+                                <div
+                                    className={`w-full ${widthClass} transform rounded-xl bg-white text-left align-middle shadow-xl transition-all flex flex-col max-h-[85vh]`}
+                                >
+                                    {(title || showCloseButton || titleRight) && (
+                                        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 shrink-0">
+                                            <Dialog.Title
+                                                as="h3"
+                                                className="text-lg font-medium leading-6 text-gray-900"
                                             >
-                                                <X size={20} />
-                                            </button>
-                                        )}
-                                    </div>
-                                )}
+                                                {title}
+                                            </Dialog.Title>
+                                            <div className="flex items-center gap-3">
+                                                {titleRight}
+                                                {showCloseButton && (
+                                                    <button
+                                                        type="button"
+                                                        className="rounded-md text-gray-400 hover:text-gray-500 focus:outline-none"
+                                                        onClick={onClose}
+                                                    >
+                                                        <X size={20} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
 
-                                <div className="p-6 overflow-y-auto">
-                                    {children}
+                                    <div className="p-6 overflow-y-auto">
+                                        {children}
+                                    </div>
+
+                                    {footer && (
+                                        <div className="bg-gray-50 px-4 py-3 flex justify-end gap-3 border-t border-gray-200 shrink-0 rounded-b-xl">
+                                            {footer}
+                                        </div>
+                                    )}
                                 </div>
 
-                                {footer && (
-                                    <div className="bg-gray-50 px-4 py-3 flex justify-end gap-3 border-t border-gray-200 shrink-0 rounded-b-xl">
-                                        {footer}
+                                {sideContent && (
+                                    <div className={`hidden xl:block w-[320px] max-h-[85vh] overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-xl ${sideContentClassName}`}>
+                                        {sideContent}
                                     </div>
                                 )}
                             </Dialog.Panel>

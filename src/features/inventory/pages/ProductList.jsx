@@ -18,6 +18,7 @@ import { randomId } from "../../../lib/id";
 import { Button } from "../../../components/ui/Button";
 import { ActionMenu } from "../../../components/ui/ActionMenu";
 import { HeadlessSelect } from "../../../components/ui/HeadlessSelect";
+import SelectCompact from "../../../components/SelectCompact";
 
 export default function ProductList() {
   const { data: auth } = useAuthCheck({ refetchOnWindowFocus: false });
@@ -46,7 +47,7 @@ export default function ProductList() {
   const [openCreate, setOpenCreate] = useState(false);
 
   const [page, setPage] = useState(1);
-  const [perPage] = useState(25);
+  const [perPage, setPerPage] = useState(25);
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
   const statusOptions = useMemo(() => [
@@ -99,13 +100,22 @@ export default function ProductList() {
     console.log(data);
   }, [data, auth]);
 
+  const refreshCurrentPage = () => {
+    fetchProducts({
+      page,
+      perPage,
+      search: debouncedSearch?.trim() || undefined,
+      status: statusFilter.id || undefined,
+    });
+  };
+
   const deleteProduct = () => {
     if (!confirmItem?.id) return;
     deleteProductMut(confirmItem.id, {
       onSuccess: () => {
         setConfirmOpen(false);
         toast.success("Product deleted successfully");
-        fetchProducts(); // refresh table
+        refreshCurrentPage();
       },
       onError: (err) => {
         toast.error("Failed to delete: " + (err?.message || "Unknown error"));
@@ -342,7 +352,24 @@ export default function ProductList() {
             </span>{" "}
             of <span className="font-medium">{data.meta.total}</span> results
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4">
+            <div className="w-[120px]">
+              <SelectCompact
+                value={perPage}
+                onChange={(val) => {
+                  setPerPage(Number(val));
+                  setPage(1);
+                }}
+                options={[
+                  { value: 25, label: "25 / page" },
+                  { value: 50, label: "50 / page" },
+                  { value: 75, label: "75 / page" },
+                  { value: 100, label: "100 / page" },
+                ]}
+                addNewLabel={null}
+              />
+            </div>
+            <div className="flex items-center gap-2">
             <button
               className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               onClick={() => setPage((p) => Math.max(1, p - 1))}
@@ -357,6 +384,7 @@ export default function ProductList() {
             >
               Next
             </button>
+            </div>
           </div>
         </div>
       )}
@@ -366,7 +394,7 @@ export default function ProductList() {
         <CreateProductModal
           open={openCreate}
           onClose={() => setOpenCreate(false)}
-          onSave={() => fetchProducts()}
+          onSave={refreshCurrentPage}
         />
       )}
 
@@ -375,7 +403,7 @@ export default function ProductList() {
         <CreateProductModal
           open={editOpen}
           onClose={() => { setEditOpen(false); setEditingId(null); }}
-          onSave={() => fetchProducts()}
+          onSave={refreshCurrentPage}
           edit
           productId={editingId}
         />
@@ -399,7 +427,7 @@ export default function ProductList() {
         <span className="font-semibold">{confirmItem?.name || "this product"}</span>?
         <br />
         <span className="text-sm text-gray-500">
-          If this product has any history (orders, stock), it will be archived instead of deleted.
+          Products linked to existing orders cannot be deleted. Products with stock/purchase history are archived instead.
         </span>
       </ConfirmModal>
 
@@ -481,5 +509,3 @@ function mapProductsToRows(apiRows, auth) {
     };
   });
 }
-
-

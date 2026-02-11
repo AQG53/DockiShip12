@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Modal } from "../../../components/ui/Modal";
 import { Button } from "../../../components/ui/Button";
 import SelectCompact from "../../../components/SelectCompact";
@@ -15,7 +15,7 @@ import { useSearchMarketplaceChannels } from "../../../hooks/useProducts";
 import { useCourierMediums } from "../../settings/hooks/useCourierMediums";
 import { uploadOrderAttachment, deleteOrderAttachment } from "../../../lib/api";
 import toast from "react-hot-toast";
-import { Trash2, Plus, Paperclip, Loader2, X, Info } from "lucide-react";
+import { Trash2, Plus, Paperclip, Loader2, X, Info, Check, ChevronDown, ChevronRight } from "lucide-react";
 
 const inputClass =
     "h-9 rounded-lg border border-gray-300 px-3 text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10 w-full";
@@ -26,6 +26,16 @@ const IMG_PLACEHOLDER =
     encodeURIComponent(
         '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><rect width="100%" height="100%" fill="#f3f4f6"/><g fill="#9ca3af"><circle cx="26" cy="30" r="8"/><path d="M8 60l15-15 10 10 12-12 27 27H8z"/></g></svg>'
     );
+const BULK_PERSIST_DEFAULT = {
+    marketplace: false,
+    remarks: false,
+    products: false,
+    attachments: false,
+    shippingCharges: false,
+    tax: false,
+    otherCharges: false,
+    courier: false,
+};
 
 export default function OrderModal({ open, onClose, editing, onSuccess }) {
     const createMut = useCreateOrder();
@@ -33,6 +43,19 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
     const uploadLabelMut = useUploadOrderLabel();
     const deleteLabelMut = useDeleteOrderLabel();
     const alert = useAnimatedAlert();
+    const orderIdRef = useRef(null);
+    const [savedOrders, setSavedOrders] = useState([]);
+    const [bulkCreationMode, setBulkCreationMode] = useState(false);
+    const [bulkPersist, setBulkPersist] = useState(BULK_PERSIST_DEFAULT);
+
+    // Clear saved orders when modal opens for a new entry
+    useEffect(() => {
+        if (open && !editing) {
+            setSavedOrders([]);
+            setBulkCreationMode(false);
+            setBulkPersist(BULK_PERSIST_DEFAULT);
+        }
+    }, [open, editing]);
 
     // Meta hooks
     const { data: channels = [] } = useSearchMarketplaceChannels({});
@@ -119,6 +142,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
     // Load editing data
     useEffect(() => {
         if (editing) {
+            setBulkCreationMode(false);
             setDate(editing.date ? editing.date.split('T')[0] : new Date().toISOString().split('T')[0]);
             setOrderId(editing.orderId || "");
             setTenantChannelId(editing.tenantChannelId || "");
@@ -294,7 +318,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
     };
 
     // Handlers
-    const handleSave = async () => {
+    const handleSave = async (mode = 'single') => {
         if (!orderId?.trim()) {
             alert.error("Required Field", "Order ID is required");
             return;
@@ -429,9 +453,83 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                 }
             }
 
-            if (onSuccess) onSuccess(savedOrderId);
+            if (mode === 'again') {
+                if (bulkCreationMode) {
+                    // In bulk mode, persist only fields with enabled toggles.
+                    const nextMarketplace = bulkPersist.marketplace ? tenantChannelId : "";
+                    const nextCourier = bulkPersist.courier ? courierMediumId : "";
+                    const nextRemarkType = bulkPersist.remarks ? remarkTypeId : "";
+                    const nextRemarks = bulkPersist.remarks ? remarks : "";
+                    const nextItems = bulkPersist.products
+                        ? items.map((item) => {
+                            const qty = parseFloat(item.quantity) || 0;
+                            const units = item.units || 1;
+                            const movement = qty * units;
+                            const currentStock = Number(item.stockOnHand) || 0;
+                            const nextStock = isReturning
+                                ? currentStock + movement
+                                : Math.max(0, currentStock - movement);
+                            return { ...item, stockOnHand: nextStock };
+                        })
+                        : [];
+                    const nextAttachments = bulkPersist.attachments ? newAttachments : [];
+                    const nextShipping = bulkPersist.shippingCharges ? shippingCharges : 0;
+                    const nextTax = bulkPersist.tax ? tax : 0;
+                    const nextOther = bulkPersist.otherCharges ? otherCharges : 0;
 
-            onClose();
+                    setDate(new Date().toISOString().split('T')[0]);
+                    setStatus("PENDING");
+                    setOrderId("");
+                    setTrackingId("");
+                    setTenantChannelId(nextMarketplace);
+                    setCourierMediumId(nextCourier);
+                    setRemarkTypeId(nextRemarkType);
+                    setRemarks(nextRemarks);
+                    setItems(nextItems);
+                    setShippingCharges(nextShipping);
+                    setTax(nextTax);
+                    setOtherCharges(nextOther);
+                    setNewAttachments(nextAttachments);
+                    setNewLabel(null);
+                    setExistingAttachments([]);
+                    setExistingLabel(null);
+                } else {
+                    // Existing behavior when bulk mode is off.
+                    setOrderId("");
+                    setTrackingId("");
+                    setNewAttachments([]);
+                    setNewLabel(null);
+                    setExistingAttachments([]);
+                    setExistingLabel(null);
+                    setShippingCharges(0);
+                    setTax(0);
+                    setOtherCharges(0);
+                }
+
+                if (onSuccess) onSuccess(savedOrderId);
+
+                // Track saved order for preview
+                const currentOrderData = {
+                    id: savedOrderId,
+                    orderId: orderId, // use the state value before clearing
+                    trackingId: trackingId,
+                    marketplace: channels.find(c => c.id === tenantChannelId)?.marketplace || "Unknown",
+                    itemsCount: items.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0),
+                    totalEarning: totalEarning,
+                    // Additional info for expanded view
+                    items: [...items],
+                    shippingCharges: Number(shippingCharges),
+                    tax: Number(tax),
+                    otherCharges: Number(otherCharges)
+                };
+                setSavedOrders(prev => [currentOrderData, ...prev]);
+
+                toast.success("Order saved. Ready for next.");
+                setTimeout(() => orderIdRef.current?.focus(), 0);
+            } else {
+                if (onSuccess) onSuccess(savedOrderId);
+                onClose();
+            }
         } catch (err) {
             const msg = err?.response?.data?.message || err?.message || "Failed to save order";
             const lowerMsg = msg.toLowerCase();
@@ -484,11 +582,68 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
             open={open}
             onClose={onClose}
             title={editing ? "Edit Order" : "New Order"}
+            titleRight={!editing ? (
+                <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-gray-600">Bulk Creation Mode</span>
+                    <button
+                        type="button"
+                        role="switch"
+                        aria-checked={bulkCreationMode}
+                        onClick={() => setBulkCreationMode(v => !v)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${bulkCreationMode ? "bg-gray-900" : "bg-gray-300"}`}
+                    >
+                        <span
+                            className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${bulkCreationMode ? "translate-x-5" : "translate-x-1"}`}
+                        />
+                    </button>
+                </div>
+            ) : null}
+            sideContent={!editing && bulkCreationMode ? (
+                <div className="p-4">
+                    <h3 className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-1">Bulk Persistence Configuration</h3>
+                    <p className="text-xs text-gray-500 mb-3">
+                        Save & Add Another will keep only enabled fields.
+                    </p>
+                    <div className="flex flex-col gap-2.5">
+                        {[
+                            { key: "marketplace", label: "Persist Marketplace" },
+                            { key: "remarks", label: "Persist Remarks" },
+                            { key: "products", label: "Persist Products" },
+                            { key: "attachments", label: "Persist Attachments" },
+                            { key: "shippingCharges", label: "Persist Shipping Charges" },
+                            { key: "tax", label: "Persist Tax" },
+                            { key: "otherCharges", label: "Persist Other Charges" },
+                            { key: "courier", label: "Persist Courier" },
+                        ].map((opt) => (
+                            <label key={opt.key} className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-700">
+                                <input
+                                    type="checkbox"
+                                    className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900/20"
+                                    checked={Boolean(bulkPersist[opt.key])}
+                                    onChange={(e) =>
+                                        setBulkPersist(prev => ({ ...prev, [opt.key]: e.target.checked }))
+                                    }
+                                />
+                                {opt.label}
+                            </label>
+                        ))}
+                    </div>
+                </div>
+            ) : null}
             widthClass="max-w-6xl"
             footer={
                 <>
                     <Button variant="ghost" onClick={onClose}>Cancel</Button>
-                    <Button variant="warning" onClick={handleSave} isLoading={createMut.isPending || updateMut.isPending}>
+                    {!editing && (
+                        <Button
+                            variant="secondary"
+                            onClick={() => handleSave('again')}
+                            isLoading={createMut.isPending || updateMut.isPending}
+                        >
+                            Save & Add Another
+                        </Button>
+                    )}
+                    <Button variant="warning" onClick={() => handleSave('single')} isLoading={createMut.isPending || updateMut.isPending}>
                         Save
                     </Button>
                 </>
@@ -506,7 +661,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                         </div>
                         <div>
                             <label className="block text-[11px] font-medium text-gray-500 mb-1">Order ID <span className="text-red-500">*</span></label>
-                            <input value={orderId} onChange={e => setOrderId(e.target.value)} className={inputClass} placeholder="Enter Order ID" />
+                            <input ref={orderIdRef} value={orderId} onChange={e => setOrderId(e.target.value)} className={inputClass} placeholder="Enter Order ID" />
                         </div>
                         <div>
                             <label className="block text-[11px] font-medium text-gray-500 mb-1">Status</label>
@@ -774,7 +929,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                                                             </div>
                                                         )}
                                                         <div className="flex items-center gap-2 text-xs text-gray-400">
-                                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${(parseFloat(item.quantity) || 0) > (item.stockOnHand || 0)
+                                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${((parseFloat(item.quantity) || 0) * (item.units || 1)) > (item.stockOnHand || 0)
                                                                 ? 'bg-red-100 text-red-600'
                                                                 : 'bg-emerald-100 text-emerald-600'
                                                                 }`}>
@@ -931,8 +1086,134 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                         </div>
                     </div>
                 </div>
-
             </div>
+
+            {/* Saved Orders Preview */}
+            {savedOrders.length > 0 && (
+                <div className="mt-6 rounded-2xl border border-green-200 bg-gradient-to-br from-green-50 to-emerald-50 overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-green-200 bg-white/50">
+                        <div className="flex items-center gap-2">
+                            <div className="flex h-7 w-7 items-center justify-center rounded-md border border-green-300 bg-green-100">
+                                <Check size={16} className="text-green-700" />
+                            </div>
+                            <h3 className="text-sm font-semibold text-green-800">
+                                Orders Added ({savedOrders.length})
+                            </h3>
+                        </div>
+                        <button
+                            onClick={() => setSavedOrders([])}
+                            className="text-xs text-red-600 hover:text-red-700 font-medium"
+                        >
+                            Clear All
+                        </button>
+                    </div>
+
+                    <div className="p-3 space-y-2 max-h-[300px] overflow-y-auto">
+                        {savedOrders.map((order, idx) => (
+                            <SavedOrderRow
+                                key={order.id || idx}
+                                order={order}
+                                index={savedOrders.length - idx}
+                                absImg={absImg}
+                            />
+                        ))}
+                    </div>
+                </div>
+            )}
         </Modal >
+    );
+}
+
+function SavedOrderRow({ order, index, absImg }) {
+    const [isExpanded, setIsExpanded] = useState(false);
+
+    return (
+        <div className="bg-white rounded-lg border border-green-200 overflow-hidden hover:shadow-sm transition-all">
+            {/* Header / Summary */}
+            <div
+                className="p-3 cursor-pointer hover:bg-gray-50/50 flex items-center gap-3"
+                onClick={() => setIsExpanded(!isExpanded)}
+            >
+                <div className="flex-shrink-0">
+                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-100 text-green-700 text-xs font-bold">
+                        {index}
+                    </span>
+                </div>
+
+                <div className="flex-1 grid grid-cols-12 gap-2 text-[13px] items-center">
+                    <div className="col-span-3">
+                        <p className="text-gray-400 text-[9px] uppercase font-extrabold tracking-wider">Order ID</p>
+                        <p className="font-semibold text-gray-900 truncate">{order.orderId}</p>
+                    </div>
+
+                    <div className="col-span-3">
+                        <p className="text-gray-400 text-[9px] uppercase font-extrabold tracking-wider">Marketplace</p>
+                        <p className="font-medium text-gray-800 truncate">{order.marketplace}</p>
+                    </div>
+
+                    <div className="col-span-2">
+                        <p className="text-gray-400 text-[9px] uppercase font-extrabold tracking-wider">Items</p>
+                        <p className="font-semibold text-gray-700">{order.itemsCount}</p>
+                    </div>
+
+                    <div className="col-span-3 text-right">
+                        <p className="text-gray-400 text-[9px] uppercase font-extrabold tracking-wider">Total Earning</p>
+                        <p className="font-bold text-emerald-600">${order.totalEarning.toFixed(2)}</p>
+                    </div>
+
+                    <div className="col-span-1 flex justify-end text-gray-400">
+                        {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                    </div>
+                </div>
+            </div>
+
+            {/* Detailed View */}
+            {isExpanded && (
+                <div className="px-3 pb-3 pt-1 border-t border-gray-100 bg-gray-50/30">
+                    <div className="space-y-3">
+                        {/* Item List */}
+                        <div className="space-y-2">
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">Order Items</p>
+                            {order.items.map((item, iIdx) => (
+                                <div key={iIdx} className="flex items-center gap-3 bg-white p-2 rounded-md border border-gray-100">
+                                    <div className="h-10 w-10 flex-shrink-0 rounded bg-gray-50 border border-gray-200 overflow-hidden">
+                                        <img
+                                            src={absImg(item.imageUrl)}
+                                            alt=""
+                                            className="h-full w-full object-cover"
+                                            onError={(e) => { e.currentTarget.src = "data:image/svg+xml;utf8,<svg ... />"; }} // Fallback if absImg fails
+                                        />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-xs font-semibold text-gray-900 truncate">{item.variantName || "Product"}</p>
+                                        <p className="text-[10px] text-gray-500 truncate">SKU: {item.sku || item.marketplaceSku}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-[11px] font-bold text-gray-900">Qty: {item.quantity}</p>
+                                        <p className="text-[10px] text-gray-500">Price: ${Number(item.unitPrice).toFixed(2)}</p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Charges Summary */}
+                        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-100">
+                            <div>
+                                <p className="text-[9px] text-gray-400 uppercase font-bold">Shipping</p>
+                                <p className="text-xs font-semibold text-gray-700">${order.shippingCharges.toFixed(2)}</p>
+                            </div>
+                            <div>
+                                <p className="text-[9px] text-gray-400 uppercase font-bold">Tax</p>
+                                <p className="text-xs font-semibold text-gray-700">${order.tax.toFixed(2)}</p>
+                            </div>
+                            <div>
+                                <p className="text-[9px] text-gray-400 uppercase font-bold">Other</p>
+                                <p className="text-xs font-semibold text-gray-700">${order.otherCharges.toFixed(2)}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
     );
 }

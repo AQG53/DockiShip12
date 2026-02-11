@@ -96,13 +96,22 @@ export default function ProductList() {
     console.log(data);
   }, [data, auth]);
 
+  const refreshCurrentPage = () => {
+    fetchProducts({
+      page,
+      perPage,
+      search: debouncedSearch?.trim() || undefined,
+      status: statusFilter.id || undefined,
+    });
+  };
+
   const deleteProduct = () => {
     if (!confirmItem?.id) return;
     deleteProductMut(confirmItem.id, {
       onSuccess: () => {
         setConfirmOpen(false);
         toast.success("Product deleted successfully");
-        fetchProducts(); // refresh table
+        refreshCurrentPage();
       },
       onError: (err) => {
         toast.error("Failed to delete: " + (err?.message || "Unknown error"));
@@ -306,7 +315,7 @@ export default function ProductList() {
         <CreateProductModal
           open={openCreate}
           onClose={() => setOpenCreate(false)}
-          onSave={() => fetchProducts()}
+          onSave={refreshCurrentPage}
         />
       )}
 
@@ -315,7 +324,7 @@ export default function ProductList() {
         <CreateProductModal
           open={editOpen}
           onClose={() => { setEditOpen(false); setEditingId(null); }}
-          onSave={() => fetchProducts()}
+          onSave={refreshCurrentPage}
           edit
           productId={editingId}
         />
