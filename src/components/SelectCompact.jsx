@@ -21,6 +21,8 @@ export default function SelectCompact({
   multiple = false,
   onSearch,
   hideCheck = false,
+  loading = false,
+  loadingText = "Loading...",
 }) {
   const list = Array.isArray(options) ? options : [];
 
@@ -120,7 +122,15 @@ export default function SelectCompact({
               />
             </div>
           )}
-          {filtered.length === 0 && !onAddNew ? (
+          {loading && (
+            <div className={`px-2 ${filterable ? "pb-1" : "py-1"}`}>
+              <div className="flex items-center gap-2 rounded-md border border-gray-100 bg-gray-50 px-2 py-1.5 text-gray-600">
+                <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
+                <span className="text-[11px]">{loadingText}</span>
+              </div>
+            </div>
+          )}
+          {filtered.length === 0 && !onAddNew && !loading ? (
             <div className="px-2 py-2 text-gray-500 text-center italic">No options</div>
           ) : (
             filtered.map((opt) => {

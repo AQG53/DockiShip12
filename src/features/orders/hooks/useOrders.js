@@ -22,7 +22,7 @@ import {
 export function useProductsForSelection(search = "", channelId = null) {
     return useQuery({
         queryKey: ["products", "forSelection", search, channelId],
-        queryFn: () => listProductsForOrderSelection({ search, channelId, perPage: 100 }),
+        queryFn: () => listProductsForOrderSelection({ search, channelId }),
         staleTime: 0, // Always fetch fresh
         enabled: true // Always enabled, API handles null channelId
     });

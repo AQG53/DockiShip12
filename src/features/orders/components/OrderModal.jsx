@@ -79,7 +79,8 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
 
     // Products for selecting
     const [productSearch, setProductSearch] = useState("");
-    const { data: productOptions = [] } = useProductsForSelection(productSearch, tenantChannelId);
+    const { data: productOptions = [], isFetching: isProductsFetching } = useProductsForSelection(productSearch, tenantChannelId);
+    const isProductSearchLoading = !!productSearch?.trim() && isProductsFetching;
 
     // Items State
     const [items, setItems] = useState([]);
@@ -572,9 +573,11 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
     }, [productOptions, items]);
 
     const absImg = (url) => {
-        if (!url) return IMG_PLACEHOLDER;
-        if (/^https?:\/\//i.test(url)) return url;
-        return `${API_BASE}${url}`;
+        const raw = String(url ?? "").trim();
+        if (!raw || raw.toLowerCase() === "null" || raw.toLowerCase() === "undefined") return IMG_PLACEHOLDER;
+        if (/^https?:\/\//i.test(raw)) return raw;
+        const normalized = raw.startsWith("/") ? raw : `/${raw}`;
+        return `${API_BASE}${normalized}`;
     };
 
     return (
@@ -835,6 +838,8 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                                     options={productSelectOpts}
                                     filterable
                                     onSearch={setProductSearch} // Enable server-side search
+                                    loading={isProductSearchLoading}
+                                    loadingText="Searching products..."
                                     buttonClassName="h-9 border-dashed border-gray-300 text-gray-500 hover:border-blue-400 hover:text-blue-600 bg-white"
                                     addNewLabel={null}
                                     hideCheck={true} // Hide the selected checkmark/spacer
@@ -845,7 +850,15 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                                             <div className="flex items-start gap-2 py-1">
                                                 <div className="w-9 h-9 flex-shrink-0 rounded-md border border-gray-200 bg-gray-50 overflow-hidden mt-0.5">
                                                     {opt.imageUrl ? (
-                                                        <img src={absImg(opt.imageUrl)} alt="" className="w-full h-full object-cover" />
+                                                        <img
+                                                            src={absImg(opt.imageUrl)}
+                                                            alt=""
+                                                            className="w-full h-full object-cover"
+                                                            onError={(e) => {
+                                                                e.currentTarget.onerror = null;
+                                                                e.currentTarget.src = IMG_PLACEHOLDER;
+                                                            }}
+                                                        />
                                                     ) : (
                                                         <div className="w-full h-full flex items-center justify-center text-gray-300">
                                                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -855,22 +868,22 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                                                     )}
                                                 </div>
 
-                                                <div className="flex flex-col gap-0.5 max-w-[240px]">
-                                                    <span className="text-sm font-medium text-gray-900 truncate" title={opt.marketplaceName || opt.variantName}>
+                                                <div className="flex flex-col gap-0.5 min-w-0 flex-1 pr-1">
+                                                    <span className="text-sm font-medium text-gray-900 leading-tight break-words" title={opt.marketplaceName || opt.variantName}>
                                                         {opt.marketplaceName || opt.variantName || opt.label}
                                                     </span>
                                                     <div className="flex flex-col text-xs text-gray-500">
                                                         {opt.marketplaceSku && (
-                                                            <span className="truncate">
+                                                            <span className="break-words">
                                                                 <span className="font-medium text-gray-400">Marketplace SKU:</span> {opt.marketplaceSku}
                                                             </span>
                                                         )}
                                                         {opt.sku && (
-                                                            <span className="truncate">
+                                                            <span className="break-words">
                                                                 <span className="font-medium text-gray-400">Internal SKU:</span> {opt.sku}
                                                             </span>
                                                         )}
-                                                        <span className="text-gray-500 truncate">
+                                                        <span className="text-gray-500 break-words">
                                                             <span className="font-medium text-gray-400">Product Name:</span> {opt.variantName || opt.label}
                                                         </span>
                                                     </div>
