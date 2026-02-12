@@ -827,7 +827,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                 <div className="min-h-[200px]">
                     <div className="flex items-center justify-between mb-2">
                         <h3 className="text-xs font-semibold text-gray-900 uppercase tracking-wider">Order Items ({items.length})</h3>
-                        <div className="w-80 relative" onClick={() => !tenantChannelId && alert.info("Select Marketplace First", "Please select a Marketplace before adding products.")}>
+                        <div className="w-[30rem] max-w-[90vw] relative" onClick={() => !tenantChannelId && alert.info("Select Marketplace First", "Please select a Marketplace before adding products.")}>
                             <div className={!tenantChannelId ? "pointer-events-none opacity-50" : ""}>
                                 <SelectCompact
                                     value=""

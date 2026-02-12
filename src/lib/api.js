@@ -333,14 +333,28 @@ export async function listInventory({ page, perPage, search, warehouseId, stockS
  * Returns: [{ id, type: 'product'|'variant', productId, variantId, name, sku, imageUrl, retailPrice, sizeText, colorText, stockOnHand }]
  */
 export async function listProductsForOrderSelection({ search, channelId, perPage = 20 } = {}) {
-  const params = { status: 'active', perPage };
-  if (search) params.search = search;
-  if (channelId) params.channelId = channelId;
+  const baseParams = { status: 'active', perPage };
+  if (search) baseParams.search = search;
+  if (channelId) baseParams.channelId = channelId;
 
-  const res = await axiosInstance.get("/products", { params });
-  const payload = res?.data ?? {};
-  const inner = payload?.data ?? payload;
-  const rows = inner?.data ?? inner?.items ?? inner?.rows ?? (Array.isArray(inner) ? inner : []);
+  const rows = [];
+  let page = 1;
+  let totalPages = 1;
+
+  // Fetch all pages so order-product search is not limited to the first page only.
+  do {
+    const res = await axiosInstance.get("/products", {
+      params: { ...baseParams, page },
+    });
+    const payload = res?.data ?? {};
+    const inner = payload?.data ?? payload;
+    const pageRows = inner?.data ?? inner?.items ?? inner?.rows ?? (Array.isArray(inner) ? inner : []);
+    rows.push(...(Array.isArray(pageRows) ? pageRows : []));
+
+    const parsedTotalPages = Number(inner?.totalPages ?? payload?.totalPages ?? 1);
+    totalPages = Number.isFinite(parsedTotalPages) && parsedTotalPages > 0 ? parsedTotalPages : 1;
+    page += 1;
+  } while (page <= totalPages);
 
   const flattened = [];
   for (const product of rows) {
@@ -1149,5 +1163,4 @@ export async function deleteOrderLabel(orderId) {
   const res = await axiosInstance.delete(`/orders/${orderId}/label`);
   return res.data;
 }
-
 
