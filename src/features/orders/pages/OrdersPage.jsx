@@ -439,8 +439,8 @@ export default function OrdersPage() {
         {
             key: "orderId",
             label: "Order ID",
-            className: "!items-start min-w-[200px]",
-            headerClassName: "min-w-[200px]",
+            className: "!items-start min-w-[250px]",
+            headerClassName: "min-w-[250px]",
             render: (row) => (
                 <div className="flex items-center gap-1 min-h-[3rem] py-1">
                     <span className="text-gray-900 text-[13px] truncate" title={row.orderId}>
@@ -453,10 +453,11 @@ export default function OrdersPage() {
         {
             key: "channel",
             label: "Marketplace",
-            className: "!items-start",
+            className: "!items-start min-w-[180px] max-w-[180px]",
+            headerClassName: "min-w-[180px] max-w-[180px]",
             render: (row) => (
                 <div className="flex items-center min-h-[3rem] py-1">
-                    <span className="text-gray-700 text-[13px]">
+                    <span className="text-gray-700 text-[13px] truncate">
                         {row.tenantChannel?.marketplace || "—"}
                     </span>
                 </div>
@@ -528,16 +529,16 @@ export default function OrdersPage() {
                                                 compact={true}
                                                 className="h-8 w-8"
                                                 thumbnailClassName="h-10 w-10 bg-white"
-                                                badgeContent={item.quantity}
+                                                badgeContent={(Number(item.quantity) || 0) > 1 ? item.quantity : null}
                                             />
                                         </div>
                                         {/* Text */}
                                         <div className="flex flex-col gap-0.5 min-w-0">
-                                            <span className="text-gray-900 text-[13px] truncate max-w-[160px]" title={name}>
+                                            <span className="text-gray-900 text-[13px] truncate" title={name}>
                                                 {name}
                                             </span>
                                             {variantInfo && (
-                                                <span className="text-[11px] text-gray-400 truncate max-w-[160px]">
+                                                <span className="text-[11px] text-gray-400 truncate">
                                                     {variantInfo}
                                                 </span>
                                             )}
@@ -588,7 +589,7 @@ export default function OrdersPage() {
                     : null;
 
                 return (
-                    <div className="flex items-center gap-3 max-w-[220px] min-h-[3rem] py-1">
+                    <div className="flex items-center gap-3 w-full min-w-0 min-h-[3rem] py-1">
                         <div className="flex-shrink-0" onClick={e => e.stopPropagation()}>
                             <ImageGallery
                                 images={images}
@@ -597,7 +598,7 @@ export default function OrdersPage() {
                                 compact={true}
                                 className="h-8 w-8"
                                 thumbnailClassName="h-8 w-8 bg-white"
-                                badgeContent={row.quantity}
+                                badgeContent={(Number(row.quantity) || 0) > 1 ? row.quantity : null}
                             />
                         </div>
                         <div className="flex flex-col gap-0.5 min-w-0">
@@ -617,16 +618,17 @@ export default function OrdersPage() {
         {
             key: "qty",
             label: "Qty",
-            className: "!items-start",
+            className: "!items-start justify-center text-center",
+            headerClassName: "justify-center",
             render: (row) => {
                 if (row.items && row.items.length > 0) {
                     const isExpanded = expandedOrderIds.has(row.id);
                     const visibleItems = isExpanded ? row.items : row.items.slice(0, 3);
 
                     return (
-                        <div className="flex flex-col w-full">
+                        <div className="flex flex-col w-full items-center">
                             {visibleItems.map((item, idx) => (
-                                <div key={idx} className="flex items-center min-h-[3rem] py-1 border-b border-gray-100 last:border-0 text-gray-900 text-[13px]">
+                                <div key={idx} className="flex items-center justify-center w-full min-h-[3rem] py-1 border-b border-gray-100 last:border-0 text-gray-900 text-[13px] text-center">
                                     {item.quantity}
                                 </div>
                             ))}
@@ -636,7 +638,7 @@ export default function OrdersPage() {
                     );
                 }
                 return (
-                    <div className="flex items-center min-h-[3rem] py-1 text-gray-800 text-[13px]">
+                    <div className="flex items-center justify-center w-full min-h-[3rem] py-1 text-gray-800 text-[13px] text-center">
                         {row.quantity}
                     </div>
                 );
@@ -646,16 +648,17 @@ export default function OrdersPage() {
         {
             key: "unitCost",
             label: "Unit C. Price",
-            className: "!items-start",
+            className: "!items-start justify-center text-center",
+            headerClassName: "justify-center",
             render: (row) => {
                 if (row.items && row.items.length > 0) {
                     const isExpanded = expandedOrderIds.has(row.id);
                     const visibleItems = isExpanded ? row.items : row.items.slice(0, 3);
 
                     return (
-                        <div className="flex flex-col w-full">
+                        <div className="flex flex-col w-full items-center">
                             {visibleItems.map((item, idx) => (
-                                <div key={idx} className="flex items-center min-h-[3rem] py-1 border-b border-gray-100 last:border-0 text-gray-500 text-[13px]">
+                                <div key={idx} className="flex items-center justify-center w-full min-h-[3rem] py-1 border-b border-gray-100 last:border-0 text-gray-500 text-[13px] text-center">
                                     {item.unitCost !== undefined ? Number(item.unitCost).toFixed(2) : "—"}
                                 </div>
                             ))}
@@ -665,7 +668,7 @@ export default function OrdersPage() {
                     );
                 }
                 return (
-                    <div className="flex items-center min-h-[3rem] py-1 text-gray-500 text-[13px]">
+                    <div className="flex items-center justify-center w-full min-h-[3rem] py-1 text-gray-500 text-[13px] text-center">
                         {row.unitCost !== undefined ? Number(row.unitCost).toFixed(2) : "—"}
                     </div>
                 );
@@ -675,16 +678,17 @@ export default function OrdersPage() {
         {
             key: "totalCost",
             label: "Total P. Price",
-            className: "!items-start",
+            className: "!items-start justify-center text-center",
+            headerClassName: "justify-center",
             render: (row) => {
                 if (row.items && row.items.length > 0) {
                     const isExpanded = expandedOrderIds.has(row.id);
                     const visibleItems = isExpanded ? row.items : row.items.slice(0, 3);
 
                     return (
-                        <div className="flex flex-col w-full">
+                        <div className="flex flex-col w-full items-center">
                             {visibleItems.map((item, idx) => (
-                                <div key={idx} className="flex items-center min-h-[3rem] py-1 border-b border-gray-100 last:border-0 text-gray-500 text-[13px]">
+                                <div key={idx} className="flex items-center justify-center w-full min-h-[3rem] py-1 border-b border-gray-100 last:border-0 text-gray-500 text-[13px] text-center">
                                     {item.totalCost !== undefined ? Number(item.totalCost).toFixed(2) : "—"}
                                 </div>
                             ))}
@@ -694,7 +698,7 @@ export default function OrdersPage() {
                     );
                 }
                 return (
-                    <div className="flex items-center min-h-[3rem] py-1 text-gray-500 text-[13px]">
+                    <div className="flex items-center justify-center w-full min-h-[3rem] py-1 text-gray-500 text-[13px] text-center">
                         {row.totalCost !== undefined ? Number(row.totalCost).toFixed(2) : "—"}
                     </div>
                 );
@@ -703,16 +707,17 @@ export default function OrdersPage() {
         {
             key: "totalAmount",
             label: "S. Price",
-            className: "!items-start",
+            className: "!items-start justify-center text-center",
+            headerClassName: "justify-center",
             render: (row) => {
                 if (row.items && row.items.length > 0) {
                     const isExpanded = expandedOrderIds.has(row.id);
                     const visibleItems = isExpanded ? row.items : row.items.slice(0, 3);
 
                     return (
-                        <div className="flex flex-col w-full">
+                        <div className="flex flex-col w-full items-center">
                             {visibleItems.map((item, idx) => (
-                                <div key={idx} className="flex items-center min-h-[3rem] py-1 border-b border-gray-100 last:border-0 text-gray-900 text-[13px]">
+                                <div key={idx} className="flex items-center justify-center w-full min-h-[3rem] py-1 border-b border-gray-100 last:border-0 text-gray-900 text-[13px] text-center">
                                     {item.totalAmount !== undefined ? Number(item.totalAmount).toFixed(2) : "—"}
                                 </div>
                             ))}
@@ -722,7 +727,7 @@ export default function OrdersPage() {
                     );
                 }
                 return (
-                    <div className="flex items-center min-h-[3rem] py-1 text-gray-900 text-[13px]">
+                    <div className="flex items-center justify-center w-full min-h-[3rem] py-1 text-gray-900 text-[13px] text-center">
                         {row.totalAmount !== undefined ? Number(row.totalAmount).toFixed(2) : "—"}
                     </div>
                 );
@@ -731,37 +736,39 @@ export default function OrdersPage() {
         {
             key: "shippingCharges",
             label: "Shipping",
-            className: "!items-start",
+            className: "!items-start justify-center text-center",
+            headerClassName: "justify-center",
             render: (row) => (
-                <div className="flex items-center min-h-[3rem] py-1 text-gray-700 text-[13px]">
+                <div className="flex items-center justify-center w-full min-h-[3rem] py-1 text-gray-700 text-[13px] text-center">
                     {row.shippingCharges ? Number(row.shippingCharges).toFixed(2) : "—"}
                 </div>
             )
         },
-        {
-            key: "tax",
-            label: "Tax",
-            className: "!items-start",
-            render: (row) => (
-                <div className="flex items-center min-h-[3rem] py-1 text-gray-700 text-[13px]">
-                    {row.tax ? Number(row.tax).toFixed(2) : "—"}
-                </div>
-            )
-        },
-        {
-            key: "otherCharges",
-            label: "Other",
-            className: "!items-start",
-            render: (row) => (
-                <div className="flex items-center min-h-[3rem] py-1 text-gray-700 text-[13px]">
-                    {row.otherCharges ? Number(row.otherCharges).toFixed(2) : "—"}
-                </div>
-            )
-        },
+        // {
+        //     key: "tax",
+        //     label: "Tax",
+        //     className: "!items-start",
+        //     render: (row) => (
+        //         <div className="flex items-center min-h-[3rem] py-1 text-gray-700 text-[13px]">
+        //             {row.tax ? Number(row.tax).toFixed(2) : "—"}
+        //         </div>
+        //     )
+        // },
+        // {
+        //     key: "otherCharges",
+        //     label: "Other",
+        //     className: "!items-start",
+        //     render: (row) => (
+        //         <div className="flex items-center min-h-[3rem] py-1 text-gray-700 text-[13px]">
+        //             {row.otherCharges ? Number(row.otherCharges).toFixed(2) : "—"}
+        //         </div>
+        //     )
+        // },
         {
             key: "netProfit",
             label: "Profit",
-            className: "!items-start",
+            className: "!items-start justify-center text-center",
+            headerClassName: "justify-center",
             render: (row) => {
                 let val = 0;
                 // Frontend Calculation: (Sum(Item Sales) - Sum(Item Cost)) - Charges
@@ -776,7 +783,7 @@ export default function OrdersPage() {
                 }
 
                 return (
-                    <div className={`flex items-center min-h-[3rem] py-1 text-[13px] ${val >= 0 ? "text-emerald-600" : "text-rose-500"}`}>
+                    <div className={`flex items-center justify-center w-full min-h-[3rem] py-1 text-[13px] text-center ${val >= 0 ? "text-emerald-600" : "text-rose-500"}`}>
                         {val.toFixed(2)}
                     </div>
                 );
@@ -1266,7 +1273,7 @@ export default function OrdersPage() {
                 rows={orders}
                 isLoading={isLoading}
                 toolbar={toolbar}
-                gridCols="grid-cols-[40px_minmax(100px,0.7fr)_minmax(130px,0.9fr)_minmax(110px,0.7fr)_minmax(240px,1.4fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.5fr)_minmax(80px,0.5fr)_minmax(80px,0.5fr)_minmax(90px,0.6fr)_minmax(100px,0.8fr)_minmax(140px,1fr)_minmax(120px,0.9fr)_160px]"
+                gridCols="grid-cols-[40px_minmax(100px,0.7fr)_minmax(130px,0.9fr)_minmax(110px,0.7fr)_minmax(240px,1.4fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(100px,0.8fr)_minmax(140px,1fr)_minmax(120px,0.9fr)_160px]"
                 rowClassName={(row) => row.id === highlightOrderId ? "bg-amber-100 transition-colors duration-1000" : ""}
             />
 

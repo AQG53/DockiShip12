@@ -900,6 +900,14 @@ export async function getOrderCounts() {
   return res.data;
 }
 
+export async function checkOrderTrackingIdExists({ trackingId, excludeOrderId } = {}) {
+  const params = {};
+  if (trackingId) params.trackingId = trackingId;
+  if (excludeOrderId) params.excludeOrderId = excludeOrderId;
+  const res = await axiosInstance.get("/orders/check-tracking", { params });
+  return res?.data ?? { exists: false, order: null };
+}
+
 export async function createColor(name, code) {
   const res = await axiosInstance.post("/orders/meta/colors", { name, code });
   return res.data;

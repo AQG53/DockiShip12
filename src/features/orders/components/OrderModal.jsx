@@ -13,7 +13,7 @@ import {
 import { useRemarkTypes } from "../../settings/hooks/useRemarkTypes";
 import { useSearchMarketplaceChannels } from "../../../hooks/useProducts";
 import { useCourierMediums } from "../../settings/hooks/useCourierMediums";
-import { uploadOrderAttachment, deleteOrderAttachment } from "../../../lib/api";
+import { uploadOrderAttachment, deleteOrderAttachment, checkOrderTrackingIdExists } from "../../../lib/api";
 import toast from "react-hot-toast";
 import { Trash2, Plus, Paperclip, Loader2, X, Info, Check, ChevronDown, ChevronRight } from "lucide-react";
 
@@ -27,6 +27,7 @@ const IMG_PLACEHOLDER =
         '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><rect width="100%" height="100%" fill="#f3f4f6"/><g fill="#9ca3af"><circle cx="26" cy="30" r="8"/><path d="M8 60l15-15 10 10 12-12 27 27H8z"/></g></svg>'
     );
 const BULK_PERSIST_DEFAULT = {
+    date: false,
     marketplace: false,
     remarks: false,
     products: false,
@@ -36,6 +37,27 @@ const BULK_PERSIST_DEFAULT = {
     otherCharges: false,
     courier: false,
 };
+
+const sanitizeDigitsOnly = (value) => String(value ?? "").replace(/\D+/g, "");
+const sanitizeDecimal = (value) => {
+    const raw = String(value ?? "");
+    const normalized = raw.replace(/[^0-9.]/g, "");
+    const firstDot = normalized.indexOf(".");
+    if (firstDot === -1) return normalized;
+    return `${normalized.slice(0, firstDot + 1)}${normalized.slice(firstDot + 1).replace(/\./g, "")}`;
+};
+
+function OrderTextField({ inputRef, className = inputClass, value, onValueChange, sanitize, ...props }) {
+    return (
+        <input
+            ref={inputRef}
+            className={className}
+            value={value}
+            onChange={(e) => onValueChange?.(sanitize ? sanitize(e.target.value) : e.target.value, e)}
+            {...props}
+        />
+    );
+}
 
 export default function OrderModal({ open, onClose, editing, onSuccess }) {
     const createMut = useCreateOrder();
@@ -319,7 +341,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
     };
 
     // Handlers
-    const handleSave = async (mode = 'single') => {
+    const handleSave = async (mode = 'single', skipTrackingIdCheck = false) => {
         if (!orderId?.trim()) {
             alert.error("Required Field", "Order ID is required");
             return;
@@ -378,12 +400,39 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
             }
         }
 
+        const normalizedTrackingId = String(trackingId ?? "").trim();
+        if (!skipTrackingIdCheck && normalizedTrackingId) {
+            try {
+                const trackingCheck = await checkOrderTrackingIdExists({
+                    trackingId: normalizedTrackingId,
+                    excludeOrderId: editing?.id || undefined,
+                });
+
+                if (trackingCheck?.exists) {
+                    const existingOrderId = trackingCheck?.order?.orderId || trackingCheck?.order?.id;
+                    alert.showAlert({
+                        type: "info",
+                        title: "Tracking ID Already Exists",
+                        message: `An order${existingOrderId ? ` (${existingOrderId})` : ""} already uses tracking ID "${normalizedTrackingId}". Do you want to proceed anyway?`,
+                        confirmLabel: "Proceed",
+                        cancelLabel: "Cancel",
+                        showCancel: true,
+                        onConfirm: () => handleSave(mode, true),
+                    });
+                    return;
+                }
+            } catch {
+                alert.error("Tracking Check Failed", "Could not verify tracking ID uniqueness. Please try again.");
+                return;
+            }
+        }
+
         const payload = {
             date: new Date(date).toISOString(),
             orderId,
             tenantChannelId: tenantChannelId || null,
             courierMediumId: courierMediumId || null,
-            trackingId: trackingId || null,
+            trackingId: normalizedTrackingId || null,
             status,
             remarkTypeId: remarkTypeId || null,
             remarks,
@@ -457,6 +506,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
             if (mode === 'again') {
                 if (bulkCreationMode) {
                     // In bulk mode, persist only fields with enabled toggles.
+                    const nextDate = bulkPersist.date ? date : new Date().toISOString().split('T')[0];
                     const nextMarketplace = bulkPersist.marketplace ? tenantChannelId : "";
                     const nextCourier = bulkPersist.courier ? courierMediumId : "";
                     const nextRemarkType = bulkPersist.remarks ? remarkTypeId : "";
@@ -478,7 +528,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                     const nextTax = bulkPersist.tax ? tax : 0;
                     const nextOther = bulkPersist.otherCharges ? otherCharges : 0;
 
-                    setDate(new Date().toISOString().split('T')[0]);
+                    setDate(nextDate);
                     setStatus("PENDING");
                     setOrderId("");
                     setTrackingId("");
@@ -609,6 +659,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                     </p>
                     <div className="flex flex-col gap-2.5">
                         {[
+                            { key: "date", label: "Persist Date" },
                             { key: "marketplace", label: "Persist Marketplace" },
                             { key: "remarks", label: "Persist Remarks" },
                             { key: "products", label: "Persist Products" },
@@ -660,11 +711,11 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                     <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
                         <div>
                             <label className="block text-[11px] font-medium text-gray-500 mb-1">Date</label>
-                            <input type="date" value={date} onChange={e => setDate(e.target.value)} className={inputClass} />
+                            <OrderTextField type="date" value={date} onValueChange={setDate} />
                         </div>
                         <div>
                             <label className="block text-[11px] font-medium text-gray-500 mb-1">Order ID <span className="text-red-500">*</span></label>
-                            <input ref={orderIdRef} value={orderId} onChange={e => setOrderId(e.target.value)} className={inputClass} placeholder="Enter Order ID" />
+                            <OrderTextField inputRef={orderIdRef} value={orderId} onValueChange={setOrderId} placeholder="Enter Order ID" />
                         </div>
                         <div>
                             <label className="block text-[11px] font-medium text-gray-500 mb-1">Status</label>
@@ -702,7 +753,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                         </div>
                         <div>
                             <label className="block text-[11px] font-medium text-gray-500 mb-1">Tracking ID</label>
-                            <input value={trackingId} onChange={e => setTrackingId(e.target.value)} className={inputClass} placeholder="--" />
+                            <OrderTextField value={trackingId} onValueChange={setTrackingId} placeholder="--" />
                         </div>
                     </div>
                 </div>
@@ -897,16 +948,16 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                     </div>
 
                     <div className="border border-gray-200 rounded-lg overflow-hidden bg-white shadow-sm">
-                        <table className="w-full text-left text-sm">
+                        <table className="w-full table-fixed text-left text-sm">
                             <thead className="bg-gray-50 border-b border-gray-100">
                                 <tr>
-                                    <th className="px-4 py-3 font-medium text-gray-500 w-[45%]">Product</th>
-                                    <th className="px-2 py-3 font-medium text-gray-500 w-[8%] text-center">Units</th>
-                                    <th className="px-2 py-3 font-medium text-gray-500 w-[8%] text-center">Qty</th>
+                                    <th className="px-4 py-3 font-medium text-gray-500">Product</th>
+                                    <th className="px-2 py-3 font-medium text-gray-500 w-[96px] text-center">Units</th>
+                                    <th className="px-2 py-3 font-medium text-gray-500 w-[160px] text-center">Qty</th>
                                     {/* <th className="px-2 py-3 font-medium text-gray-500 w-[15%] text-center">Unit Cost</th> */}
-                                    <th className="px-2 py-3 font-medium text-gray-500 w-[15%] text-center">Unit Sale Price</th>
-                                    <th className="px-4 py-3 font-medium text-gray-500 w-[15%] text-right">Sale Subtotal</th>
-                                    <th className="px-2 py-3 w-[5%]"></th>
+                                    <th className="px-2 py-3 font-medium text-gray-500 w-[160px] text-center">Unit Sale Price</th>
+                                    <th className="px-4 py-3 font-medium text-gray-500 w-[160px] text-center">Sale Subtotal</th>
+                                    <th className="px-2 py-3 w-[48px]"></th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
@@ -952,19 +1003,23 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                                                     </div>
                                                 </div>
                                             </td>
-                                            <td className="px-2 py-3 align-top text-center">
+                                            <td className="px-2 py-3 align-middle text-center">
                                                 <span className="inline-flex items-center justify-center h-8 px-2 text-sm font-medium text-gray-600 bg-gray-100 rounded">
                                                     {item.units ?? 1}
                                                 </span>
                                             </td>
-                                            <td className="px-2 py-3 align-top">
-                                                <input
-                                                    type="number"
-                                                    className="w-full h-8 px-1 text-center border border-gray-200 rounded bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all"
-                                                    value={item.quantity}
-                                                    onChange={e => updateItem(idx, 'quantity', e.target.value)}
-                                                    min="1"
-                                                />
+                                            <td className="px-2 py-3 align-middle">
+                                                <div className="flex justify-center">
+                                                    <OrderTextField
+                                                        type="text"
+                                                        inputMode="numeric"
+                                                        pattern="[0-9]*"
+                                                        className="w-32 h-8 px-1 text-center border border-gray-200 rounded bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+                                                        value={item.quantity}
+                                                        sanitize={sanitizeDigitsOnly}
+                                                        onValueChange={(val) => updateItem(idx, 'quantity', val)}
+                                                    />
+                                                </div>
                                             </td>
                                             {/* <td className="px-2 py-3 align-top">
                                                 <input
@@ -975,19 +1030,23 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                                                     step="0.01"
                                                 />
                                             </td> */}
-                                            <td className="px-2 py-3 align-top">
-                                                <input
-                                                    type="number"
-                                                    className="w-full h-8 px-2 text-right border border-gray-200 rounded bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all"
-                                                    value={item.unitPrice}
-                                                    onChange={e => updateItem(idx, 'unitPrice', e.target.value)}
-                                                    step="0.01"
-                                                />
+                                            <td className="px-2 py-3 align-middle">
+                                                <div className="flex justify-center">
+                                                    <OrderTextField
+                                                        type="text"
+                                                        inputMode="decimal"
+                                                        pattern="[0-9]*\\.?[0-9]*"
+                                                        className="w-32 h-8 px-1 text-center border border-gray-200 rounded bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+                                                        value={item.unitPrice}
+                                                        sanitize={sanitizeDecimal}
+                                                        onValueChange={(val) => updateItem(idx, 'unitPrice', val)}
+                                                    />
+                                                </div>
                                             </td>
-                                            <td className="px-4 py-3 align-top text-right font-medium text-gray-900 pt-4">
+                                            <td className="px-4 py-3 align-middle text-center font-medium text-gray-900">
                                                 {parseFloat(item.totalAmount || 0).toFixed(2)}
                                             </td>
-                                            <td className="px-2 py-3 align-top text-center pt-3">
+                                            <td className="px-2 py-3 align-middle text-center">
                                                 <button
                                                     type="button"
                                                     className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
@@ -1044,10 +1103,13 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                             <div className="flex justify-between items-center text-gray-500">
                                 <span>Shipping Charges</span>
                                 <div className="w-24">
-                                    <input
-                                        type="number"
+                                    <OrderTextField
+                                        type="text"
+                                        inputMode="decimal"
+                                        pattern="[0-9]*\\.?[0-9]*"
                                         value={shippingCharges}
-                                        onChange={e => setShippingCharges(e.target.value)}
+                                        sanitize={sanitizeDecimal}
+                                        onValueChange={setShippingCharges}
                                         className="w-full text-right bg-white border border-gray-200 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-200 outline-none"
                                         placeholder="0.00"
                                     />
@@ -1057,10 +1119,13 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                             <div className="flex justify-between items-center text-gray-500">
                                 <span>Tax ($)</span>
                                 <div className="w-24">
-                                    <input
-                                        type="number"
+                                    <OrderTextField
+                                        type="text"
+                                        inputMode="decimal"
+                                        pattern="[0-9]*\\.?[0-9]*"
                                         value={tax}
-                                        onChange={e => setTax(e.target.value)}
+                                        sanitize={sanitizeDecimal}
+                                        onValueChange={setTax}
                                         className="w-full text-right bg-white border border-gray-200 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-200 outline-none"
                                         placeholder="0.00"
                                     />
@@ -1070,10 +1135,13 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                             <div className="flex justify-between items-center text-gray-500">
                                 <span>Other Charges</span>
                                 <div className="w-24">
-                                    <input
-                                        type="number"
+                                    <OrderTextField
+                                        type="text"
+                                        inputMode="decimal"
+                                        pattern="[0-9]*\\.?[0-9]*"
                                         value={otherCharges}
-                                        onChange={e => setOtherCharges(e.target.value)}
+                                        sanitize={sanitizeDecimal}
+                                        onValueChange={setOtherCharges}
                                         className="w-full text-right bg-white border border-gray-200 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-200 outline-none"
                                         placeholder="0.00"
                                     />
