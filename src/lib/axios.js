@@ -22,9 +22,48 @@ const axiosInstance = axios.create({
   headers: { "Content-Type": "application/json" }
 });
 
+function decodeJwtPayload(token) {
+  try {
+    const payloadPart = String(token || "").split(".")[1];
+    if (!payloadPart) return null;
+    const normalized = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
+    const json = atob(normalized);
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+function resolveTenantId() {
+  const fromStorage = getTenantId();
+  if (fromStorage) return fromStorage;
+
+  try {
+    const rawUser = localStorage.getItem(USER_KEY);
+    const user = rawUser ? JSON.parse(rawUser) : null;
+    const fromUser = user?.tenantId || user?.tenant?.id || user?.activeTenantId || "";
+    if (fromUser) {
+      localStorage.setItem(TENANT_KEY, fromUser);
+      return fromUser;
+    }
+  } catch {
+    // ignore parse errors and fallback to JWT claim
+  }
+
+  const token = getAccessToken();
+  const payload = decodeJwtPayload(token);
+  const fromToken = payload?.tenantId || "";
+  if (fromToken) {
+    localStorage.setItem(TENANT_KEY, fromToken);
+    return fromToken;
+  }
+
+  return "";
+}
+
 axiosInstance.interceptors.request.use((config) => {
   const token = getAccessToken();
-  const tenantId = getTenantId();
+  const tenantId = resolveTenantId();
 
   if (token) {
     config.headers = config.headers || {};

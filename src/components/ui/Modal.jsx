@@ -13,10 +13,11 @@ export function Modal({
     footer,
     widthClass = "max-w-md",
     showCloseButton = true,
+    dismissible = true,
 }) {
     return (
         <Transition appear show={open} as={Fragment}>
-            <Dialog as="div" className="relative z-[100]" onClose={onClose}>
+            <Dialog as="div" className="relative z-[100]" onClose={dismissible ? onClose : () => {}}>
                 <Transition.Child
                     as={Fragment}
                     enter="ease-out duration-300"

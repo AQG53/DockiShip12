@@ -6,6 +6,7 @@ import {
     FileText,
     Package,
     Calculator,
+    Paperclip,
 } from "lucide-react";
 import ViewModal from "../../../components/ViewModal";
 import ImageGallery from "../../../components/ImageGallery";
@@ -43,6 +44,7 @@ const formatCurrency = (value, currency = "USD") => {
 export default function PurchaseOrderViewModal({ po, loading, onClose, currency }) {
     const open = Boolean(po);
     const items = Array.isArray(po?.items) ? po.items : [];
+    const attachments = Array.isArray(po?.attachments) ? po.attachments : [];
     const statusLabel = (po?.status || "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
     const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
@@ -57,6 +59,12 @@ export default function PurchaseOrderViewModal({ po, loading, onClose, currency 
             : /^https?:\/\//i.test(url)
                 ? url
                 : `${API_BASE}${url}`;
+    const attachmentUrl = (filePath) =>
+        !filePath
+            ? "#"
+            : /^https?:\/\//i.test(filePath)
+                ? filePath
+                : `${API_BASE}${filePath}`;
 
     return (
         <ViewModal
@@ -294,6 +302,35 @@ export default function PurchaseOrderViewModal({ po, loading, onClose, currency 
                                         <span className="font-medium text-gray-900">{formatCurrency(po?.amountPaid || 0, currency)}</span>
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+
+                        <div className={card}>
+                            <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center gap-2 rounded-t-xl">
+                                <Paperclip className="w-4 h-4 text-gray-500" />
+                                <h3 className="text-sm font-semibold text-gray-900">Attachments</h3>
+                            </div>
+                            <div className="space-y-2 px-4 py-4">
+                                {attachments.length === 0 ? (
+                                    <p className="text-sm text-gray-500 italic">No attachments</p>
+                                ) : (
+                                    attachments.map((att) => (
+                                        <a
+                                            key={att.id}
+                                            href={attachmentUrl(att.filePath)}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm hover:bg-gray-50"
+                                        >
+                                            <span className="truncate text-blue-700">{att.fileName || "Attachment"}</span>
+                                            {att.fileSize != null && (
+                                                <span className="ml-3 flex-shrink-0 text-xs text-gray-400">
+                                                    {Math.max(1, Math.round(Number(att.fileSize) / 1024))}KB
+                                                </span>
+                                            )}
+                                        </a>
+                                    ))
+                                )}
                             </div>
                         </div>
                     </div>

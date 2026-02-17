@@ -96,6 +96,7 @@ export default function OrdersPage() {
     // Pagination
     const [page, setPage] = useState(1);
     const [perPage, setPerPage] = useState(25);
+    const [marketplaceSortOrder, setMarketplaceSortOrder] = useState("asc");
     const [highlightOrderId, setHighlightOrderId] = useState(null);
 
     const handleOrderSaved = (id) => {
@@ -179,6 +180,17 @@ export default function OrdersPage() {
 
     const orders = orderData?.rows || [];
     const meta = orderData?.meta || {};
+    const sortedOrders = useMemo(() => {
+        const rows = [...orders];
+        rows.sort((a, b) => {
+            const aMarketplace = (a?.tenantChannel?.marketplace || "").toString();
+            const bMarketplace = (b?.tenantChannel?.marketplace || "").toString();
+            return marketplaceSortOrder === "asc"
+                ? aMarketplace.localeCompare(bMarketplace, undefined, { sensitivity: "base" })
+                : bMarketplace.localeCompare(aMarketplace, undefined, { sensitivity: "base" });
+        });
+        return rows;
+    }, [orders, marketplaceSortOrder]);
 
     const deleteMut = useDeleteOrder();
 
@@ -222,7 +234,7 @@ export default function OrdersPage() {
 
     const handleSelectAll = (checked) => {
         if (checked) {
-            const allIds = orders.map(o => o.id);
+            const allIds = sortedOrders.map(o => o.id);
             setSelectedIds(new Set(allIds));
         } else {
             setSelectedIds(new Set());
@@ -408,7 +420,7 @@ export default function OrdersPage() {
                     type="checkbox"
                     className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     onChange={(e) => handleSelectAll(e.target.checked)}
-                    checked={orders.length > 0 && selectedIds.size === orders.length}
+                    checked={sortedOrders.length > 0 && selectedIds.size === sortedOrders.length}
                 />
             ),
             className: "!pr-0 !pl-4 w-[40px] !items-start",
@@ -452,7 +464,23 @@ export default function OrdersPage() {
         },
         {
             key: "channel",
-            label: "Marketplace",
+            label: (
+                <button
+                    type="button"
+                    className="inline-flex items-center gap-1 hover:text-gray-900"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setMarketplaceSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+                    }}
+                    title={`Sort marketplace ${marketplaceSortOrder === "asc" ? "Z to A" : "A to Z"}`}
+                >
+                    <span>Marketplace</span>
+                    <span className="inline-flex items-center gap-0.5 text-[10px]">
+                        <span className={marketplaceSortOrder === "asc" ? "text-gray-900" : "text-gray-400"}>↑</span>
+                        <span className={marketplaceSortOrder === "desc" ? "text-gray-900" : "text-gray-400"}>↓</span>
+                    </span>
+                </button>
+            ),
             className: "!items-start min-w-[180px] max-w-[180px]",
             headerClassName: "min-w-[180px] max-w-[180px]",
             render: (row) => (
@@ -1270,7 +1298,7 @@ export default function OrdersPage() {
             </div>
             <DataTable
                 columns={columns}
-                rows={orders}
+                rows={sortedOrders}
                 isLoading={isLoading}
                 toolbar={toolbar}
                 gridCols="grid-cols-[40px_minmax(100px,0.7fr)_minmax(130px,0.9fr)_minmax(110px,0.7fr)_minmax(240px,1.4fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(100px,0.8fr)_minmax(140px,1fr)_minmax(120px,0.9fr)_160px]"

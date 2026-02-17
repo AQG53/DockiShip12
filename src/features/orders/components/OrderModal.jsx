@@ -598,7 +598,10 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
     // Options for Selects
     const channelOpts = channels.map(c => ({ value: c.id, label: c.marketplace || c.name }));
     const courierOpts = couriers.map(c => ({ value: c.id, label: c.shortName || c.fullName }));
-    const remarkTypeOpts = remarkTypes.map(r => ({ value: r.id, label: r.name }));
+    const remarkTypeOpts = [
+        { value: "", label: "None" },
+        ...remarkTypes.map(r => ({ value: r.id, label: r.name })),
+    ];
     const statusOptions = [
         "PENDING", "LABEL_UPLOADED", "LABEL_PRINTED", "PACKED", "SHIPPED",
         "DELIVERED", "RETURN", "CANCEL", "REFUND"
@@ -634,6 +637,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
         <Modal
             open={open}
             onClose={onClose}
+            dismissible={false}
             title={editing ? "Edit Order" : "New Order"}
             titleRight={!editing ? (
                 <div className="flex items-center gap-2">

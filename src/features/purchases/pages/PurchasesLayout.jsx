@@ -8,7 +8,7 @@ export default function InventoryLayout() {
             <Navbar />
             <PurchasesSidebar />
             <main className="flex-1 bg-white">
-                <div className="mx-auto max-w-6xl p-6">
+                <div className="w-full p-6">
                     <Outlet />
                 </div>
             </main>

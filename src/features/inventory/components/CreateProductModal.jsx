@@ -263,7 +263,6 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const [editLinkPrices, setEditLinkPrices] = useState({});
     const [editLinkSel, setEditLinkSel] = useState({});
     const [retailPrice, setRetailPrice] = useState("");
-    const [sellingPrice, setSellingPrice] = useState("");
     const [costPrice, setCostPrice] = useState("");
 
     const [missing, setMissing] = useState({});   // map: key -> human label
@@ -467,7 +466,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         setSupplier("Select");
         setPurchasingPrice("");
         setRetailPrice("");
-        setSellingPrice("");
+        setCostPrice("");
 
         // suppliers: clear any previous selections (create-mode + edit-mode drafts)
         setSupplierRows([{ supplierId: 'Select', price: '' }]);
@@ -545,7 +544,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             ...prev,
             [localId]: {
                 retail: isNonEmpty(retailPrice) ? String(retailPrice) : "",
-                original: isNonEmpty(sellingPrice) ? String(sellingPrice) : "",
+                original: isNonEmpty(costPrice) ? String(costPrice) : "",
             },
         }));
     }
@@ -582,7 +581,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             variants.forEach((v) => {
                 const row = next[v.id] || { retail: "", original: "" };
                 if (!isNonEmpty(row.retail) && isNonEmpty(retailPrice)) row.retail = String(retailPrice);
-                if (!isNonEmpty(row.original) && isNonEmpty(sellingPrice)) row.original = String(sellingPrice);
+                if (!isNonEmpty(row.original) && isNonEmpty(costPrice)) row.original = String(costPrice);
                 next[v.id] = row;
             });
             return next;
@@ -611,7 +610,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         // copy pricing back from first variant if exists
         const row = variantPrices[first.id] || {};
         if (isNonEmpty(row.retail)) setRetailPrice(String(row.retail));
-        if (isNonEmpty(row.original)) setSellingPrice(String(row.original));
+        if (isNonEmpty(row.original)) setCostPrice(String(row.original));
     }
 
     const handleDuplicateLastVariant = () => {
@@ -848,7 +847,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         if (!variantEnabled || variants.length === 0) return;
         copyParentIntoExistingVariants();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [weightMain, weightSub, weightUnit, dimL, dimW, dimH, dimUnit, retailPrice, sellingPrice, mainPackagingType, mainPackagingQty, variantEnabled]);
+    }, [weightMain, weightSub, weightUnit, dimL, dimW, dimH, dimUnit, retailPrice, costPrice, mainPackagingType, mainPackagingQty, variantEnabled]);
 
     useEffect(() => {
         if (!edit || !open || !productDetail) return;
@@ -895,7 +894,6 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             productDetail.lastPurchasePrice != null ? Number(productDetail.lastPurchasePrice).toFixed(2) : ""
         );
         // Clean up old sellingPrice usage
-        setSellingPrice("");
 
         // simple-only attributes
         setMainSizeText(productDetail.sizeText || "");
@@ -1139,7 +1137,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             packagingQuantity: packagingPayload.packagingQuantity,
             retailPrice: isNonEmpty(retailPrice) ? Number(retailPrice) : undefined,
             retailCurrency: CURRENCY,
-            originalPrice: isNonEmpty(sellingPrice) ? Number(sellingPrice) : undefined,
+            originalPrice: isNonEmpty(costPrice) ? Number(costPrice) : undefined,
             originalCurrency: CURRENCY,
             ...(purchasingPrice?.trim() ? {
                 lastPurchasePrice: Number(purchasingPrice),

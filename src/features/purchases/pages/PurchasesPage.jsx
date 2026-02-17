@@ -15,6 +15,7 @@ import {
   FileText,
   Package,
   Calculator,
+  Paperclip,
   User,
   MapPin,
   Clock,
@@ -24,6 +25,7 @@ import {
   Trash2,
   XCircle,
   DollarSign,
+  Plus,
 } from "lucide-react";
 import { Button } from "../../../components/ui/Button";
 import { ActionMenu } from "../../../components/ui/ActionMenu";
@@ -49,6 +51,7 @@ import { useSuppliers } from "../hooks/useSuppliers";
 import { useProducts } from "../../inventory/hooks/useProducts";
 import { useAuthCheck } from "../../auth/hooks/useAuthCheck";
 import { randomId } from "../../../lib/id";
+import { uploadPurchaseOrderAttachment, deletePurchaseOrderAttachment } from "../../../lib/api";
 import ViewModal from "../../../components/ViewModal";
 import PurchaseOrderViewModal from "../components/PurchaseOrderViewModal";
 
@@ -413,7 +416,7 @@ export default function PurchasesPage() {
               });
 
               // 4. Edit
-              if ((po.status === "to_purchase" || po.status === "draft") && can("purchases.po.update")) {
+              if ((po.status === "to_purchase" || po.status === "draft" || po.status === "in_transit") && can("purchases.po.update")) {
                 actions.push({
                   label: "Edit",
                   onClick: () => handleEditPo(po),
@@ -577,7 +580,7 @@ export default function PurchasesPage() {
                         }
 
                         // 5. Edit
-                        if ((po.status === "to_purchase" || po.status === "draft") && can("purchases.po.update")) {
+                        if ((po.status === "to_purchase" || po.status === "draft" || po.status === "in_transit") && can("purchases.po.update")) {
                           formattedActions.push({
                             label: "Edit",
                             onClick: () => handleEditPo(po),
@@ -746,6 +749,9 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
   const [selectedProduct, setSelectedProduct] = useState("Select");
   const [prefilled, setPrefilled] = useState(false);
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
+  const [existingAttachments, setExistingAttachments] = useState([]);
+  const [newAttachments, setNewAttachments] = useState([]);
+  const [uploadingAttachments, setUploadingAttachments] = useState(false);
 
   const { data: warehouses = [], isLoading: loadingWarehouses } = useWarehouses({ enabled: open, status: 'active' });
   const { data: suppliers = [], isLoading: loadingSuppliers } = useSuppliers({ enabled: open });
@@ -771,6 +777,9 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
       setLineItems([]);
       setSelectedProduct("Select");
       setPrefilled(false);
+      setExistingAttachments([]);
+      setNewAttachments([]);
+      setUploadingAttachments(false);
     }
   }, [open]);
 
@@ -786,6 +795,8 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
     if (initialPo.items && initialPo.items.length > 0 && productOptions.length === 0) return;
 
     const po = initialPo;
+    setExistingAttachments(Array.isArray(po?.attachments) ? po.attachments : []);
+    setNewAttachments([]);
     setForm({
       warehouseId: po?.warehouseId || po?.warehouse?.id || "",
       supplierId: po?.supplierId || po?.supplier?.id || "",
@@ -1092,6 +1103,36 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
     setLineItems((prev) => prev.filter((line) => line.id !== lineId));
   };
 
+  const attachmentUrl = (filePath) =>
+    !filePath
+      ? "#"
+      : /^https?:\/\//i.test(filePath)
+        ? filePath
+        : `${API_BASE}${filePath}`;
+
+  const handleAttachmentSelect = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) {
+      setNewAttachments((prev) => [...prev, ...files]);
+    }
+    e.target.value = null;
+  };
+
+  const removeNewAttachment = (index) => {
+    setNewAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const removeExistingAttachment = async (attachmentId) => {
+    if (!(mode === "edit" && initialPo?.id && attachmentId)) return;
+    try {
+      await deletePurchaseOrderAttachment(initialPo.id, attachmentId);
+      setExistingAttachments((prev) => prev.filter((att) => att.id !== attachmentId));
+      toast.success("Attachment deleted");
+    } catch (err) {
+      toast.error(err?.message || "Failed to delete attachment");
+    }
+  };
+
   const lineTotals = useMemo(() => {
     return lineItems.reduce(
       (acc, line) => {
@@ -1163,16 +1204,38 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
     };
 
     try {
+      let savedPoId = initialPo?.id || null;
       if (mode === "edit" && initialPo?.id) {
-        await updatePoMut({ id: initialPo.id, payload: { ...payload, notes: form.notes?.trim() || "" } });
+        const updated = await updatePoMut({ id: initialPo.id, payload: { ...payload, notes: form.notes?.trim() || "" } });
+        savedPoId = updated?.id || initialPo.id;
         toast.success("Purchase order updated");
       } else {
-        await submitOrder(payload);
+        const created = await submitOrder(payload);
+        savedPoId = created?.id || null;
         toast.success("Purchase order created");
       }
+
+      if (savedPoId && newAttachments.length > 0) {
+        setUploadingAttachments(true);
+        const toastId = toast.loading("Uploading attachments...");
+        try {
+          await Promise.all(newAttachments.map((file) => {
+            const fd = new FormData();
+            fd.append("file", file);
+            return uploadPurchaseOrderAttachment(savedPoId, fd);
+          }));
+          toast.success("Attachments uploaded", { id: toastId });
+        } catch (uploadErr) {
+          toast.error(uploadErr?.message || "Some attachments failed to upload", { id: toastId });
+        } finally {
+          setUploadingAttachments(false);
+        }
+      }
+
       onClose();
     } catch (err) {
       toast.error(err?.message || "Failed to save purchase order");
+      setUploadingAttachments(false);
     }
   };
 
@@ -1214,7 +1277,7 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
                         <PackagePlus size={18} className="text-amber-700" />
                       </div>
                       <Dialog.Title className="text-base font-semibold text-gray-900">
-                        Create purchase order
+                        {mode === "edit" ? "Edit purchase order" : "Create purchase order"}
                       </Dialog.Title>
                     </div>
                     <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
@@ -1284,6 +1347,73 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
                                 onChange={(e) => handleFormChange("notes", e.target.value)}
                               />
                             </div>
+                          </div>
+                        </div>
+
+                        <div className={card}>
+                          <div className="border-b border-gray-200 px-4 py-3 rounded-t-xl flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-semibold text-gray-900">Attachments</p>
+                              <p className="text-xs text-gray-500">Upload documents for this purchase order</p>
+                            </div>
+                            <label className="cursor-pointer text-xs font-semibold text-blue-700 hover:text-blue-800 flex items-center gap-1">
+                              <Plus size={14} />
+                              Add file
+                              <input
+                                type="file"
+                                multiple
+                                className="hidden"
+                                onChange={handleAttachmentSelect}
+                              />
+                            </label>
+                          </div>
+                          <div className="px-4 py-4 space-y-2">
+                            {existingAttachments.map((att) => (
+                              <div key={att.id} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm">
+                                <div className="min-w-0 flex items-center gap-2">
+                                  <Paperclip size={14} className="text-gray-400 flex-shrink-0" />
+                                  <a
+                                    href={attachmentUrl(att.filePath)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="truncate text-blue-700 hover:underline"
+                                  >
+                                    {att.fileName}
+                                  </a>
+                                  {att.fileSize != null && (
+                                    <span className="text-xs text-gray-400 flex-shrink-0">
+                                      ({Math.max(1, Math.round(Number(att.fileSize) / 1024))}KB)
+                                    </span>
+                                  )}
+                                </div>
+                                <button
+                                  type="button"
+                                  className="text-gray-400 hover:text-red-600"
+                                  onClick={() => removeExistingAttachment(att.id)}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            ))}
+                            {newAttachments.map((file, idx) => (
+                              <div key={`new-att-${idx}`} className="flex items-center justify-between rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm">
+                                <div className="min-w-0 flex items-center gap-2">
+                                  <Paperclip size={14} className="text-blue-400 flex-shrink-0" />
+                                  <span className="truncate text-gray-700">{file.name}</span>
+                                  <span className="text-xs text-blue-500 flex-shrink-0">(New)</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  className="text-gray-400 hover:text-red-600"
+                                  onClick={() => removeNewAttachment(idx)}
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            ))}
+                            {existingAttachments.length === 0 && newAttachments.length === 0 && (
+                              <p className="text-xs text-gray-500 italic">No attachments added.</p>
+                            )}
                           </div>
                         </div>
 
@@ -1506,16 +1636,16 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
                     <button
                       className="inline-flex items-center gap-2 rounded-lg bg-white border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
                       onClick={() => handleSubmit("to_purchase")}
-                      disabled={!canSubmit || savingOrder}
+                      disabled={!canSubmit || savingOrder || updatingPo || uploadingAttachments}
                     >
-                      {savingOrder || updatingPo ? "Saving…" : "Save"}
+                      {savingOrder || updatingPo || uploadingAttachments ? "Saving…" : "Save"}
                     </button>
                     <button
                       className="inline-flex items-center gap-2 rounded-lg bg-[#ffd026] px-4 py-2 text-sm font-semibold text-blue-700 hover:opacity-90 disabled:opacity-60"
                       onClick={() => handleSubmit("in_transit")}
-                      disabled={!canSubmit || savingOrder}
+                      disabled={!canSubmit || savingOrder || updatingPo || uploadingAttachments}
                     >
-                      {savingOrder || updatingPo ? "Saving…" : "Save & Purchase"}
+                      {savingOrder || updatingPo || uploadingAttachments ? "Saving…" : "Save & Purchase"}
                     </button>
                   </div>
                 </div>
@@ -1533,5 +1663,3 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
     </Transition>
   );
 }
-
-

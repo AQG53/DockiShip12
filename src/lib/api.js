@@ -328,6 +328,42 @@ export async function listInventory({ page, perPage, search, warehouseId, stockS
   return { rows, meta };
 }
 
+export async function getInventoryVariantWarehouseBalances(variantId) {
+  if (!variantId) throw new Error("Missing variantId");
+  const res = await axiosInstance.get(`/inventory/variants/${variantId}/warehouse-balances`);
+  return res?.data ?? {};
+}
+
+export async function transferInventoryStock(payload) {
+  const res = await axiosInstance.post("/inventory/transfer", payload);
+  return res?.data ?? {};
+}
+
+export async function transferInventoryStockBulk(payload) {
+  const res = await axiosInstance.post("/inventory/transfer/bulk", payload);
+  return res?.data ?? {};
+}
+
+export async function getInventoryWarehouseStock(warehouseId) {
+  if (!warehouseId) throw new Error("Missing warehouseId");
+  const res = await axiosInstance.get(`/inventory/warehouses/${warehouseId}/stock`);
+  return res?.data ?? {};
+}
+
+export async function listInventoryUnallocatedVariants({ search } = {}) {
+  const params = {};
+  if (search) params.search = search;
+  const res = await axiosInstance.get("/inventory/unallocated-variants", { params });
+  const payload = res?.data ?? {};
+  const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+  return { rows };
+}
+
+export async function reconcileInventoryStock(payload) {
+  const res = await axiosInstance.post("/inventory/reconcile", payload);
+  return res?.data ?? {};
+}
+
 /**
  * Fetch products with variants flattened for order selection dropdown.
  * Returns: [{ id, type: 'product'|'variant', productId, variantId, name, sku, imageUrl, retailPrice, sizeText, colorText, stockOnHand }]
@@ -580,6 +616,21 @@ export async function addPurchaseOrderPayment(id, payload) {
   if (!id) throw new Error("Missing purchase order id");
   const res = await axiosInstance.post(`/purchase-orders/${id}/payments`, payload);
   return res?.data?.data ?? res?.data ?? {};
+}
+
+export async function uploadPurchaseOrderAttachment(id, formData) {
+  if (!id) throw new Error("Missing purchase order id");
+  const res = await axiosInstance.post(`/purchase-orders/${id}/attachments`, formData, {
+    headers: { 'Content-Type': undefined }
+  });
+  return res?.data?.data ?? res?.data ?? {};
+}
+
+export async function deletePurchaseOrderAttachment(id, attachmentId) {
+  if (!id) throw new Error("Missing purchase order id");
+  if (!attachmentId) throw new Error("Missing attachment id");
+  const res = await axiosInstance.delete(`/purchase-orders/${id}/attachments/${attachmentId}`);
+  return res?.data?.ok === true || res?.data?.success === true || res?.status === 200 || res?.status === 204;
 }
 
 /** ---------- Supplier ⇄ Products ---------- **/
