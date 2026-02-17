@@ -1083,7 +1083,7 @@ export default function InventoryPage() {
       {
         key: "productName",
         label: "Product",
-        className: "min-w-[220px] !items-start",
+        className: "min-w-[286px] !items-start",
         render: (row) => {
           const displayImages = selectInventoryImages(row);
           const isVariant = !row.isParent;
@@ -1441,8 +1441,8 @@ export default function InventoryPage() {
         isLoading={isPending}
         rowKey={(row) => row.id}
         gridCols={SHOW_INVENTORY_ACTIONS_COLUMN
-          ? "grid-cols-[40px_minmax(230px,1.55fr)_minmax(150px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(80px,0.5fr)_minmax(110px,0.6fr)_minmax(120px,0.8fr)_130px]"
-          : "grid-cols-[40px_minmax(230px,1.55fr)_minmax(150px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(80px,0.5fr)_minmax(110px,0.6fr)_minmax(120px,0.8fr)]"}
+          ? "grid-cols-[40px_minmax(299px,2.015fr)_minmax(150px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(80px,0.5fr)_minmax(110px,0.6fr)_minmax(120px,0.8fr)_130px]"
+          : "grid-cols-[40px_minmax(299px,2.015fr)_minmax(150px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(80px,0.5fr)_minmax(110px,0.6fr)_minmax(120px,0.8fr)]"}
         emptyMessage="No inventory items found"
         toolbar={toolbar}
         rowClassName={(row) =>
