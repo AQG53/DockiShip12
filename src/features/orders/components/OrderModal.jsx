@@ -608,12 +608,17 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
     ].map(s => ({ value: s, label: s.replace(/_/g, " ") }));
 
     const productSelectOpts = useMemo(() => {
-        // Filter by SKU to ensure unique listings are hidden once selected.
-        // The SKU in productOptions is the listing's externalSku.
-        const selectedSkus = new Set(items.map(i => i.sku || i.marketplaceSku).filter(Boolean));
+        // Filter by option/listing ID so the same variant can still appear
+        // for different channel listings.
+        const selectedOptionIds = new Set(
+            items
+                .map(i => i.listingId)
+                .filter((value) => value !== null && value !== undefined && value !== "")
+                .map(String)
+        );
 
         return productOptions
-            .filter(p => !selectedSkus.has(p.sku))
+            .filter(p => !selectedOptionIds.has(String(p.id)))
             .map(p => ({
                 value: p.id,
                 label: p.variantName || p.name, // Use variantName for display label
