@@ -9,7 +9,8 @@ export default function OrdersFilter({
     filters, // { search, status, medium, courier, remark, dateRange }
     options, // { statusOptions, mediumOptions, courierOptions, remarkOptions }
     onApply,
-    statusReadOnly = false
+    statusReadOnly = false,
+    defaultDateRange
 }) {
     // Buffered State
     const [localFilters, setLocalFilters] = useState(filters);
@@ -34,7 +35,7 @@ export default function OrdersFilter({
             medium: options.mediumOptions[0],
             courier: options.courierOptions[0],
             remark: options.remarkOptions[0],
-            dateRange: undefined,
+            dateRange: defaultDateRange,
             settled: { id: "all", name: "All" }
         });
     };
@@ -49,7 +50,7 @@ export default function OrdersFilter({
 
     return (
         <Popover className="relative">
-            {({ open, close }) => (
+            {({ close }) => (
                 <>
                     <Popover.Button as={Button} variant="secondary" className="flex items-center gap-2 h-9 px-4 rounded-lg font-medium text-[13px] shadow-sm transition-all focus:ring-2 focus:ring-emerald-500/20 active:scale-95">
                         <ListFilter size={16} className="text-gray-500" />

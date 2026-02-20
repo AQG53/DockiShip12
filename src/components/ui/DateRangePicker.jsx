@@ -1,7 +1,6 @@
-import React, { forwardRef } from "react";
+import React, { forwardRef, useMemo } from "react";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
-import { format } from "date-fns";
 import { Calendar as CalendarIcon, X } from "lucide-react";
 
 // Custom Input Component to match your UI
@@ -38,7 +37,42 @@ const CustomInput = forwardRef(({ value, onClick, placeholder, onClear, hasValue
 ));
 CustomInput.displayName = "CustomInput";
 
-export default function DateRangePicker({ date, setDate }) {
+const atStartOfDay = (value) => {
+    const d = new Date(value);
+    d.setHours(0, 0, 0, 0);
+    return d;
+};
+
+const atEndOfDay = (value) => {
+    const d = new Date(value);
+    d.setHours(23, 59, 59, 999);
+    return d;
+};
+
+const getWeekRange = () => {
+    const now = new Date();
+    const day = now.getDay();
+    const diffToMonday = day === 0 ? -6 : 1 - day;
+    const start = atStartOfDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMonday));
+    const end = atEndOfDay(new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6));
+    return { from: start, to: end };
+};
+
+const getMonthRange = () => {
+    const now = new Date();
+    const start = atStartOfDay(new Date(now.getFullYear(), now.getMonth(), 1));
+    const end = atEndOfDay(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+    return { from: start, to: end };
+};
+
+const getYearRange = () => {
+    const now = new Date();
+    const start = atStartOfDay(new Date(now.getFullYear(), 0, 1));
+    const end = atEndOfDay(new Date(now.getFullYear(), 11, 31));
+    return { from: start, to: end };
+};
+
+export default function DateRangePicker({ date, setDate, showQuickPresets = true }) {
     const handleChange = (update) => {
         // update is [start, end] when selectsRange is true
         const [start, end] = update;
@@ -51,6 +85,20 @@ export default function DateRangePicker({ date, setDate }) {
 
     const startDate = date?.from;
     const endDate = date?.to;
+    const presets = useMemo(() => ([
+        { id: "week", label: "This Week", range: getWeekRange() },
+        { id: "month", label: "This Month", range: getMonthRange() },
+        { id: "year", label: "This Year", range: getYearRange() },
+    ]), []);
+
+    const isSameDay = (a, b) => {
+        if (!a || !b) return false;
+        return atStartOfDay(a).getTime() === atStartOfDay(b).getTime();
+    };
+
+    const activePreset = presets.find((preset) =>
+        isSameDay(startDate, preset.range.from) && isSameDay(endDate, preset.range.to)
+    )?.id;
 
     // Formatting custom header if needed, but default is usually fine.
     // We inject custom CSS style block for Emerald theme overrides.
@@ -147,6 +195,25 @@ export default function DateRangePicker({ date, setDate }) {
                     strategy: "fixed",
                 }}
             >
+                {showQuickPresets && (
+                    <div className="px-2 pt-2 pb-1 border-b border-gray-200">
+                        <div className="flex flex-wrap gap-1.5">
+                            {presets.map((preset) => (
+                                <button
+                                    key={preset.id}
+                                    type="button"
+                                    onClick={() => setDate(preset.range)}
+                                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${activePreset === preset.id
+                                        ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
+                                        : "bg-gray-100 text-gray-700 hover:bg-gray-200 border border-transparent"
+                                        }`}
+                                >
+                                    {preset.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
                 <div className="flex items-center justify-end p-2 border-t border-gray-200">
                     <button
                         onClick={handleClear}

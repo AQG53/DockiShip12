@@ -3,10 +3,11 @@ import { Popover, Transition } from "@headlessui/react";
 import { ListFilter, X } from "lucide-react";
 import { Button } from "../../../components/ui/Button";
 import { HeadlessSelect } from "../../../components/ui/HeadlessSelect";
+import SelectCompact from "../../../components/SelectCompact";
 
 export default function InventoryFilter({
     filters, // { search, warehouse, stockStatus }
-    options, // { warehouseOptions }
+    options, // { warehouseOptions, supplierOptions }
     onApply,
 }) {
     // Buffered State
@@ -26,13 +27,15 @@ export default function InventoryFilter({
             search: "",
             warehouse: { id: "", name: "All Warehouses" },
             stockStatus: { id: "", name: "All Stock Status" },
+            supplierIds: [],
         });
     };
 
     const hasActiveFilters =
         localFilters.search ||
         localFilters.warehouse?.id ||
-        localFilters.stockStatus?.id;
+        localFilters.stockStatus?.id ||
+        (Array.isArray(localFilters.supplierIds) && localFilters.supplierIds.length > 0);
 
     const stockStatusOptions = [
         { id: "", name: "All Stock Status" },
@@ -114,6 +117,34 @@ export default function InventoryFilter({
                                         onChange={(val) => setLocalFilters(prev => ({ ...prev, stockStatus: val }))}
                                         options={stockStatusOptions}
                                         className="w-full"
+                                    />
+                                </div>
+
+                                {/* Supplier */}
+                                <div className="space-y-1.5">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-sm font-medium text-gray-700">Supplier</label>
+                                        {Array.isArray(localFilters.supplierIds) && localFilters.supplierIds.length > 0 && (
+                                            <button
+                                                onClick={() => setLocalFilters(prev => ({ ...prev, supplierIds: [] }))}
+                                                className="text-xs text-emerald-600 hover:text-emerald-700 font-medium"
+                                            >
+                                                Reset
+                                            </button>
+                                        )}
+                                    </div>
+                                    <SelectCompact
+                                        multiple
+                                        value={Array.isArray(localFilters.supplierIds) ? localFilters.supplierIds : []}
+                                        onChange={(val) =>
+                                            setLocalFilters(prev => ({
+                                                ...prev,
+                                                supplierIds: Array.isArray(val) ? val : [],
+                                            }))
+                                        }
+                                        options={Array.isArray(options?.supplierOptions) ? options.supplierOptions : []}
+                                        filterable
+                                        placeholder="All Suppliers"
                                     />
                                 </div>
 

@@ -5,6 +5,7 @@ import { DataTable } from "../../../components/ui/DataTable";
 import { Modal } from "../../../components/ui/Modal";
 import { useInventory } from "../hooks/useInventory";
 import { useWarehouses } from "../hooks/useWarehouses";
+import { useSuppliers } from "../../purchases/hooks/useSuppliers";
 import InventoryFilter from "../components/InventoryFilter";
 import ImageGallery from "../../../components/ImageGallery";
 import SelectCompact from "../../../components/SelectCompact";
@@ -21,6 +22,7 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 const IMG_PLACEHOLDER = "data:image/svg+xml;utf8," + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><rect width="100%" height="100%" fill="#f3f4f6"/><g fill="#9ca3af"><circle cx="26" cy="30" r="8"/><path d="M8 60l15-15 10 10 12-12 27 27H8z"/></g></svg>'
 );
+const NO_SUPPLIER_FILTER_VALUE = "__NO_SUPPLIER__";
 
 const absImg = (path) => {
   if (!path) return IMG_PLACEHOLDER;
@@ -88,23 +90,44 @@ export default function InventoryPage() {
   // Filters
   const [warehouseFilter, setWarehouseFilter] = useState({ id: "", name: "All Warehouses" });
   const [stockStatusFilter, setStockStatusFilter] = useState({ id: "", name: "All Stock Status" });
+  const [supplierFilterIds, setSupplierFilterIds] = useState([]);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(25);
-  const [expandedRows, setExpandedRows] = useState(new Set());
+  const [expandedRowId, setExpandedRowId] = useState(null);
 
   // Data Hooks
   const { mutate: fetchInventory, data, isPending } = useInventory();
   const { data: warehouseData } = useWarehouses();
+  const { data: supplierData = [] } = useSuppliers({ refetchOnWindowFocus: false });
   const warehouses = Array.isArray(warehouseData)
     ? warehouseData
     : (Array.isArray(warehouseData?.rows) ? warehouseData.rows : []);
+  const suppliers = Array.isArray(supplierData)
+    ? supplierData
+    : (Array.isArray(supplierData?.rows) ? supplierData.rows : []);
 
   const warehouseOptions = useMemo(() =>
     warehouses.map(w => ({ id: w.id, name: w.name })),
     [warehouses]);
+  const supplierOptions = useMemo(
+    () => ([
+      { value: NO_SUPPLIER_FILTER_VALUE, label: "No Supplier" },
+      ...suppliers
+        .filter((s) => s?.id)
+        .map((s) => ({ value: s.id, label: s.companyName || s.id })),
+    ]),
+    [suppliers],
+  );
+  const supplierLabelById = useMemo(() => {
+    const map = new Map();
+    for (const option of supplierOptions) {
+      map.set(String(option.value), option.label);
+    }
+    return map;
+  }, [supplierOptions]);
 
   // Debounce search
   useEffect(() => {
@@ -117,14 +140,18 @@ export default function InventoryPage() {
 
   // Fetch data
   useEffect(() => {
+    const includeNoSupplier = supplierFilterIds.includes(NO_SUPPLIER_FILTER_VALUE);
+    const supplierIds = supplierFilterIds.filter((id) => id !== NO_SUPPLIER_FILTER_VALUE);
     fetchInventory({
       page,
       perPage,
       search: debouncedSearch || undefined,
       warehouseId: warehouseFilter.id || undefined,
-      stockStatus: stockStatusFilter.id || undefined
+      stockStatus: stockStatusFilter.id || undefined,
+      supplierIds: supplierIds.length > 0 ? supplierIds : undefined,
+      includeNoSupplier,
     });
-  }, [fetchInventory, page, perPage, debouncedSearch, warehouseFilter.id, stockStatusFilter.id]);
+  }, [fetchInventory, page, perPage, debouncedSearch, warehouseFilter.id, stockStatusFilter.id, supplierFilterIds]);
 
   const rows = data?.rows ?? [];
   const meta = data?.meta ?? { page: 1, perPage, total: 0, totalPages: 1 };
@@ -270,12 +297,7 @@ export default function InventoryPage() {
   );
 
   const toggleRow = useCallback((id) => {
-    setExpandedRows((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    setExpandedRowId((prev) => (String(prev) === String(id) ? null : id));
   }, []);
 
   const resetTransferForm = useCallback(() => {
@@ -1009,8 +1031,11 @@ export default function InventoryPage() {
 
       // Calculate aggregated values for parent row
       const totalThreshold = variants.reduce((sum, v) => sum + (v.threshold || 0), 0);
-      const totalStockOnHand = variants.reduce((sum, v) => sum + (v.stockOnHand || 0), 0);
-      const parentReorderLevel = Math.max(0, totalThreshold - totalStockOnHand);
+      const parentReorderLevel = variants.reduce((sum, v) => {
+        const variantThreshold = Number(v?.threshold || 0);
+        const variantStock = Number(v?.stockOnHand || 0);
+        return sum + Math.max(0, variantThreshold - variantStock);
+      }, 0);
 
       // For simple product (1 variant), use that variant's threshold
       const parentThreshold = isVariantProduct ? totalThreshold : (variants[0]?.threshold || 0);
@@ -1023,7 +1048,7 @@ export default function InventoryPage() {
         reorderLevel: parentReorderLevel,
       });
 
-      if (expandedRows.has(row.id) && variants.length > 1) {
+      if (String(expandedRowId) === String(row.id) && variants.length > 1) {
         for (const variant of variants) {
           const variantThreshold = variant.threshold || 0;
           const variantStock = variant.stockOnHand || 0;
@@ -1042,7 +1067,7 @@ export default function InventoryPage() {
       }
     }
     return result;
-  }, [rows, expandedRows]);
+  }, [rows, expandedRowId]);
 
   // Column definitions
   const columns = useMemo(
@@ -1062,7 +1087,7 @@ export default function InventoryPage() {
             );
           }
           if (!row.hasVariants) return <div className="min-h-[3rem] py-1"></div>;
-          const isExpanded = expandedRows.has(row.id);
+          const isExpanded = String(expandedRowId) === String(row.id);
           return (
             <div className="flex items-center justify-center min-h-[3rem] py-1">
               <button
@@ -1332,7 +1357,7 @@ export default function InventoryPage() {
 
       return baseColumns;
     },
-    [expandedRows, toggleRow, openWarehouseBreakdown, openRowTransferModal]
+    [expandedRowId, toggleRow, openWarehouseBreakdown, openRowTransferModal]
   );
 
   // Filter Handlers
@@ -1340,6 +1365,7 @@ export default function InventoryPage() {
     setSearch(newFilters.search);
     setWarehouseFilter(newFilters.warehouse);
     setStockStatusFilter(newFilters.stockStatus);
+    setSupplierFilterIds(Array.isArray(newFilters.supplierIds) ? newFilters.supplierIds : []);
     setPage(1);
   };
 
@@ -1361,13 +1387,14 @@ export default function InventoryPage() {
         filters={{
           search,
           warehouse: warehouseFilter,
-          stockStatus: stockStatusFilter
+          stockStatus: stockStatusFilter,
+          supplierIds: supplierFilterIds,
         }}
-        options={{ warehouseOptions }}
+        options={{ warehouseOptions, supplierOptions }}
         onApply={handleFilterApply}
       />
 
-      {(warehouseFilter.id || stockStatusFilter.id) && (
+      {(warehouseFilter.id || stockStatusFilter.id || supplierFilterIds.length > 0) && (
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
           <span className="text-xs font-medium text-gray-500">Applied:</span>
 
@@ -1385,6 +1412,18 @@ export default function InventoryPage() {
             </div>
           )}
 
+          {supplierFilterIds.map((supplierId) => (
+            <div key={supplierId} className="flex items-center gap-1 bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full text-[11px] font-medium border border-gray-200 whitespace-nowrap">
+              {supplierLabelById.get(String(supplierId)) || "Supplier"}
+              <button
+                onClick={() => setSupplierFilterIds((prev) => prev.filter((id) => String(id) !== String(supplierId)))}
+                className="hover:text-red-500"
+              >
+                <X size={10} />
+              </button>
+            </div>
+          ))}
+
           <div className="h-4 w-px bg-gray-300 mx-1" />
 
           <Button
@@ -1394,7 +1433,8 @@ export default function InventoryPage() {
             onClick={() => handleFilterApply({
               search: "",
               warehouse: { id: "", name: "All Warehouses" },
-              stockStatus: { id: "", name: "All Stock Status" }
+              stockStatus: { id: "", name: "All Stock Status" },
+              supplierIds: [],
             })}
           >
             <Trash2 size={12} className="mr-1" /> Clear all

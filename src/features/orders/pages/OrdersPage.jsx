@@ -16,11 +16,8 @@ import { useRemarkTypes } from "../../settings/hooks/useRemarkTypes";
 import useUserPermissions from "../../auth/hooks/useUserPermissions";
 import toast from "react-hot-toast";
 import ImageGallery from "../../../components/ImageGallery";
-import DateRangePicker from "../../../components/ui/DateRangePicker";
 import {
     listOrders,
-    bulkUpdateOrder,
-    deleteOrder,
     downloadBulkLabels
 } from "../../../lib/api";
 import { AnimatedAlert } from "../../../components/ui/AnimatedAlert";
@@ -63,6 +60,27 @@ const formatDateCSV = (date) => {
     return new Date(date).toLocaleDateString(undefined, { timeZone: 'UTC' });
 };
 
+const toAmount = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+};
+
+const getCurrentMonthRange = () => {
+    const now = new Date();
+    const from = new Date(now.getFullYear(), now.getMonth(), 1);
+    from.setHours(0, 0, 0, 0);
+    const to = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    to.setHours(23, 59, 59, 999);
+    return { from, to };
+};
+
+const formatMoney = (value) => {
+    return new Intl.NumberFormat(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    }).format(toAmount(value));
+};
+
 export default function OrdersPage() {
     const [search, setSearch] = useState("");
     const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -88,10 +106,11 @@ export default function OrdersPage() {
     const [courierFilter, setCourierFilter] = useState({ id: "", name: "All Couriers" });
     const [remarkFilter, setRemarkFilter] = useState({ id: "", name: "All Remarks" });
     const [settledFilter, setSettledFilter] = useState({ id: "all", name: "All" });
-    const [dateTypeFilter, setDateTypeFilter] = useState({ id: "order", name: "Order Date" });
+    const [dateTypeFilter] = useState({ id: "order", name: "Order Date" });
+    const defaultDateRange = useMemo(() => getCurrentMonthRange(), []);
 
     // Date Range (Unified)
-    const [dateRange, setDateRange] = useState(undefined); // { from, to }
+    const [dateRange, setDateRange] = useState(() => getCurrentMonthRange()); // { from, to }
 
     // Pagination
     const [page, setPage] = useState(1);
@@ -117,11 +136,6 @@ export default function OrdersPage() {
         { id: "REFUND", name: "Refund" },
     ], []);
 
-    const dateTypeOptions = useMemo(() => [
-        { id: "order", name: "Order Date" },
-        { id: "created", name: "Created Date" },
-    ], []);
-
     useEffect(() => {
         if (statusParam) {
             if (statusFilter.id !== statusParam) {
@@ -134,16 +148,6 @@ export default function OrdersPage() {
             }
         }
     }, [statusParam, statusOptions, statusFilter.id]);
-
-    const handleStatusChange = (opt) => {
-        setStatusFilter(opt);
-        setPage(1); // Reset page on filter change
-        if (opt.id === "ALL") {
-            navigate("/orders");
-        } else {
-            navigate(`/orders?status=${opt.id}`);
-        }
-    };
 
     const { data: channels = [] } = useSearchMarketplaceChannels({});
     const { data: couriers = [] } = useCourierMediums();
@@ -164,7 +168,7 @@ export default function OrdersPage() {
         ...(Array.isArray(remarkTypes) ? remarkTypes : []).map(r => ({ id: r.id, name: r.name }))
     ], [remarkTypes]);
 
-    const { data: orderData, isLoading } = useOrders({
+    const buildOrderQueryParams = ({ page: queryPage, perPage: queryPerPage } = {}) => ({
         search: debouncedSearch,
         status: statusParam || (statusFilter.id === "ALL" ? undefined : statusFilter.id),
         mediumId: channelFilter.id,
@@ -174,9 +178,45 @@ export default function OrdersPage() {
         startDate: dateRange?.from ? dateRange.from.toISOString() : undefined,
         endDate: dateRange?.to ? dateRange.to.toISOString() : (dateRange?.from ? dateRange.from.toISOString() : undefined),
         isSettled: settledFilter.id !== "all" ? settledFilter.id : undefined,
-        page,
-        perPage,
+        page: queryPage,
+        perPage: queryPerPage,
     });
+
+    const paginatedOrderParams = useMemo(
+        () => buildOrderQueryParams({ page, perPage }),
+        [
+            debouncedSearch,
+            statusParam,
+            statusFilter.id,
+            channelFilter.id,
+            courierFilter.id,
+            remarkFilter.id,
+            dateTypeFilter.id,
+            settledFilter.id,
+            page,
+            perPage,
+            dateRange?.from?.getTime(),
+            dateRange?.to?.getTime(),
+        ]
+    );
+
+    const filteredOrderParams = useMemo(
+        () => buildOrderQueryParams(),
+        [
+            debouncedSearch,
+            statusParam,
+            statusFilter.id,
+            channelFilter.id,
+            courierFilter.id,
+            remarkFilter.id,
+            dateTypeFilter.id,
+            settledFilter.id,
+            dateRange?.from?.getTime(),
+            dateRange?.to?.getTime(),
+        ]
+    );
+
+    const { data: orderData, isLoading } = useOrders(paginatedOrderParams);
 
     const orders = orderData?.rows || [];
     const meta = orderData?.meta || {};
@@ -191,6 +231,70 @@ export default function OrdersPage() {
         });
         return rows;
     }, [orders, marketplaceSortOrder]);
+
+    const [filteredOrdersForSummary, setFilteredOrdersForSummary] = useState([]);
+    const [isSummaryLoading, setIsSummaryLoading] = useState(false);
+
+    useEffect(() => {
+        let ignore = false;
+
+        const fetchFilteredOrders = async () => {
+            setIsSummaryLoading(true);
+            try {
+                const firstPage = await listOrders({ ...filteredOrderParams, page: 1, perPage: 250 });
+                const totalPages = Number(firstPage?.meta?.totalPages || 1);
+                let allRows = Array.isArray(firstPage?.rows) ? [...firstPage.rows] : [];
+
+                for (let currentPage = 2; currentPage <= totalPages; currentPage += 1) {
+                    const pageData = await listOrders({ ...filteredOrderParams, page: currentPage, perPage: 250 });
+                    if (Array.isArray(pageData?.rows) && pageData.rows.length > 0) {
+                        allRows = allRows.concat(pageData.rows);
+                    }
+                }
+
+                if (!ignore) {
+                    setFilteredOrdersForSummary(allRows);
+                }
+            } catch {
+                if (!ignore) {
+                    setFilteredOrdersForSummary([]);
+                    toast.error("Failed to load order totals.");
+                }
+            } finally {
+                if (!ignore) {
+                    setIsSummaryLoading(false);
+                }
+            }
+        };
+
+        fetchFilteredOrders();
+        return () => {
+            ignore = true;
+        };
+    }, [filteredOrderParams]);
+
+    const totals = useMemo(() => {
+        return filteredOrdersForSummary.reduce((acc, order) => {
+            const orderPurchaseBase = Array.isArray(order.items) && order.items.length > 0
+                ? order.items.reduce((sum, item) => sum + toAmount(item.totalCost), 0)
+                : toAmount(order.totalCost);
+            const orderSellingPrice = Array.isArray(order.items) && order.items.length > 0
+                ? order.items.reduce((sum, item) => sum + toAmount(item.totalAmount), 0)
+                : toAmount(order.totalAmount);
+            const extraCharges = toAmount(order.shippingCharges) + toAmount(order.tax) + toAmount(order.otherCharges);
+
+            acc.totalOrders += 1;
+            acc.totalPurchasePrice += orderPurchaseBase + extraCharges;
+            acc.totalSellingPrice += orderSellingPrice;
+            acc.netProfit += orderSellingPrice - orderPurchaseBase;
+            return acc;
+        }, {
+            totalOrders: 0,
+            totalPurchasePrice: 0,
+            totalSellingPrice: 0,
+            netProfit: 0,
+        });
+    }, [filteredOrdersForSummary]);
 
     const deleteMut = useDeleteOrder();
 
@@ -230,7 +334,7 @@ export default function OrdersPage() {
     // Clear selection on filter change
     useEffect(() => {
         setSelectedIds(new Set());
-    }, [statusFilter.id, channelFilter.id, courierFilter.id, dateRange]);
+    }, [statusFilter.id, statusParam, channelFilter.id, courierFilter.id, remarkFilter.id, settledFilter.id, dateRange]);
 
     const handleSelectAll = (checked) => {
         if (checked) {
@@ -1051,6 +1155,7 @@ export default function OrdersPage() {
         setRemarkFilter(newFilters.remark);
         setDateRange(newFilters.dateRange);
         setSettledFilter(newFilters.settled || { id: "all", name: "All" });
+        setPage(1);
 
         const statusId = newFilters.status.id;
         if (statusId === "ALL") navigate("/orders");
@@ -1062,18 +1167,11 @@ export default function OrdersPage() {
     const handleExport = async () => {
         try {
             setIsExporting(true);
-            const params = {
-                search: debouncedSearch,
-                status: statusFilter.id === "ALL" ? undefined : statusFilter.id,
-                startDate: dateRange?.from ? new Date(dateRange.from).toISOString() : undefined,
-                endDate: dateRange?.to ? new Date(dateRange.to).toISOString() : undefined,
-                mediumId: channelFilter.id,
-                courierId: courierFilter.id,
-                page: 1,
-                perPage: 1000 // reasonable limit for frontend export
-            };
-            const response = await listOrders(params);
-            const dataToExport = response.rows || [];
+            if (isSummaryLoading) {
+                toast.error("Please wait, filters are still loading.");
+                return;
+            }
+            const dataToExport = filteredOrdersForSummary || [];
 
             if (dataToExport.length === 0) {
                 toast.error("No orders to export.");
@@ -1171,6 +1269,13 @@ export default function OrdersPage() {
         }
     };
 
+    const activeRangeLabel = useMemo(() => {
+        if (!dateRange?.from) return "All Time";
+        const fromLabel = new Date(dateRange.from).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+        const toLabel = new Date(dateRange.to || dateRange.from).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+        return `${fromLabel} - ${toLabel}`;
+    }, [dateRange?.from, dateRange?.to]);
+
     const toolbar = (
         <div className="flex items-center gap-3 w-full">
             <div className="relative">
@@ -1202,6 +1307,7 @@ export default function OrdersPage() {
                 }}
                 onApply={handleFilterApply}
                 statusReadOnly={!!statusParam} // Read-only if specific status page
+                defaultDateRange={defaultDateRange}
             />
 
             {(statusFilter.id !== "ALL" || channelFilter.id || courierFilter.id || remarkFilter.id || dateRange || settledFilter.id !== "all") && (
@@ -1262,7 +1368,8 @@ export default function OrdersPage() {
                             channel: channelOptions[0],
                             courier: courierOptions[0],
                             remark: remarkOptions[0],
-                            dateRange: undefined
+                            dateRange: defaultDateRange,
+                            settled: { id: "all", name: "All" }
                         })}
                     >
                         <Trash2 size={12} className="mr-1" /> Clear all
@@ -1296,6 +1403,36 @@ export default function OrdersPage() {
                     <p className="text-sm text-gray-500">View and manage all your orders</p>
                 </div>
             </div>
+
+            <div className="mb-5 rounded-xl border border-gray-200 bg-white p-4">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                    <h2 className="text-sm font-semibold text-gray-900">Order Totals</h2>
+                    <span className="text-xs text-gray-500">{activeRangeLabel}</span>
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Total Orders</p>
+                        <p className="mt-1 text-xl font-semibold text-gray-900">{isSummaryLoading ? "..." : totals.totalOrders}</p>
+                    </div>
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Total Purchase Price</p>
+                        <p className="mt-1 text-xl font-semibold text-gray-900">{isSummaryLoading ? "..." : formatMoney(totals.totalPurchasePrice)}</p>
+                        <p className="mt-1 text-[11px] text-gray-500">Purchase + Shipping + Tax + Other</p>
+                    </div>
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Total Selling Price</p>
+                        <p className="mt-1 text-xl font-semibold text-gray-900">{isSummaryLoading ? "..." : formatMoney(totals.totalSellingPrice)}</p>
+                    </div>
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Net Profit</p>
+                        <p className={`mt-1 text-xl font-semibold ${totals.netProfit >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                            {isSummaryLoading ? "..." : formatMoney(totals.netProfit)}
+                        </p>
+                        <p className="mt-1 text-[11px] text-gray-500">Selling - Purchase Price</p>
+                    </div>
+                </div>
+            </div>
+
             <DataTable
                 columns={columns}
                 rows={sortedOrders}
