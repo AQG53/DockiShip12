@@ -24,6 +24,7 @@ import {
   Edit,
   Trash2,
   XCircle,
+  CheckCircle,
   DollarSign,
   Plus,
 } from "lucide-react";
@@ -97,6 +98,36 @@ const statusTone = (status) => {
   return map[base] || "bg-gray-100 text-gray-700";
 };
 
+const paymentStatusMeta = (po) => {
+  const total = Number(po?.totalAmount ?? po?.total_amount) || 0;
+  const paid = Number(po?.amountPaid ?? po?.amount_paid) || 0;
+
+  if (paid >= total && total > 0) {
+    return {
+      label: "Paid",
+      tone: "bg-emerald-100 text-emerald-700",
+      iconTone: "text-emerald-600",
+      Icon: CheckCircle,
+    };
+  }
+
+  if (paid > 0) {
+    return {
+      label: "Partially Paid",
+      tone: "bg-amber-100 text-amber-700",
+      iconTone: "text-amber-600",
+      Icon: Clock,
+    };
+  }
+
+  return {
+    label: "Unpaid",
+    tone: "bg-red-100 text-red-700",
+    iconTone: "text-red-600",
+    Icon: XCircle,
+  };
+};
+
 const toDecimalInput = (value) =>
   String(value || "")
     .replace(/[^0-9.]/g, "")
@@ -104,6 +135,41 @@ const toDecimalInput = (value) =>
     .replace(/^(\d*\.\d{0,2}).*$/, "$1"); // clamp to 2 decimals
 
 const toIntegerInput = (value) => String(value || "").replace(/[^0-9]/g, "");
+
+const groupLineItemsByProduct = (items) => {
+  const groups = new Map();
+  const ungrouped = [];
+
+  for (const item of items || []) {
+    const productKey = item?.productId ? String(item.productId) : "";
+    if (!productKey) {
+      ungrouped.push(item);
+      continue;
+    }
+    if (!groups.has(productKey)) groups.set(productKey, []);
+    groups.get(productKey).push(item);
+  }
+
+  return [...Array.from(groups.values()).flat(), ...ungrouped];
+};
+
+const insertLineItemNextToSiblings = (items, nextLine) => {
+  const nextProductKey = nextLine?.productId ? String(nextLine.productId) : "";
+  if (!nextProductKey) return [...items, nextLine];
+
+  let lastSiblingIndex = -1;
+  for (let i = 0; i < items.length; i += 1) {
+    if (String(items[i]?.productId || "") === nextProductKey) {
+      lastSiblingIndex = i;
+    }
+  }
+
+  if (lastSiblingIndex === -1) return [...items, nextLine];
+
+  const arranged = [...items];
+  arranged.splice(lastSiblingIndex + 1, 0, nextLine);
+  return arranged;
+};
 
 const formatCurrency = (value, currency = "USD") => {
   const num = Number(value);
@@ -516,9 +582,20 @@ export default function PurchasesPage() {
                   </div>
                   <div>{po.expectedDeliveryDate ? new Date(po.expectedDeliveryDate).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" }) : "—"}</div>
                   <div>
-                    <div className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusTone(po.status)}`}>
-                      {STATUS_OPTIONS.find(o => o.value === po.status)?.label || po.status || "—"}
-                    </div>
+                    {(() => {
+                      const payment = paymentStatusMeta(po);
+                      return (
+                        <div className="flex flex-col items-start gap-1">
+                          <div className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusTone(po.status)}`}>
+                            {STATUS_OPTIONS.find(o => o.value === po.status)?.label || po.status || "—"}
+                          </div>
+                          <div className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium whitespace-nowrap ${payment.tone}`}>
+                            <payment.Icon className={`h-3.5 w-3.5 ${payment.iconTone}`} />
+                            <span>{payment.label}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                   <div className="text-center font-semibold text-gray-900">
                     {formatCurrency(po.totalAmount ?? po.total_amount, currency)}
@@ -844,7 +921,7 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
       };
     });
 
-    setLineItems(mapped);
+    setLineItems(groupLineItemsByProduct(mapped));
     setPrefilled(true);
   }, [open, mode, initialPo, prefilled, loadingProducts, productOptions]);
 
@@ -1059,27 +1136,26 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
       : product?.name || "Unnamed product";
     const variantSku = variant?.sku || "";
 
-    setLineItems((prev) => [
-      ...prev,
-      {
-        id: randomId(),
-        productId: option.productId,
-        productVariantId: option.productVariantId || null,
-        name: displayName,
-        sku: option.sku || product.sku || "—",
-        variantName: variantLabel || "",
-        variantSku,
-        stock: option.stock,
-        qty: "",
-        unitPrice: "", // Keep empty as requested
-        taxRate: defaultTax,
-        sizeText: option.sizeText || "",
-        colorText: option.colorText || "",
-        packagingType: option.packagingType || "",
-        packagingQuantity: option.packagingQuantity || null,
-        images: option.images || [],
-      },
-    ]);
+    const newLine = {
+      id: randomId(),
+      productId: option.productId,
+      productVariantId: option.productVariantId || null,
+      name: displayName,
+      sku: option.sku || product.sku || "—",
+      variantName: variantLabel || "",
+      variantSku,
+      stock: option.stock,
+      qty: "",
+      unitPrice: "", // Keep empty as requested
+      taxRate: defaultTax,
+      sizeText: option.sizeText || "",
+      colorText: option.colorText || "",
+      packagingType: option.packagingType || "",
+      packagingQuantity: option.packagingQuantity || null,
+      images: option.images || [],
+    };
+
+    setLineItems((prev) => insertLineItemNextToSiblings(prev, newLine));
     setSelectedProduct("Select");
     toast.success("Product added");
   };

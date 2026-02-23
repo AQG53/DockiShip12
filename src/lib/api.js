@@ -803,6 +803,33 @@ export async function updateProductMarketplaceListing(productId, listingId, payl
   return res?.data?.data ?? res?.data ?? {};
 }
 
+export async function uploadProductMarketplaceListingImage(productId, listingId, file) {
+  if (!productId) throw new Error("Missing productId");
+  if (!listingId) throw new Error("Missing listingId");
+  if (!file) throw new Error("Missing image file");
+
+  const formData = new FormData();
+  formData.append("image", file);
+
+  const res = await axiosInstance.post(
+    `/products/${productId}/marketplaces/listings/${listingId}/image`,
+    formData,
+    {
+      headers: { "Content-Type": "multipart/form-data" },
+    }
+  );
+  return res?.data?.data ?? res?.data ?? {};
+}
+
+export async function deleteProductMarketplaceListingImage(productId, listingId) {
+  if (!productId) throw new Error("Missing productId");
+  if (!listingId) throw new Error("Missing listingId");
+  const res = await axiosInstance.delete(
+    `/products/${productId}/marketplaces/listings/${listingId}/image`
+  );
+  return res?.data?.ok === true || res?.status === 200 || res?.status === 204;
+}
+
 /**
  * Delete a listing.
  */

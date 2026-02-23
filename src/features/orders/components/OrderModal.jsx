@@ -221,7 +221,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                         marketplaceName: listing?.productName || i.productDescription || null, // Marketplace listing name
                         marketplaceSku: variant?.sku || product?.sku || null, // Marketplace SKU
                         sku: variant?.sku || product?.sku || "",
-                        imageUrl: product?.images?.[0]?.url || null,
+                        imageUrl: listing?.url || listing?.imageUrl || product?.images?.[0]?.url || null,
                         quantity: i.quantity,
                         unitCost: i.unitCost, // backend decimal
                         unitPrice: i.unitPrice, // backend decimal

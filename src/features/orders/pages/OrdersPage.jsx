@@ -32,6 +32,50 @@ const absImg = (path) => {
     return `${API_BASE}${path}`;
 };
 
+const isImagePath = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) return false;
+    return raw.includes("/uploads/") || /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(raw);
+};
+
+const resolveOrderProductImages = ({ listing, product, variant, name }) => {
+    const listingImage = String(listing?.url || listing?.imageUrl || "").trim();
+    if (isImagePath(listingImage)) {
+        return [
+            {
+                url: listingImage,
+                alt: name,
+                productName: name,
+            },
+        ];
+    }
+
+    const rawImages = Array.isArray(product?.images) ? product.images : [];
+
+    if (variant?.id && rawImages.length > 0) {
+        const variantImages = rawImages.filter((img) => img?.url && String(img.url).includes(String(variant.id)));
+        return variantImages.map((img) => ({
+            url: img.url,
+            alt: name,
+            productName: name,
+        }));
+    }
+
+    // Product-level listing (no variant attached): fallback to product image.
+    const productImages = rawImages.filter((img) => {
+        const u = img?.url || "";
+        if (!u.includes("/uploads/")) return true;
+        const parts = u.split("/uploads/")[1]?.split("/") || [];
+        return parts.length === 2;
+    });
+
+    return productImages.map((img) => ({
+        url: img.url,
+        alt: name,
+        productName: name,
+    }));
+};
+
 // Helper for Copy
 const CopyButton = ({ text }) => {
     const [copied, setCopied] = useState(false);
@@ -72,6 +116,17 @@ const getCurrentMonthRange = () => {
     const to = new Date(now.getFullYear(), now.getMonth() + 1, 0);
     to.setHours(23, 59, 59, 999);
     return { from, to };
+};
+
+const getUTCStartOfDay = (date) => {
+    const d = new Date(date);
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+};
+
+const addUTCDays = (date, days) => {
+    const d = new Date(date);
+    d.setUTCDate(d.getUTCDate() + days);
+    return d;
 };
 
 const formatMoney = (value) => {
@@ -234,6 +289,13 @@ export default function OrdersPage() {
 
     const [filteredOrdersForSummary, setFilteredOrdersForSummary] = useState([]);
     const [isSummaryLoading, setIsSummaryLoading] = useState(false);
+    const [weeklyStats, setWeeklyStats] = useState({
+        currentWeekOrders: 0,
+        previousWeekOrders: 0,
+        avgOrdersPerDay: 0,
+        changePct: 0,
+    });
+    const [isWeeklyStatsLoading, setIsWeeklyStatsLoading] = useState(false);
 
     useEffect(() => {
         let ignore = false;
@@ -273,27 +335,121 @@ export default function OrdersPage() {
         };
     }, [filteredOrderParams]);
 
+    useEffect(() => {
+        let ignore = false;
+
+        const fetchWeeklyStats = async () => {
+            setIsWeeklyStatsLoading(true);
+            try {
+                const todayUtcStart = getUTCStartOfDay(new Date());
+                const currentWeekStart = addUTCDays(todayUtcStart, -6);
+                const currentWeekEndExclusive = addUTCDays(todayUtcStart, 1);
+                const previousWeekStart = addUTCDays(currentWeekStart, -7);
+                const rangeEndInclusive = new Date(currentWeekEndExclusive.getTime() - 1);
+
+                const baseParams = {
+                    dateType: "order",
+                    startDate: previousWeekStart.toISOString(),
+                    endDate: rangeEndInclusive.toISOString(),
+                };
+
+                const firstPage = await listOrders({ ...baseParams, page: 1, perPage: 250 });
+                const totalPages = Number(firstPage?.meta?.totalPages || 1);
+                let allRows = Array.isArray(firstPage?.rows) ? [...firstPage.rows] : [];
+
+                for (let currentPage = 2; currentPage <= totalPages; currentPage += 1) {
+                    const pageData = await listOrders({ ...baseParams, page: currentPage, perPage: 250 });
+                    if (Array.isArray(pageData?.rows) && pageData.rows.length > 0) {
+                        allRows = allRows.concat(pageData.rows);
+                    }
+                }
+
+                let currentWeekOrders = 0;
+                let previousWeekOrders = 0;
+
+                allRows.forEach((order) => {
+                    const ts = Date.parse(order?.date);
+                    if (!Number.isFinite(ts)) return;
+
+                    if (ts >= currentWeekStart.getTime() && ts < currentWeekEndExclusive.getTime()) {
+                        currentWeekOrders += 1;
+                    } else if (ts >= previousWeekStart.getTime() && ts < currentWeekStart.getTime()) {
+                        previousWeekOrders += 1;
+                    }
+                });
+
+                const avgOrdersPerDay = currentWeekOrders / 7;
+                let changePct = 0;
+                if (previousWeekOrders > 0) {
+                    changePct = ((currentWeekOrders - previousWeekOrders) / previousWeekOrders) * 100;
+                } else if (currentWeekOrders > 0) {
+                    changePct = 100;
+                }
+
+                if (!ignore) {
+                    setWeeklyStats({
+                        currentWeekOrders,
+                        previousWeekOrders,
+                        avgOrdersPerDay,
+                        changePct,
+                    });
+                }
+            } catch {
+                if (!ignore) {
+                    setWeeklyStats({
+                        currentWeekOrders: 0,
+                        previousWeekOrders: 0,
+                        avgOrdersPerDay: 0,
+                        changePct: 0,
+                    });
+                }
+            } finally {
+                if (!ignore) {
+                    setIsWeeklyStatsLoading(false);
+                }
+            }
+        };
+
+        fetchWeeklyStats();
+        return () => {
+            ignore = true;
+        };
+    }, []);
+
     const totals = useMemo(() => {
-        return filteredOrdersForSummary.reduce((acc, order) => {
+        const summary = filteredOrdersForSummary.reduce((acc, order) => {
             const orderPurchaseBase = Array.isArray(order.items) && order.items.length > 0
                 ? order.items.reduce((sum, item) => sum + toAmount(item.totalCost), 0)
                 : toAmount(order.totalCost);
             const orderSellingPrice = Array.isArray(order.items) && order.items.length > 0
                 ? order.items.reduce((sum, item) => sum + toAmount(item.totalAmount), 0)
                 : toAmount(order.totalAmount);
-            const extraCharges = toAmount(order.shippingCharges) + toAmount(order.tax) + toAmount(order.otherCharges);
+            const shippingCharges = toAmount(order.shippingCharges);
+            const taxCharges = toAmount(order.tax);
+            const otherCharges = toAmount(order.otherCharges);
+            const extraCharges = shippingCharges + taxCharges + otherCharges;
 
             acc.totalOrders += 1;
             acc.totalPurchasePrice += orderPurchaseBase + extraCharges;
             acc.totalSellingPrice += orderSellingPrice;
-            acc.netProfit += orderSellingPrice - orderPurchaseBase;
+            acc.totalPurchaseCost += orderPurchaseBase;
+            acc.totalShippingCharges += shippingCharges;
+            acc.totalTaxCharges += taxCharges;
+            acc.totalOtherCharges += otherCharges;
             return acc;
         }, {
             totalOrders: 0,
             totalPurchasePrice: 0,
             totalSellingPrice: 0,
-            netProfit: 0,
+            totalPurchaseCost: 0,
+            totalShippingCharges: 0,
+            totalTaxCharges: 0,
+            totalOtherCharges: 0,
         });
+        return {
+            ...summary,
+            netProfit: summary.totalSellingPrice - summary.totalPurchasePrice,
+        };
     }, [filteredOrdersForSummary]);
 
     const deleteMut = useDeleteOrder();
@@ -614,32 +770,7 @@ export default function OrdersPage() {
                                 const product = listing?.product || listing?.productVariant?.product || item.product;
                                 const variant = listing?.productVariant || item.productVariant;
                                 const name = item.productDescription || listing?.productName || product?.name || "Product";
-                                const rawImages = product?.images || [];
-                                let displayImages = [];
-
-                                if (variant?.id && rawImages.length > 0) {
-                                    // 1. Variant Specific
-                                    const vImages = rawImages.filter(img => img.url && img.url.includes(variant.id));
-                                    if (vImages.length > 0) displayImages = vImages;
-                                }
-
-                                if (displayImages.length === 0 && rawImages.length > 0) {
-                                    // 2. Parent Only (fallback)
-                                    // Logic: Parent images typically look like .../uploads/<tenant>/<file> (2 parts)
-                                    // Variant images look like .../uploads/<tenant>/<variant>/<file> (3 parts)
-                                    displayImages = rawImages.filter(img => {
-                                        const u = img.url || "";
-                                        if (!u.includes('/uploads/')) return true; // keep legacy/external
-                                        const parts = u.split('/uploads/')[1]?.split('/') || [];
-                                        return parts.length === 2;
-                                    });
-                                }
-
-                                const images = displayImages.map(img => ({
-                                    url: img.url,
-                                    alt: name,
-                                    productName: name
-                                }));
+                                const images = resolveOrderProductImages({ listing, product, variant, name });
 
                                 const variantParts = [];
                                 if (variant?.size?.name) variantParts.push(variant.size.name);
@@ -692,30 +823,14 @@ export default function OrdersPage() {
                 }
 
                 // Legacy Fallback
-                const rawImages = row.product?.images || [];
-                let displayImages = [];
                 const itemVariant = row.productVariant;
-
-                if (itemVariant?.id && rawImages.length > 0) {
-                    const vImages = rawImages.filter(img => img.url && img.url.includes(itemVariant.id));
-                    if (vImages.length > 0) displayImages = vImages;
-                }
-
-                if (displayImages.length === 0 && rawImages.length > 0) {
-                    displayImages = rawImages.filter(img => {
-                        const u = img.url || "";
-                        if (!u.includes('/uploads/')) return true;
-                        const parts = u.split('/uploads/')[1]?.split('/') || [];
-                        return parts.length === 2;
-                    });
-                }
-
-                const images = displayImages.map(img => ({
-                    url: img.url,
-                    alt: row.productDescription,
-                    productName: row.productDescription
-                }));
                 const productName = row.product?.name || row.productVariant?.sku || row.productDescription || "—";
+                const images = resolveOrderProductImages({
+                    listing: row.channelListing,
+                    product: row.product,
+                    variant: itemVariant,
+                    name: row.productDescription || productName,
+                });
                 const variantInfo = row.productVariant?.sizeText || row.productVariant?.colorText
                     ? [row.productVariant?.sizeText, row.productVariant?.colorText].filter(Boolean).join(" · ")
                     : null;
@@ -1409,26 +1524,45 @@ export default function OrdersPage() {
                     <h2 className="text-sm font-semibold text-gray-900">Order Totals</h2>
                     <span className="text-xs text-gray-500">{activeRangeLabel}</span>
                 </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
                     <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                         <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Total Orders</p>
                         <p className="mt-1 text-xl font-semibold text-gray-900">{isSummaryLoading ? "..." : totals.totalOrders}</p>
                     </div>
                     <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                         <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Total Purchase Price</p>
-                        <p className="mt-1 text-xl font-semibold text-gray-900">{isSummaryLoading ? "..." : formatMoney(totals.totalPurchasePrice)}</p>
-                        <p className="mt-1 text-[11px] text-gray-500">Purchase + Shipping + Tax + Other</p>
+                        <p className="mt-1 text-xl font-semibold text-gray-900">{isSummaryLoading ? "..." : `$${formatMoney(totals.totalPurchasePrice)}`}</p>
+                        <p className="mt-1 text-[11px] text-gray-500">
+                            Purchase: {isSummaryLoading ? "..." : formatMoney(totals.totalPurchaseCost)} | Shipping: {isSummaryLoading ? "..." : formatMoney(totals.totalShippingCharges)}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-gray-500">
+                            Tax: {isSummaryLoading ? "..." : formatMoney(totals.totalTaxCharges)} | Other: {isSummaryLoading ? "..." : formatMoney(totals.totalOtherCharges)}
+                        </p>
                     </div>
                     <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                         <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Total Selling Price</p>
-                        <p className="mt-1 text-xl font-semibold text-gray-900">{isSummaryLoading ? "..." : formatMoney(totals.totalSellingPrice)}</p>
+                        <p className="mt-1 text-xl font-semibold text-gray-900">{isSummaryLoading ? "..." : `$${formatMoney(totals.totalSellingPrice)}`}</p>
                     </div>
                     <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                         <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Net Profit</p>
-                        <p className={`mt-1 text-xl font-semibold ${totals.netProfit >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
-                            {isSummaryLoading ? "..." : formatMoney(totals.netProfit)}
+                        <p className={`mt-1 text-xl font-semibold ${totals.netProfit > 0 ? "text-emerald-600" : totals.netProfit < 0 ? "text-rose-600" : "text-gray-900"}`}>
+                            {isSummaryLoading ? "..." : `$${formatMoney(totals.netProfit)}`}
                         </p>
-                        <p className="mt-1 text-[11px] text-gray-500">Selling - Purchase Price</p>
+                        <p className="mt-1 text-[11px] text-gray-500">Selling Price - Purchase Price</p>
+                    </div>
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Weekly Avg Orders</p>
+                        <p className="mt-1 text-xl font-semibold text-gray-900">
+                            {isWeeklyStatsLoading ? "..." : weeklyStats.avgOrdersPerDay.toFixed(2)}
+                        </p>
+                        <p className="mt-1 text-[11px] text-gray-500">
+                            {isWeeklyStatsLoading ? "..." : `This week: ${weeklyStats.currentWeekOrders} | Last week: ${weeklyStats.previousWeekOrders}`}
+                        </p>
+                        <p className={`mt-0.5 text-[11px] ${weeklyStats.changePct > 0 ? "text-emerald-600" : weeklyStats.changePct < 0 ? "text-rose-600" : "text-gray-500"}`}>
+                            {isWeeklyStatsLoading
+                                ? "..."
+                                : `${weeklyStats.changePct >= 0 ? "+" : ""}${weeklyStats.changePct.toFixed(1)}% vs last week`}
+                        </p>
                     </div>
                 </div>
             </div>

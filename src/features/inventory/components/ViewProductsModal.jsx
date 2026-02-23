@@ -507,7 +507,8 @@ export default function ViewProductModal({ open, onClose, product }) {
                       <div className="text-sm text-gray-500">No matching listings found.</div>
                     ) : (
                       <div className="rounded-lg border border-gray-200 overflow-hidden">
-                        <div className={`grid ${hasVariants ? 'grid-cols-[1.2fr_1.5fr_1.2fr_0.8fr_0.6fr_0.6fr_0.6fr]' : 'grid-cols-[2fr_1.2fr_0.8fr_0.6fr_0.6fr_0.6fr]'} bg-gray-50 text-[12px] font-medium text-gray-700`}>
+                        <div className={`grid ${hasVariants ? 'grid-cols-[72px_1.2fr_1.5fr_1.2fr_0.8fr_0.6fr_0.6fr_0.6fr]' : 'grid-cols-[72px_2fr_1.2fr_0.8fr_0.6fr_0.6fr_0.6fr]'} bg-gray-50 text-[12px] font-medium text-gray-700`}>
+                          <div className="px-3 py-2 text-center">Image</div>
                           {hasVariants && <div className="px-3 py-2">Variant SKU</div>}
                           <div className="px-3 py-2">Product Name</div>
                           <div className="px-3 py-2">Marketplace</div>
@@ -525,6 +526,10 @@ export default function ViewProductModal({ open, onClose, product }) {
                             const price = l?.price != null ? Number(l.price).toFixed(2) : null;
                             const variantId = l?.productVariantId ?? l?.variantId ?? null;
                             const marketplaceSku = (l?.externalSku || "").trim();
+                            const rawListingImage = String(l?.imageUrl || l?.url || "").trim();
+                            const listingImage = rawListingImage && (rawListingImage.includes("/uploads/") || /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(rawListingImage))
+                              ? rawListingImage
+                              : "";
                             const resolvedVariant = variantList.find((v) => v.id === variantId);
 
                             // Calculate Assign
@@ -540,8 +545,25 @@ export default function ViewProductModal({ open, onClose, product }) {
                             return (
                               <div
                                 key={l.id || provider + channelName + marketplaceSku}
-                                className={`grid ${hasVariants ? 'grid-cols-[1.2fr_1.5fr_1.2fr_0.8fr_0.6fr_0.6fr_0.6fr]' : 'grid-cols-[2fr_1.2fr_0.8fr_0.6fr_0.6fr_0.6fr]'} bg-white text-[13px] text-gray-700 items-center`}
+                                className={`grid ${hasVariants ? 'grid-cols-[72px_1.2fr_1.5fr_1.2fr_0.8fr_0.6fr_0.6fr_0.6fr]' : 'grid-cols-[72px_2fr_1.2fr_0.8fr_0.6fr_0.6fr_0.6fr]'} bg-white text-[13px] text-gray-700 items-center`}
                               >
+                                <div className="px-3 py-2 flex items-center justify-center">
+                                  <div className="h-8 w-8 overflow-hidden rounded border border-gray-200 bg-gray-50">
+                                    {listingImage ? (
+                                      <img
+                                        src={absImg(listingImage)}
+                                        alt="Listing"
+                                        className="h-full w-full object-cover"
+                                      />
+                                    ) : (
+                                      <img
+                                        src={IMG_PLACEHOLDER}
+                                        alt="No image"
+                                        className="h-full w-full object-cover opacity-40"
+                                      />
+                                    )}
+                                  </div>
+                                </div>
                                 {hasVariants && <div className="px-3 py-2">{resolvedVariant?.sku || "—"}</div>}
                                 <div className="px-3 py-2">{provider || "—"}</div>
                                 <div className="px-3 py-2">{channelName || "—"}</div>

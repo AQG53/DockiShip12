@@ -86,6 +86,20 @@ function toWholeNumber(value) {
   return Number(parsed);
 }
 
+function calculateReorderLevel(availableQty, thresholdQty, inTransitQty) {
+  const available = Number(availableQty) || 0;
+  const threshold = Number(thresholdQty) || 0;
+  const inTransit = Number(inTransitQty) || 0;
+  if (threshold <= 0) return 0;
+
+  if (available < threshold) {
+    const shortage = threshold - available;
+    return inTransit >= shortage ? 0 : shortage;
+  }
+
+  return threshold - available;
+}
+
 export default function InventoryPage() {
   // Filters
   const [warehouseFilter, setWarehouseFilter] = useState({ id: "", name: "All Warehouses" });
@@ -1031,11 +1045,12 @@ export default function InventoryPage() {
 
       // Calculate aggregated values for parent row
       const totalThreshold = variants.reduce((sum, v) => sum + (v.threshold || 0), 0);
-      const parentReorderLevel = variants.reduce((sum, v) => {
-        const variantThreshold = Number(v?.threshold || 0);
-        const variantStock = Number(v?.stockOnHand || 0);
-        return sum + Math.max(0, variantThreshold - variantStock);
-      }, 0);
+      const parentReorderLevel = isVariantProduct
+        ? variants.reduce((sum, v) => {
+          const variantReorderLevel = calculateReorderLevel(v?.stockOnHand, v?.threshold, v?.inTransit);
+          return sum + Math.max(0, variantReorderLevel);
+        }, 0)
+        : calculateReorderLevel(variants[0]?.stockOnHand, variants[0]?.threshold, variants[0]?.inTransit);
 
       // For simple product (1 variant), use that variant's threshold
       const parentThreshold = isVariantProduct ? totalThreshold : (variants[0]?.threshold || 0);
@@ -1051,8 +1066,11 @@ export default function InventoryPage() {
       if (String(expandedRowId) === String(row.id) && variants.length > 1) {
         for (const variant of variants) {
           const variantThreshold = variant.threshold || 0;
-          const variantStock = variant.stockOnHand || 0;
-          const variantReorderLevel = Math.max(0, variantThreshold - variantStock);
+          const variantReorderLevel = calculateReorderLevel(
+            variant.stockOnHand,
+            variantThreshold,
+            variant.inTransit,
+          );
 
           result.push({
             ...variant,
@@ -1077,7 +1095,8 @@ export default function InventoryPage() {
       {
         key: "expand",
         label: "",
-        className: "w-[40px] !pl-3 flex-shrink-0 !items-center",
+        headerClassName: "sticky left-0 z-30 !bg-gray-50 w-[40px] !pl-3 flex-shrink-0 !items-center",
+        className: "sticky left-0 z-20 !bg-white group-hover:!bg-gray-50 w-[40px] !pl-3 flex-shrink-0 !items-center",
         render: (row) => {
           if (!row.isParent) {
             return (
@@ -1108,7 +1127,8 @@ export default function InventoryPage() {
       {
         key: "productName",
         label: "Product",
-        className: "min-w-[286px] !items-start",
+        headerClassName: "sticky left-[40px] z-30 !bg-gray-50 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]",
+        className: "sticky left-[40px] z-20 !bg-white group-hover:!bg-gray-50 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)] min-w-[286px] !items-start",
         render: (row) => {
           const displayImages = selectInventoryImages(row);
           const isVariant = !row.isParent;
@@ -1173,7 +1193,8 @@ export default function InventoryPage() {
       {
         key: "warehouse",
         label: "Warehouse",
-        className: "min-w-[150px] !items-start",
+        headerClassName: "!pl-5",
+        className: "min-w-[150px] !items-start !pl-5",
         render: (row) => {
           const warehouseSummary = Array.isArray(row.warehouseSummary)
             ? row.warehouseSummary.filter((warehouse) => Number(warehouse?.onHand || 0) > 0)
@@ -1287,11 +1308,16 @@ export default function InventoryPage() {
         label: "Reorder",
         className: "min-w-[80px] !items-start text-center justify-center",
         headerClassName: "justify-center",
-        render: (row) => (
-          <div className="flex items-center justify-center min-h-[3rem] py-1 text-[13px] text-gray-600">
-            {row.reorderLevel ?? 0}
-          </div>
-        ),
+        render: (row) => {
+          const reorderLevel = Number(row.reorderLevel ?? 0);
+          const isReorderNeeded = reorderLevel > 0;
+
+          return (
+            <div className={`flex items-center justify-center min-h-[3rem] py-1 text-[13px] ${isReorderNeeded ? "text-red-600 font-semibold" : "text-gray-600"}`}>
+              {reorderLevel}
+            </div>
+          );
+        },
       },
       // Orders (Pending/Active)
       {

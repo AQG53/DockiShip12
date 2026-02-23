@@ -16,6 +16,8 @@ import {
   listProductMarketplaceListings,
   addProductMarketplaceListing,
   updateProductMarketplaceListing,
+  uploadProductMarketplaceListingImage,
+  deleteProductMarketplaceListingImage,
   deleteProductMarketplaceListing,
   upsertProductVariantMarketplaceListings,
   listCategories,
@@ -224,6 +226,21 @@ export function useUpdateProductMarketplaceListing(productId) {
     mutationKey: ["marketplaces", "listings", "update", productId],
     mutationFn: ({ listingId, payload }) =>
       updateProductMarketplaceListing(productId, listingId, payload),
+  });
+}
+
+export function useUploadProductMarketplaceListingImage(productId) {
+  return useMutation({
+    mutationKey: ["marketplaces", "listings", "image", productId],
+    mutationFn: ({ listingId, file }) =>
+      uploadProductMarketplaceListingImage(productId, listingId, file),
+  });
+}
+
+export function useDeleteProductMarketplaceListingImage(productId) {
+  return useMutation({
+    mutationKey: ["marketplaces", "listings", "image", "delete", productId],
+    mutationFn: (listingId) => deleteProductMarketplaceListingImage(productId, listingId),
   });
 }
 

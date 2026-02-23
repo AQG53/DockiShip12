@@ -10,6 +10,8 @@ import {
     useProductMarketplaceListings,
     useAddProductMarketplaceListing,
     useUpdateProductMarketplaceListing,
+    useUploadProductMarketplaceListingImage,
+    useDeleteProductMarketplaceListingImage,
     useDeleteProductMarketplaceListing,
     useBulkUpsertVariantMarketplaceListings,
 } from "../hooks/useProducts";
@@ -283,6 +285,8 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const [listingSku, setListingSku] = useState("");
     const [listingUnits, setListingUnits] = useState("");
     const [listingPrice, setListingPrice] = useState("");
+    const [listingImageFile, setListingImageFile] = useState(null);
+    const [listingImagePreview, setListingImagePreview] = useState("");
     const [selectedVariantIdsForListing, setSelectedVariantIdsForListing] = useState([]);
     const [assign, setAssign] = useState("");
 
@@ -294,6 +298,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
 
     // UI: focus and hinting for provider→channel flow
     const channelSelectRef = useRef(null);
+    const listingImageInputRef = useRef(null);
     const [productNameIsCustom, setProductNameIsCustom] = useState(false);
 
     // effective product id in edit mode
@@ -335,8 +340,20 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const { mutateAsync: addListing, isPending: addingListing } = useAddProductMarketplaceListing(effectiveProductId ?? "");
     const { mutateAsync: bulkAddListings, isPending: bulkAddingListings } = useBulkUpsertVariantMarketplaceListings(effectiveProductId ?? "");
     const { mutateAsync: updateListing, isPending: updatingListing } = useUpdateProductMarketplaceListing(effectiveProductId ?? "");
+    const { mutateAsync: uploadListingImage, isPending: uploadingListingImage } = useUploadProductMarketplaceListingImage(effectiveProductId ?? "");
+    const { mutateAsync: deleteListingImage } = useDeleteProductMarketplaceListingImage(effectiveProductId ?? "");
     const { mutateAsync: deleteListing, isPending: deletingListing } = useDeleteProductMarketplaceListing(effectiveProductId ?? "");
     const [confirm, setConfirm] = useState({ open: false, id: null, label: "" });
+
+    useEffect(() => {
+        if (!listingImageFile) {
+            setListingImagePreview("");
+            return;
+        }
+        const preview = URL.createObjectURL(listingImageFile);
+        setListingImagePreview(preview);
+        return () => URL.revokeObjectURL(preview);
+    }, [listingImageFile]);
 
     // Derive providers and channels
     const productNameOptions = useMemo(() => {
@@ -485,6 +502,8 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         setListingSku("");
         setListingUnits("");
         setListingPrice("");
+        setListingImageFile(null);
+        setListingImagePreview("");
         setSelectedVariantIdsForListing([]);
         setAssign("");
         setProductNameIsCustom(false);
@@ -3046,6 +3065,60 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                     </div>
 
                                                     <div className="p-4 flex gap-3 items-end">
+                                                        {/* Listing image (compact, row-style) */}
+                                                        <div className="w-[60px] flex-shrink-0">
+                                                            <Field label="Image">
+                                                                <div className="relative h-8 w-8">
+                                                                    <div className="h-8 w-8 overflow-hidden rounded border border-gray-200 bg-gray-50">
+                                                                        {listingImagePreview ? (
+                                                                            <img
+                                                                                src={listingImagePreview}
+                                                                                alt="Listing preview"
+                                                                                className="h-full w-full object-cover"
+                                                                            />
+                                                                        ) : (
+                                                                            <img
+                                                                                src={IMG_PLACEHOLDER}
+                                                                                alt="No image"
+                                                                                className="h-full w-full object-cover opacity-40"
+                                                                            />
+                                                                        )}
+                                                                    </div>
+
+                                                                    <button
+                                                                        type="button"
+                                                                        className="absolute -left-2 -top-2 z-10 inline-flex h-4 w-4 items-center justify-center rounded-full bg-white text-blue-600 hover:bg-blue-50 border border-gray-200 shadow-sm"
+                                                                        title="Upload/replace image"
+                                                                        onClick={() => listingImageInputRef.current?.click()}
+                                                                    >
+                                                                        <Upload size={10} />
+                                                                    </button>
+
+                                                                    {listingImagePreview && (
+                                                                        <button
+                                                                            type="button"
+                                                                            className="absolute -right-2 -top-2 z-10 inline-flex h-4 w-4 items-center justify-center rounded-full bg-white text-red-600 hover:bg-red-50 border border-gray-200 shadow-sm"
+                                                                            title="Remove image"
+                                                                            onClick={() => setListingImageFile(null)}
+                                                                        >
+                                                                            ×
+                                                                        </button>
+                                                                    )}
+
+                                                                    <input
+                                                                        ref={listingImageInputRef}
+                                                                        type="file"
+                                                                        accept="image/*"
+                                                                        className="hidden"
+                                                                        onChange={(e) => {
+                                                                            const f = e.target.files?.[0] || null;
+                                                                            setListingImageFile(f);
+                                                                        }}
+                                                                    />
+                                                                </div>
+                                                            </Field>
+                                                        </div>
+
                                                         {/* Variant pick (moved first, required) */}
                                                         {Array.isArray(variants) && variants.length > 0 && (
                                                             <div className="min-w-[140px]">
@@ -3266,6 +3339,8 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                     title="Add Listing"
                                                                     disabled={
                                                                         addingListing ||
+                                                                        bulkAddingListings ||
+                                                                        uploadingListingImage ||
                                                                         !effectiveProductId ||
                                                                         selectedChannelIds.length === 0 ||
                                                                         !listingUnits.trim()
@@ -3307,12 +3382,25 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                             }
 
                                                                             // Single bulk API call
-                                                                            await bulkAddListings(rows);
+                                                                            const createdResult = await bulkAddListings(rows);
+
+                                                                            const createdListings = Array.isArray(createdResult?.listings)
+                                                                                ? createdResult.listings
+                                                                                : (Array.isArray(createdResult) ? createdResult : []);
+
+                                                                            if (listingImageFile && createdListings.length > 0) {
+                                                                                await Promise.all(
+                                                                                    createdListings
+                                                                                        .filter((l) => l?.id)
+                                                                                        .map((l) => uploadListingImage({ listingId: l.id, file: listingImageFile }))
+                                                                                );
+                                                                            }
 
                                                                             showSuccess(`${rows.length} listing(s) added`);
                                                                             setListingSku("");
                                                                             setListingUnits("");
                                                                             setListingPrice("");
+                                                                            setListingImageFile(null);
                                                                             setSelectedProductName("Select");
                                                                             setSelectedChannelIds([]);
                                                                             setSelectedVariantIdsForListing([]);
@@ -3331,10 +3419,10 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
 
                                                 {/* Existing listings */}
                                                 <div className="rounded-xl border border-gray-200 overflow-hidden">
-                                                    <div className={`grid ${variantEnabled ? 'grid-cols-[1.1fr_1.2fr_0.9fr_0.7fr_0.6fr_0.6fr_0.6fr_0.9fr_70px]' : 'grid-cols-[1.1fr_1.2fr_0.9fr_0.7fr_0.6fr_0.6fr_0.6fr_70px]'} text-[12px] font-medium text-gray-700`}>
-                                                        <div className="bg-gray-50 px-3 py-2">Product Name</div>
+                                                    <div className={`grid ${variantEnabled ? 'grid-cols-[72px_minmax(290px,2.35fr)_minmax(115px,0.9fr)_minmax(90px,0.8fr)_minmax(70px,0.6fr)_minmax(70px,0.6fr)_minmax(70px,0.6fr)_minmax(110px,0.9fr)_70px]' : 'grid-cols-[72px_minmax(320px,2.6fr)_minmax(120px,1fr)_minmax(100px,0.9fr)_minmax(80px,0.7fr)_minmax(80px,0.7fr)_minmax(80px,0.7fr)_70px]'} text-[12px] font-medium text-gray-700`}>
+                                                        <div className="bg-gray-50 px-3 py-2 text-center">Image</div>
+                                                        <div className="bg-gray-50 px-4 py-2">Product Name</div>
                                                         <div className="bg-gray-50 px-3 py-2">Marketplace</div>
-                                                        <div className="bg-gray-50 px-3 py-2">Product ID</div>
                                                         <div className="bg-gray-50 px-3 py-2 text-center">Price</div>
                                                         <div className="bg-gray-50 px-3 py-2 text-center">Units</div>
                                                         <div className="bg-gray-50 px-3 py-2 text-center">Assign</div>
@@ -3355,8 +3443,18 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                     variantEnabled={variantEnabled}
                                                                     productDetail={productDetail}
                                                                     allChannels={allChannels}
+                                                                    absImg={absImg}
+                                                                    imagePlaceholder={IMG_PLACEHOLDER}
                                                                     onUpdate={async (id, payload) => {
                                                                         await updateListing({ listingId: id, payload });
+                                                                        await refetchListings();
+                                                                    }}
+                                                                    onUploadImage={async (id, file) => {
+                                                                        await uploadListingImage({ listingId: id, file });
+                                                                        await refetchListings();
+                                                                    }}
+                                                                    onDeleteImage={async (id) => {
+                                                                        await deleteListingImage(id);
                                                                         await refetchListings();
                                                                     }}
                                                                     onDelete={() => setConfirm({

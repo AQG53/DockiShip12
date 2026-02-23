@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
     CalendarDays,
     Loader,
@@ -43,7 +44,24 @@ const formatCurrency = (value, currency = "USD") => {
 
 export default function PurchaseOrderViewModal({ po, loading, onClose, currency }) {
     const open = Boolean(po);
-    const items = Array.isArray(po?.items) ? po.items : [];
+    const orderedItems = useMemo(() => {
+        const items = Array.isArray(po?.items) ? po.items : [];
+        const grouped = new Map();
+        const ungrouped = [];
+
+        for (const item of items) {
+            const productKey = item?.productId || item?.product?.id;
+            if (!productKey) {
+                ungrouped.push(item);
+                continue;
+            }
+            const key = String(productKey);
+            if (!grouped.has(key)) grouped.set(key, []);
+            grouped.get(key).push(item);
+        }
+
+        return [...Array.from(grouped.values()).flat(), ...ungrouped];
+    }, [po?.items]);
     const attachments = Array.isArray(po?.attachments) ? po.attachments : [];
     const statusLabel = (po?.status || "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -193,7 +211,7 @@ export default function PurchaseOrderViewModal({ po, loading, onClose, currency 
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
-                                        {items.map((item) => {
+                                        {orderedItems.map((item) => {
                                             const qty = Number(item.quantity) || 0;
                                             const price = Number(item.unitPrice) || 0;
                                             const taxRate = Number(item.taxRate) || 0;
@@ -240,7 +258,7 @@ export default function PurchaseOrderViewModal({ po, loading, onClose, currency 
                                         })}
                                     </tbody>
                                 </table>
-                                {items.length === 0 && (
+                                {orderedItems.length === 0 && (
                                     <div className="p-4 text-center text-sm text-gray-500">No items</div>
                                 )}
                             </div>

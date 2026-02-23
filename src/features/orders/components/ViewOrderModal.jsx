@@ -254,7 +254,7 @@ export default function ViewOrderModal({ open, onClose, order }) {
                                     const variant = listing?.productVariant || item.productVariant;
                                     const product = listing?.product || variant?.product || item.product;
 
-                                    const imageUrl = product?.images?.[0]?.url;
+                                    const imageUrl = listing?.url || listing?.imageUrl || product?.images?.[0]?.url;
                                     const name = listing?.productName || item.productDescription || product?.name || "Product";
                                     const sku = variant?.sku || product?.sku || "";
                                     const units = listing?.units || 1;
