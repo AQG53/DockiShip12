@@ -46,6 +46,14 @@ const sanitizeDecimal = (value) => {
     if (firstDot === -1) return normalized;
     return `${normalized.slice(0, firstDot + 1)}${normalized.slice(firstDot + 1).replace(/\./g, "")}`;
 };
+const getLocalDateInputValue = (value = new Date()) => {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return "";
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+};
 
 function OrderTextField({ inputRef, className = inputClass, value, onValueChange, sanitize, ...props }) {
     return (
@@ -85,7 +93,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
     const { data: remarkTypes = [] } = useRemarkTypes({ status: 'active' });
 
     // Form State
-    const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+    const [date, setDate] = useState(getLocalDateInputValue());
     const [tenantChannelId, setTenantChannelId] = useState("");
     const [courierMediumId, setCourierMediumId] = useState("");
     const [orderId, setOrderId] = useState("");
@@ -166,7 +174,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
     useEffect(() => {
         if (editing) {
             setBulkCreationMode(false);
-            setDate(editing.date ? editing.date.split('T')[0] : new Date().toISOString().split('T')[0]);
+            setDate(editing.date ? editing.date.split('T')[0] : getLocalDateInputValue());
             setOrderId(editing.orderId || "");
             setTenantChannelId(editing.tenantChannelId || "");
             setCourierMediumId(editing.courierMediumId || "");
@@ -428,7 +436,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
         }
 
         const payload = {
-            date: new Date(date).toISOString(),
+            date,
             orderId,
             tenantChannelId: tenantChannelId || null,
             courierMediumId: courierMediumId || null,
@@ -506,7 +514,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
             if (mode === 'again') {
                 if (bulkCreationMode) {
                     // In bulk mode, persist only fields with enabled toggles.
-                    const nextDate = bulkPersist.date ? date : new Date().toISOString().split('T')[0];
+                    const nextDate = bulkPersist.date ? date : getLocalDateInputValue();
                     const nextMarketplace = bulkPersist.marketplace ? tenantChannelId : "";
                     const nextCourier = bulkPersist.courier ? courierMediumId : "";
                     const nextRemarkType = bulkPersist.remarks ? remarkTypeId : "";

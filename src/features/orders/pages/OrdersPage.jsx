@@ -118,6 +118,26 @@ const getCurrentMonthRange = () => {
     return { from, to };
 };
 
+const formatAsDateOnlyParam = (date) => {
+    if (!date) return undefined;
+    const d = new Date(date);
+    if (Number.isNaN(d.getTime())) return undefined;
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+};
+
+const formatAsUtcDateOnlyParam = (date) => {
+    if (!date) return undefined;
+    const d = new Date(date);
+    if (Number.isNaN(d.getTime())) return undefined;
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+};
+
 const getUTCStartOfDay = (date) => {
     const d = new Date(date);
     return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
@@ -127,6 +147,12 @@ const addUTCDays = (date, days) => {
     const d = new Date(date);
     d.setUTCDate(d.getUTCDate() + days);
     return d;
+};
+
+const getUtcDayNumber = (value) => {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return null;
+    return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / 86400000);
 };
 
 const formatMoney = (value) => {
@@ -230,8 +256,8 @@ export default function OrdersPage() {
         courierId: courierFilter.id,
         remarkTypeId: remarkFilter.id,
         dateType: dateTypeFilter.id,
-        startDate: dateRange?.from ? dateRange.from.toISOString() : undefined,
-        endDate: dateRange?.to ? dateRange.to.toISOString() : (dateRange?.from ? dateRange.from.toISOString() : undefined),
+        startDate: formatAsDateOnlyParam(dateRange?.from),
+        endDate: formatAsDateOnlyParam(dateRange?.to || dateRange?.from),
         isSettled: settledFilter.id !== "all" ? settledFilter.id : undefined,
         page: queryPage,
         perPage: queryPerPage,
@@ -349,8 +375,8 @@ export default function OrdersPage() {
 
                 const baseParams = {
                     dateType: "order",
-                    startDate: previousWeekStart.toISOString(),
-                    endDate: rangeEndInclusive.toISOString(),
+                    startDate: formatAsUtcDateOnlyParam(previousWeekStart),
+                    endDate: formatAsUtcDateOnlyParam(rangeEndInclusive),
                 };
 
                 const firstPage = await listOrders({ ...baseParams, page: 1, perPage: 250 });
@@ -424,10 +450,14 @@ export default function OrdersPage() {
             const orderSellingPrice = Array.isArray(order.items) && order.items.length > 0
                 ? order.items.reduce((sum, item) => sum + toAmount(item.totalAmount), 0)
                 : toAmount(order.totalAmount);
+            const orderUnits = Array.isArray(order.items) && order.items.length > 0
+                ? order.items.reduce((sum, item) => sum + toAmount(item.quantity), 0)
+                : Math.max(toAmount(order.quantity), 1);
             const shippingCharges = toAmount(order.shippingCharges);
             const taxCharges = toAmount(order.tax);
             const otherCharges = toAmount(order.otherCharges);
             const extraCharges = shippingCharges + taxCharges + otherCharges;
+            const dayNumber = getUtcDayNumber(order.date);
 
             acc.totalOrders += 1;
             acc.totalPurchasePrice += orderPurchaseBase + extraCharges;
@@ -436,6 +466,11 @@ export default function OrdersPage() {
             acc.totalShippingCharges += shippingCharges;
             acc.totalTaxCharges += taxCharges;
             acc.totalOtherCharges += otherCharges;
+            acc.totalUnits += orderUnits;
+            if (dayNumber !== null) {
+                if (acc.minDay === null || dayNumber < acc.minDay) acc.minDay = dayNumber;
+                if (acc.maxDay === null || dayNumber > acc.maxDay) acc.maxDay = dayNumber;
+            }
             return acc;
         }, {
             totalOrders: 0,
@@ -445,12 +480,36 @@ export default function OrdersPage() {
             totalShippingCharges: 0,
             totalTaxCharges: 0,
             totalOtherCharges: 0,
+            totalUnits: 0,
+            minDay: null,
+            maxDay: null,
         });
+
+        const selectedFromDay = dateRange?.from ? getUtcDayNumber(dateRange.from) : null;
+        const selectedToDay = dateRange?.to ? getUtcDayNumber(dateRange.to) : selectedFromDay;
+        const hasSelectedRange = selectedFromDay !== null && selectedToDay !== null;
+        const derivedDays = summary.minDay !== null && summary.maxDay !== null
+            ? (summary.maxDay - summary.minDay + 1)
+            : 0;
+        const totalDays = hasSelectedRange
+            ? Math.max(selectedToDay - selectedFromDay + 1, 1)
+            : derivedDays;
+        const avgOrdersDaily = totalDays > 0 ? (summary.totalOrders / totalDays) : 0;
+        const avgPurchasePricePerProduct = summary.totalUnits > 0 ? (summary.totalPurchaseCost / summary.totalUnits) : 0;
+        const avgSellingPricePerProduct = summary.totalUnits > 0 ? (summary.totalSellingPrice / summary.totalUnits) : 0;
+        const netProfit = summary.totalSellingPrice - summary.totalPurchasePrice;
+        const avgNetProfitPerOrder = summary.totalOrders > 0 ? (netProfit / summary.totalOrders) : 0;
+
         return {
             ...summary,
-            netProfit: summary.totalSellingPrice - summary.totalPurchasePrice,
+            netProfit,
+            totalDays,
+            avgOrdersDaily,
+            avgPurchasePricePerProduct,
+            avgSellingPricePerProduct,
+            avgNetProfitPerOrder,
         };
-    }, [filteredOrdersForSummary]);
+    }, [filteredOrdersForSummary, dateRange?.from, dateRange?.to]);
 
     const deleteMut = useDeleteOrder();
 
@@ -469,6 +528,9 @@ export default function OrdersPage() {
     const [target, setTarget] = useState(null);
     const [viewOpen, setViewOpen] = useState(false);
     const [viewOrder, setViewOrder] = useState(null);
+    const [labelPreviewOpen, setLabelPreviewOpen] = useState(false);
+    const [labelPreviewTarget, setLabelPreviewTarget] = useState(null);
+    const [isLabelPrintProcessing, setIsLabelPrintProcessing] = useState(false);
 
     // Expandable Rows State
     const [expandedOrderIds, setExpandedOrderIds] = useState(new Set());
@@ -667,6 +729,75 @@ export default function OrdersPage() {
             setSettleTarget(null);
         } catch (err) {
             toast.error("Failed to update order");
+        }
+    };
+
+    const handleOpenLabelPreview = (order) => {
+        if (!order?.label) return;
+        setLabelPreviewTarget({
+            id: order.id,
+            orderId: order.orderId,
+            status: order.status,
+            label: order.label,
+        });
+        setLabelPreviewOpen(true);
+    };
+
+    const handleCloseLabelPreview = () => {
+        if (isLabelPrintProcessing) return;
+        setLabelPreviewOpen(false);
+        setLabelPreviewTarget(null);
+    };
+
+    const handleDownloadLabelFromPreview = async () => {
+        if (!labelPreviewTarget?.label) {
+            toast.error("Label not available for this order");
+            return;
+        }
+
+        setIsLabelPrintProcessing(true);
+        const fileUrl = absImg(labelPreviewTarget.label);
+
+        try {
+            const response = await fetch(fileUrl);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch label (${response.status})`);
+            }
+
+            const blob = await response.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            const fileName = labelPreviewTarget.label.split("/").pop() || "label.pdf";
+            link.href = downloadUrl;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(downloadUrl);
+        } catch (err) {
+            console.error("Label download failed", err);
+            toast.error("Failed to download label");
+            setIsLabelPrintProcessing(false);
+            return;
+        }
+
+        try {
+            if (labelPreviewTarget.status === "LABEL_UPLOADED") {
+                await updateMut.mutateAsync({
+                    id: labelPreviewTarget.id,
+                    payload: { status: "LABEL_PRINTED" }
+                });
+                toast.success("Label downloaded and order marked as Printed");
+            } else {
+                toast.success("Label downloaded");
+            }
+        } catch (err) {
+            console.error("Status update after label download failed", err);
+            toast.error("Label downloaded, but failed to update status");
+        } finally {
+            setLabelPreviewOpen(false);
+            setLabelPreviewTarget(null);
+            setIsLabelPrintProcessing(false);
         }
     };
 
@@ -1146,41 +1277,10 @@ export default function OrdersPage() {
                             variant="secondary"
                             size="xs"
                             className="rounded-md text-gray-600 hover:bg-gray-100"
-                            title="Download/Print Label"
-                            onClick={async (e) => {
+                            title="Preview/Print Label"
+                            onClick={(e) => {
                                 e.stopPropagation();
-
-                                // 1. Download Label (Force Download)
-                                try {
-                                    const fileUrl = absImg(row.label);
-                                    const response = await fetch(fileUrl);
-                                    const blob = await response.blob();
-                                    const url = window.URL.createObjectURL(blob);
-
-                                    const link = document.createElement('a');
-                                    link.href = url;
-                                    link.download = row.label.split('/').pop() || 'label.pdf';
-                                    document.body.appendChild(link);
-                                    link.click();
-                                    document.body.removeChild(link);
-                                    window.URL.revokeObjectURL(url);
-                                } catch (e) {
-                                    console.error("Download failed, falling back to new tab", e);
-                                    window.open(absImg(row.label), '_blank');
-                                }
-
-                                // 2. Auto-status update if needed
-                                if (row.status === 'LABEL_UPLOADED') {
-                                    try {
-                                        await updateMut.mutateAsync({
-                                            id: row.id,
-                                            payload: { status: 'LABEL_PRINTED' }
-                                        });
-                                        toast.success("Order marked as Printed");
-                                    } catch (e) {
-                                        console.error("Auto-status update failed", e);
-                                    }
-                                }
+                                handleOpenLabelPreview(row);
                             }}
                         >
                             <Printer size={14} />
@@ -1528,6 +1628,9 @@ export default function OrdersPage() {
                     <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                         <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Total Orders</p>
                         <p className="mt-1 text-xl font-semibold text-gray-900">{isSummaryLoading ? "..." : totals.totalOrders}</p>
+                        <p className="mt-1 text-[11px] text-gray-500">
+                            Avg/day: {isSummaryLoading ? "..." : totals.avgOrdersDaily.toFixed(2)}
+                        </p>
                     </div>
                     <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                         <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Total Purchase Price</p>
@@ -1538,10 +1641,16 @@ export default function OrdersPage() {
                         <p className="mt-0.5 text-[11px] text-gray-500">
                             Tax: {isSummaryLoading ? "..." : formatMoney(totals.totalTaxCharges)} | Other: {isSummaryLoading ? "..." : formatMoney(totals.totalOtherCharges)}
                         </p>
+                        <p className="mt-0.5 text-[11px] text-gray-500">
+                            Avg product purchase: {isSummaryLoading ? "..." : `$${formatMoney(totals.avgPurchasePricePerProduct)}`}
+                        </p>
                     </div>
                     <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                         <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Total Selling Price</p>
                         <p className="mt-1 text-xl font-semibold text-gray-900">{isSummaryLoading ? "..." : `$${formatMoney(totals.totalSellingPrice)}`}</p>
+                        <p className="mt-1 text-[11px] text-gray-500">
+                            Avg product selling: {isSummaryLoading ? "..." : `$${formatMoney(totals.avgSellingPricePerProduct)}`}
+                        </p>
                     </div>
                     <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                         <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Net Profit</p>
@@ -1549,6 +1658,9 @@ export default function OrdersPage() {
                             {isSummaryLoading ? "..." : `$${formatMoney(totals.netProfit)}`}
                         </p>
                         <p className="mt-1 text-[11px] text-gray-500">Selling Price - Purchase Price</p>
+                        <p className="mt-0.5 text-[11px] text-gray-500">
+                            Avg/order: {isSummaryLoading ? "..." : `$${formatMoney(totals.avgNetProfitPerOrder)}`}
+                        </p>
                     </div>
                     <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                         <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Weekly Avg Orders</p>
@@ -1752,6 +1864,38 @@ export default function OrdersPage() {
                         </Button>
                     </div>
                 </div>
+            </Modal>
+
+            <Modal
+                open={labelPreviewOpen}
+                onClose={handleCloseLabelPreview}
+                title={`Label Preview${labelPreviewTarget?.orderId ? ` - ${labelPreviewTarget.orderId}` : ""}`}
+                widthClass="max-w-5xl"
+                footer={
+                    <>
+                        <Button variant="ghost" onClick={handleCloseLabelPreview} disabled={isLabelPrintProcessing}>
+                            Close
+                        </Button>
+                        <Button
+                            variant="warning"
+                            onClick={handleDownloadLabelFromPreview}
+                            isLoading={isLabelPrintProcessing}
+                            disabled={!labelPreviewTarget?.label}
+                        >
+                            Download
+                        </Button>
+                    </>
+                }
+            >
+                {labelPreviewTarget?.label ? (
+                    <iframe
+                        src={absImg(labelPreviewTarget.label)}
+                        title="Order Label Preview"
+                        className="w-full h-[70vh] rounded-md border border-gray-200 bg-white"
+                    />
+                ) : (
+                    <p className="text-sm text-gray-500">No label available for preview.</p>
+                )}
             </Modal>
 
             <OrderModal
