@@ -149,6 +149,28 @@ const addUTCDays = (date, days) => {
     return d;
 };
 
+const shiftMonthKeepingDay = (value, monthOffset) => {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return null;
+    const year = d.getFullYear();
+    const month = d.getMonth();
+    const day = d.getDate();
+    const targetMonthFirst = new Date(year, month + monthOffset, 1);
+    const targetYear = targetMonthFirst.getFullYear();
+    const targetMonth = targetMonthFirst.getMonth();
+    const maxDay = new Date(targetYear, targetMonth + 1, 0).getDate();
+    const clampedDay = Math.min(day, maxDay);
+    return new Date(
+        targetYear,
+        targetMonth,
+        clampedDay,
+        d.getHours(),
+        d.getMinutes(),
+        d.getSeconds(),
+        d.getMilliseconds()
+    );
+};
+
 const getUtcDayNumber = (value) => {
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return null;
@@ -314,6 +336,7 @@ export default function OrdersPage() {
     }, [orders, marketplaceSortOrder]);
 
     const [filteredOrdersForSummary, setFilteredOrdersForSummary] = useState([]);
+    const [previousMonthOrdersForSummary, setPreviousMonthOrdersForSummary] = useState([]);
     const [isSummaryLoading, setIsSummaryLoading] = useState(false);
     const [weeklyStats, setWeeklyStats] = useState({
         currentWeekOrders: 0,
@@ -326,26 +349,49 @@ export default function OrdersPage() {
     useEffect(() => {
         let ignore = false;
 
+        const loadAllOrders = async (params) => {
+            const firstPage = await listOrders({ ...params, page: 1, perPage: 250 });
+            const totalPages = Number(firstPage?.meta?.totalPages || 1);
+            let allRows = Array.isArray(firstPage?.rows) ? [...firstPage.rows] : [];
+
+            for (let currentPage = 2; currentPage <= totalPages; currentPage += 1) {
+                const pageData = await listOrders({ ...params, page: currentPage, perPage: 250 });
+                if (Array.isArray(pageData?.rows) && pageData.rows.length > 0) {
+                    allRows = allRows.concat(pageData.rows);
+                }
+            }
+
+            return allRows;
+        };
+
         const fetchFilteredOrders = async () => {
             setIsSummaryLoading(true);
             try {
-                const firstPage = await listOrders({ ...filteredOrderParams, page: 1, perPage: 250 });
-                const totalPages = Number(firstPage?.meta?.totalPages || 1);
-                let allRows = Array.isArray(firstPage?.rows) ? [...firstPage.rows] : [];
+                const allRows = await loadAllOrders(filteredOrderParams);
 
-                for (let currentPage = 2; currentPage <= totalPages; currentPage += 1) {
-                    const pageData = await listOrders({ ...filteredOrderParams, page: currentPage, perPage: 250 });
-                    if (Array.isArray(pageData?.rows) && pageData.rows.length > 0) {
-                        allRows = allRows.concat(pageData.rows);
-                    }
+                const from = dateRange?.from ? new Date(dateRange.from) : null;
+                const to = dateRange?.to ? new Date(dateRange.to) : from;
+                const previousFrom = from ? shiftMonthKeepingDay(from, -1) : null;
+                const previousTo = to ? shiftMonthKeepingDay(to, -1) : previousFrom;
+
+                let previousRows = [];
+                if (previousFrom && previousTo) {
+                    const previousMonthParams = {
+                        ...filteredOrderParams,
+                        startDate: formatAsDateOnlyParam(previousFrom),
+                        endDate: formatAsDateOnlyParam(previousTo),
+                    };
+                    previousRows = await loadAllOrders(previousMonthParams);
                 }
 
                 if (!ignore) {
                     setFilteredOrdersForSummary(allRows);
+                    setPreviousMonthOrdersForSummary(previousRows);
                 }
             } catch {
                 if (!ignore) {
                     setFilteredOrdersForSummary([]);
+                    setPreviousMonthOrdersForSummary([]);
                     toast.error("Failed to load order totals.");
                 }
             } finally {
@@ -359,7 +405,7 @@ export default function OrdersPage() {
         return () => {
             ignore = true;
         };
-    }, [filteredOrderParams]);
+    }, [filteredOrderParams, dateRange?.from, dateRange?.to]);
 
     useEffect(() => {
         let ignore = false;
@@ -510,6 +556,51 @@ export default function OrdersPage() {
             avgNetProfitPerOrder,
         };
     }, [filteredOrdersForSummary, dateRange?.from, dateRange?.to]);
+
+    const previousMonthTotals = useMemo(() => {
+        return previousMonthOrdersForSummary.reduce((acc, order) => {
+            const orderPurchaseBase = Array.isArray(order.items) && order.items.length > 0
+                ? order.items.reduce((sum, item) => sum + toAmount(item.totalCost), 0)
+                : toAmount(order.totalCost);
+            const orderSellingPrice = Array.isArray(order.items) && order.items.length > 0
+                ? order.items.reduce((sum, item) => sum + toAmount(item.totalAmount), 0)
+                : toAmount(order.totalAmount);
+            const shippingCharges = toAmount(order.shippingCharges);
+            const taxCharges = toAmount(order.tax);
+            const otherCharges = toAmount(order.otherCharges);
+
+            acc.totalOrders += 1;
+            acc.totalPurchasePrice += orderPurchaseBase + shippingCharges + taxCharges + otherCharges;
+            acc.totalSellingPrice += orderSellingPrice;
+            return acc;
+        }, {
+            totalOrders: 0,
+            totalPurchasePrice: 0,
+            totalSellingPrice: 0,
+        });
+    }, [previousMonthOrdersForSummary]);
+
+    const monthOverMonth = useMemo(() => {
+        const orderDiff = totals.totalOrders - previousMonthTotals.totalOrders;
+        const purchaseDiffPct = previousMonthTotals.totalPurchasePrice > 0
+            ? ((totals.totalPurchasePrice - previousMonthTotals.totalPurchasePrice) / previousMonthTotals.totalPurchasePrice) * 100
+            : (totals.totalPurchasePrice > 0 ? 100 : 0);
+        const sellingDiffPct = previousMonthTotals.totalSellingPrice > 0
+            ? ((totals.totalSellingPrice - previousMonthTotals.totalSellingPrice) / previousMonthTotals.totalSellingPrice) * 100
+            : (totals.totalSellingPrice > 0 ? 100 : 0);
+        const currentNetProfit = totals.totalSellingPrice - totals.totalPurchasePrice;
+        const previousNetProfit = previousMonthTotals.totalSellingPrice - previousMonthTotals.totalPurchasePrice;
+        const netProfitDiffPct = previousNetProfit !== 0
+            ? ((currentNetProfit - previousNetProfit) / Math.abs(previousNetProfit)) * 100
+            : (currentNetProfit !== 0 ? 100 : 0);
+
+        return {
+            orderDiff,
+            purchaseDiffPct,
+            sellingDiffPct,
+            netProfitDiffPct,
+        };
+    }, [totals.totalOrders, totals.totalPurchasePrice, totals.totalSellingPrice, previousMonthTotals.totalOrders, previousMonthTotals.totalPurchasePrice, previousMonthTotals.totalSellingPrice]);
 
     const deleteMut = useDeleteOrder();
 
@@ -1628,8 +1719,8 @@ export default function OrdersPage() {
                     <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                         <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Total Orders</p>
                         <p className="mt-1 text-xl font-semibold text-gray-900">{isSummaryLoading ? "..." : totals.totalOrders}</p>
-                        <p className="mt-1 text-[11px] text-gray-500">
-                            Avg/day: {isSummaryLoading ? "..." : totals.avgOrdersDaily.toFixed(2)}
+                        <p className={`mt-1 text-[11px] ${monthOverMonth.orderDiff > 0 ? "text-emerald-600" : monthOverMonth.orderDiff < 0 ? "text-rose-600" : "text-gray-500"}`}>
+                            {isSummaryLoading ? "..." : `${monthOverMonth.orderDiff >= 0 ? "+" : ""}${monthOverMonth.orderDiff} vs same range last month`}
                         </p>
                     </div>
                     <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
@@ -1641,15 +1732,15 @@ export default function OrdersPage() {
                         <p className="mt-0.5 text-[11px] text-gray-500">
                             Tax: {isSummaryLoading ? "..." : formatMoney(totals.totalTaxCharges)} | Other: {isSummaryLoading ? "..." : formatMoney(totals.totalOtherCharges)}
                         </p>
-                        <p className="mt-0.5 text-[11px] text-gray-500">
-                            Avg product purchase: {isSummaryLoading ? "..." : `$${formatMoney(totals.avgPurchasePricePerProduct)}`}
+                        <p className={`mt-0.5 text-[11px] ${monthOverMonth.purchaseDiffPct > 0 ? "text-emerald-600" : monthOverMonth.purchaseDiffPct < 0 ? "text-rose-600" : "text-gray-500"}`}>
+                            {isSummaryLoading ? "..." : `${monthOverMonth.purchaseDiffPct >= 0 ? "+" : ""}${monthOverMonth.purchaseDiffPct.toFixed(1)}% vs same range last month`}
                         </p>
                     </div>
                     <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                         <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Total Selling Price</p>
                         <p className="mt-1 text-xl font-semibold text-gray-900">{isSummaryLoading ? "..." : `$${formatMoney(totals.totalSellingPrice)}`}</p>
-                        <p className="mt-1 text-[11px] text-gray-500">
-                            Avg product selling: {isSummaryLoading ? "..." : `$${formatMoney(totals.avgSellingPricePerProduct)}`}
+                        <p className={`mt-1 text-[11px] ${monthOverMonth.sellingDiffPct > 0 ? "text-emerald-600" : monthOverMonth.sellingDiffPct < 0 ? "text-rose-600" : "text-gray-500"}`}>
+                            {isSummaryLoading ? "..." : `${monthOverMonth.sellingDiffPct >= 0 ? "+" : ""}${monthOverMonth.sellingDiffPct.toFixed(1)}% vs same range last month`}
                         </p>
                     </div>
                     <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
@@ -1660,6 +1751,9 @@ export default function OrdersPage() {
                         <p className="mt-1 text-[11px] text-gray-500">Selling Price - Purchase Price</p>
                         <p className="mt-0.5 text-[11px] text-gray-500">
                             Avg/order: {isSummaryLoading ? "..." : `$${formatMoney(totals.avgNetProfitPerOrder)}`}
+                        </p>
+                        <p className={`mt-0.5 text-[11px] ${monthOverMonth.netProfitDiffPct > 0 ? "text-emerald-600" : monthOverMonth.netProfitDiffPct < 0 ? "text-rose-600" : "text-gray-500"}`}>
+                            {isSummaryLoading ? "..." : `${monthOverMonth.netProfitDiffPct >= 0 ? "+" : ""}${monthOverMonth.netProfitDiffPct.toFixed(1)}% vs same range last month`}
                         </p>
                     </div>
                     <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">

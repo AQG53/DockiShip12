@@ -266,6 +266,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const [editLinkSel, setEditLinkSel] = useState({});
     const [retailPrice, setRetailPrice] = useState("");
     const [costPrice, setCostPrice] = useState("");
+    const [avgCostPrice, setAvgCostPrice] = useState("");
 
     const [missing, setMissing] = useState({});   // map: key -> human label
 
@@ -484,6 +485,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         setPurchasingPrice("");
         setRetailPrice("");
         setCostPrice("");
+        setAvgCostPrice("");
 
         // suppliers: clear any previous selections (create-mode + edit-mode drafts)
         setSupplierRows([{ supplierId: 'Select', price: '' }]);
@@ -564,6 +566,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             [localId]: {
                 retail: isNonEmpty(retailPrice) ? String(retailPrice) : "",
                 original: isNonEmpty(costPrice) ? String(costPrice) : "",
+                avg: isNonEmpty(avgCostPrice) ? String(avgCostPrice) : "",
             },
         }));
     }
@@ -598,9 +601,10 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         setVariantPrices((prev) => {
             const next = { ...prev };
             variants.forEach((v) => {
-                const row = next[v.id] || { retail: "", original: "" };
+                const row = next[v.id] || { retail: "", original: "", avg: "" };
                 if (!isNonEmpty(row.retail) && isNonEmpty(retailPrice)) row.retail = String(retailPrice);
                 if (!isNonEmpty(row.original) && isNonEmpty(costPrice)) row.original = String(costPrice);
+                if (!isNonEmpty(row.avg) && isNonEmpty(avgCostPrice)) row.avg = String(avgCostPrice);
                 next[v.id] = row;
             });
             return next;
@@ -630,6 +634,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         const row = variantPrices[first.id] || {};
         if (isNonEmpty(row.retail)) setRetailPrice(String(row.retail));
         if (isNonEmpty(row.original)) setCostPrice(String(row.original));
+        if (isNonEmpty(row.avg)) setAvgCostPrice(String(row.avg));
     }
 
     const handleDuplicateLastVariant = () => {
@@ -832,7 +837,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             const next = { ...prev };
             // ensure all existing variants have a pricing row
             variants.forEach((v) => {
-                if (!next[v.id]) next[v.id] = { retail: "", original: "" };
+                if (!next[v.id]) next[v.id] = { retail: "", original: "", avg: "" };
             });
             // remove rows for deleted variants
             Object.keys(next).forEach((id) => {
@@ -900,13 +905,12 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         setRetailPrice(
             productDetail.retailPrice != null ? Number(productDetail.retailPrice).toFixed(2) : ""
         );
-        // Cost Price (avg cost or manual)
-        // If PO exists -> avgCostPerUnit (Read Only). If NO PO -> originalPrice (Manual).
-        const hasPO = !!productDetail.hasPurchaseOrders;
-        const rawCost = hasPO
-            ? productDetail.avgCostPerUnit
-            : (productDetail.originalPrice != null ? productDetail.originalPrice : "");
-        setCostPrice(rawCost !== "" && rawCost != null ? Number(rawCost).toFixed(2) : "");
+        // Manual Cost Price is originalPrice
+        const rawManualCost = productDetail.originalPrice != null ? productDetail.originalPrice : "";
+        setCostPrice(rawManualCost !== "" && rawManualCost != null ? Number(rawManualCost).toFixed(2) : "");
+        // Avg Cost Price is always read-only
+        const rawAvgCost = productDetail.avgCostPerUnit != null ? productDetail.avgCostPerUnit : "";
+        setAvgCostPrice(rawAvgCost !== "" && rawAvgCost != null ? Number(rawAvgCost).toFixed(2) : "");
 
         // Last Purchase Price - Read Only if PO exists
         setPurchasingPrice(
@@ -1024,17 +1028,16 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             // per-variant pricing table state
             // per-variant pricing table state
             const priceMap = {};
-            const hasPO = !!productDetail.hasPurchaseOrders;
             arr.forEach(v => {
-                const costVal = hasPO
-                    ? (v.avgCostPerUnit != null ? v.avgCostPerUnit : v.originalPrice)
-                    : (v.originalPrice != null ? v.originalPrice : "");
+                const manualCostVal = v.originalPrice != null ? v.originalPrice : "";
+                const avgCostVal = v.avgCostPerUnit != null ? v.avgCostPerUnit : "";
 
                 const purchaseVal = v.lastPurchasePrice != null ? v.lastPurchasePrice : "";
 
                 priceMap[v.id] = {
                     retail: v.retailPrice != null ? Number(v.retailPrice).toFixed(2) : "",
-                    original: costVal !== "" && costVal != null ? Number(costVal).toFixed(2) : "",
+                    original: manualCostVal !== "" && manualCostVal != null ? Number(manualCostVal).toFixed(2) : "",
+                    avg: avgCostVal !== "" && avgCostVal != null ? Number(avgCostVal).toFixed(2) : "",
                     purchase: purchaseVal !== "" ? Number(purchaseVal).toFixed(2) : "",
                 };
             });
@@ -2673,7 +2676,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                         <div className="p-4">
                                             {!variantEnabled ? (
                                                 <div className="grid grid-cols-12 gap-3">
-                                                    <Field className="col-span-12 md:col-span-4" label="Selling Price">
+                                                    <Field className="col-span-12 md:col-span-3" label="Selling Price">
                                                         <div className="grid grid-cols-12">
                                                             <input
                                                                 className={`${input} col-span-9 ${err("retailPrice") ? "border-red-400 ring-1 ring-red-200" : ""} rounded-r-none border-r`}
@@ -2690,16 +2693,13 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                         </div>
                                                     </Field>
 
-                                                    <Field className="col-span-12 md:col-span-4" label="Cost Price">
+                                                    <Field className="col-span-12 md:col-span-3" label="Manual Cost Price">
                                                         <div className="grid grid-cols-12">
                                                             <input
-                                                                className={`${input} col-span-9 rounded-r-none border-r ${(edit && productDetail?.hasPurchaseOrders) ? "bg-gray-50 text-gray-500" : ""
-                                                                    }`}
+                                                                className={`${input} col-span-9 rounded-r-none border-r`}
                                                                 placeholder="0.00"
                                                                 value={costPrice}
                                                                 onChange={(e) => setCostPrice(sanitizeDecimalInput(e.target.value))}
-                                                                readOnly={edit && productDetail?.hasPurchaseOrders}
-                                                                disabled={edit && productDetail?.hasPurchaseOrders}
                                                                 inputMode="decimal"
                                                             />
                                                             <div className="col-span-3">
@@ -2710,7 +2710,25 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                         </div>
                                                     </Field>
 
-                                                    <Field className="col-span-12 md:col-span-4" label="Last Purchase Price">
+                                                    <Field className="col-span-12 md:col-span-3" label="Avg Cost Price">
+                                                        <div className="grid grid-cols-12">
+                                                            <input
+                                                                className={`${input} col-span-9 rounded-r-none border-r bg-gray-50 text-gray-500`}
+                                                                placeholder="0.00"
+                                                                value={avgCostPrice}
+                                                                readOnly
+                                                                disabled
+                                                                inputMode="decimal"
+                                                            />
+                                                            <div className="col-span-3">
+                                                                <div className="h-8 w-full rounded-r-lg border border-gray-300 bg-gray-50 text-[13px] text-gray-700 flex items-center justify-center select-none">
+                                                                    {CURRENCY}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </Field>
+
+                                                    <Field className="col-span-12 md:col-span-3" label="Last Purchase Price">
                                                         <div className="grid grid-cols-12">
                                                             <input
                                                                 className={`${input} col-span-9 rounded-r-none border-r ${(edit && productDetail?.hasPurchaseOrders) ? "bg-gray-50 text-gray-500" : ""
@@ -2733,10 +2751,11 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                             ) : (
                                                 // --- per-variant pricing table ---
                                                 <div className="rounded-xl border border-gray-200 overflow-hidden">
-                                                    <div className="grid grid-cols-[1fr_140px_140px_140px_90px] text-[12px] font-medium text-gray-700">
+                                                    <div className="grid grid-cols-[1fr_130px_140px_130px_140px_90px] text-[12px] font-medium text-gray-700">
                                                         <div className="bg-gray-50 px-3 py-2">Variant SKU</div>
                                                         <div className="bg-gray-50 px-3 py-2">Selling Price</div>
-                                                        <div className="bg-gray-50 px-3 py-2">Cost Price</div>
+                                                        <div className="bg-gray-50 px-3 py-2">Manual Cost Price</div>
+                                                        <div className="bg-gray-50 px-3 py-2">Avg Cost Price</div>
                                                         <div className="bg-gray-50 px-3 py-2">Last Purchase</div>
                                                         <div className="bg-gray-50 px-3 py-2 text-center">Currency</div>
                                                     </div>
@@ -2748,11 +2767,11 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                     ) : (
                                                         <div className="divide-y divide-gray-100">
                                                             {variants.map((v) => {
-                                                                const row = variantPrices[v.id] || { retail: "", original: "", purchase: "" };
+                                                                const row = variantPrices[v.id] || { retail: "", original: "", avg: "", purchase: "" };
                                                                 return (
                                                                     <div
                                                                         key={v.id}
-                                                                        className="grid grid-cols-[1fr_140px_140px_140px_90px] bg-white"
+                                                                        className="grid grid-cols-[1fr_130px_140px_130px_140px_90px] bg-white"
                                                                     >
                                                                         <div className="px-5 py-2 font-mono font-bold text-[14px] text-gray-800 truncate flex items-center">
                                                                             {v.sku || "(no-sku)"}
@@ -2775,7 +2794,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
 
                                                                         <div className="px-3 py-2">
                                                                             <input
-                                                                                className={`${input} ${(edit && productDetail?.hasPurchaseOrders) ? "bg-gray-50 text-gray-500" : ""}`}
+                                                                                className={`${input}`}
                                                                                 placeholder="0.00"
                                                                                 value={row.original}
                                                                                 onChange={(e) =>
@@ -2784,8 +2803,17 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                         [v.id]: { ...(prev[v.id] || {}), original: sanitizeDecimalInput(e.target.value) },
                                                                                     }))
                                                                                 }
-                                                                                readOnly={edit && productDetail?.hasPurchaseOrders}
-                                                                                disabled={edit && productDetail?.hasPurchaseOrders}
+                                                                                inputMode="decimal"
+                                                                            />
+                                                                        </div>
+
+                                                                        <div className="px-3 py-2">
+                                                                            <input
+                                                                                className={`${input} bg-gray-50 text-gray-500`}
+                                                                                placeholder="0.00"
+                                                                                value={row.avg}
+                                                                                readOnly
+                                                                                disabled
                                                                                 inputMode="decimal"
                                                                             />
                                                                         </div>

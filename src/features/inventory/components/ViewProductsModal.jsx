@@ -4,6 +4,7 @@ import {
   Box,
   Store,
   Truck,
+  History,
 } from "lucide-react";
 import {
   useGetProduct,
@@ -168,9 +169,85 @@ export default function ViewProductModal({ open, onClose, product }) {
 
   const tabs = [
     { id: "details", label: "Details" },
+    { id: "avgCostHistory", label: "Avg Cost History" },
     { id: "suppliers", label: "Suppliers" },
     { id: "marketplaces", label: "Marketplaces" },
   ];
+
+  const formatUtcDateOnly = (date) => {
+    if (!date) return "—";
+    const d = new Date(date);
+    if (Number.isNaN(d.getTime())) return "—";
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
+  const sourceTypeLabel = (sourceType) => {
+    const key = String(sourceType || "").toUpperCase();
+    const map = {
+      PO_RECEIVE: "PO Receive",
+      BACKFILL_PO_RECEIVE: "PO Receive (Backfill)",
+      PRODUCT_BASELINE: "Manual Baseline",
+      VARIANT_BASELINE: "Variant Baseline",
+      MANUAL_BASELINE_UPDATE: "Manual Baseline Update",
+      BACKFILL_MANUAL_BASELINE: "Manual Baseline (Backfill)",
+    };
+    return map[key] || (sourceType ? String(sourceType).replace(/_/g, " ") : "—");
+  };
+
+  const periodLabel = (validFrom, validTo) => {
+    const from = formatUtcDateOnly(validFrom);
+    const to = formatUtcDateOnly(validTo);
+    if (to === "—") return `${from} onward`;
+    return `${from} to ${to}`;
+  };
+
+  const pickNote = (row) => {
+    if (row?.notes && String(row.notes).trim()) return row.notes;
+    const source = String(row?.sourceType || "").toUpperCase();
+    if (source.includes("PO_RECEIVE")) return "Cost updated from received PO landed cost";
+    if (source.includes("BASELINE")) return "Manual baseline cost used";
+    return "—";
+  };
+
+  const historySections = useMemo(() => {
+    if (hasVariants) {
+      return variantList.map((variant, idx) => ({
+        key: variant.id || variant.sku || `variant-${idx}`,
+        title: [variant.sizeText, variant.colorText].filter(Boolean).join(" • ") || variant.sku || `Variant ${idx + 1}`,
+        subtitle: variant.sku ? `SKU: ${variant.sku}` : "Variant",
+        rows: (Array.isArray(variant?.costHistory) ? variant.costHistory : [])
+          .slice()
+          .sort((a, b) => {
+            const aTime = new Date(a?.validFrom || 0).getTime();
+            const bTime = new Date(b?.validFrom || 0).getTime();
+            return bTime - aTime;
+          }),
+      }));
+    }
+
+    return [
+      {
+        key: p?.variantId || p?.id || "product",
+        title: p?.name || "Product",
+        subtitle: p?.sku ? `SKU: ${p.sku}` : [p?.sizeText, p?.colorText].filter(Boolean).join(" • "),
+        rows: (Array.isArray(p?.costHistory) ? p.costHistory : [])
+          .slice()
+          .sort((a, b) => {
+            const aTime = new Date(a?.validFrom || 0).getTime();
+            const bTime = new Date(b?.validFrom || 0).getTime();
+            return bTime - aTime;
+          }),
+      },
+    ];
+  }, [hasVariants, p, variantList]);
+
+  const hasAnyHistory = useMemo(
+    () => historySections.some((section) => Array.isArray(section.rows) && section.rows.length > 0),
+    [historySections]
+  );
 
   const renderProductInfo = (title, productData, images, isVariant = false) => {
     // Only determine Cost Price if it's a simple product or we are treating it as one
@@ -578,6 +655,94 @@ export default function ViewProductModal({ open, onClose, product }) {
                       </div>
                     )}
                   </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* AVG COST HISTORY TAB */}
+          {tab === "avgCostHistory" && (
+            <div className={card}>
+              <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center gap-2">
+                <History className="w-4 h-4 text-gray-500" />
+                <h3 className="text-sm font-semibold text-gray-900">Average Cost History</h3>
+              </div>
+              <div className="p-4 space-y-4">
+                {!hasAnyHistory ? (
+                  <div className="text-sm text-gray-500">No average cost history found for this product.</div>
+                ) : (
+                  historySections.map((section) => (
+                    <div key={section.key} className="rounded-lg border border-gray-200 overflow-hidden">
+                      <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">{section.title}</p>
+                            {section.subtitle && <p className="text-xs text-gray-500">{section.subtitle}</p>}
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[11px] uppercase tracking-wide text-gray-500">Current Avg Cost</p>
+                            <p className="text-sm font-semibold text-gray-900">
+                              {formatPrice(section.rows.find((r) => !r?.validTo)?.avgCostPerUnit ?? section.rows[0]?.avgCostPerUnit)}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-2 flex items-center gap-2 text-[11px] text-gray-600">
+                          <span className="px-2 py-0.5 rounded-full bg-white border border-gray-200">
+                            Entries: {section.rows.length}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full bg-white border border-gray-200">
+                            Started: {formatUtcDateOnly(section.rows[section.rows.length - 1]?.validFrom)}
+                          </span>
+                        </div>
+                      </div>
+                      {!section.rows.length ? (
+                        <div className="px-4 py-3 text-sm text-gray-500">No history rows.</div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full table-fixed text-[13px] text-gray-700">
+                            <colgroup>
+                              <col className="w-[130px]" />
+                              <col className="w-[210px]" />
+                              <col className="w-[105px]" />
+                              <col className="w-[170px]" />
+                              <col />
+                            </colgroup>
+                            <thead className="bg-gray-50 text-[12px] font-medium text-gray-700">
+                              <tr>
+                                <th className="px-3 py-2 text-left">Avg Cost</th>
+                                <th className="px-3 py-2 text-left">Effective Period</th>
+                                <th className="px-3 py-2 text-left">Status</th>
+                                <th className="px-3 py-2 text-left">Reason</th>
+                                <th className="px-3 py-2 text-left">Notes</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {section.rows.map((row, index) => {
+                                const isCurrent = !row?.validTo;
+                                return (
+                                  <tr key={row.id || `${section.key}-${index}`} className="bg-white align-top">
+                                    <td className="px-3 py-2 font-semibold text-gray-900">{formatPrice(row?.avgCostPerUnit)}</td>
+                                    <td className="px-3 py-2">{periodLabel(row?.validFrom, row?.validTo)}</td>
+                                    <td className="px-3 py-2">
+                                      <span
+                                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                                          isCurrent ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"
+                                        }`}
+                                      >
+                                        {isCurrent ? "Current" : "Closed"}
+                                      </span>
+                                    </td>
+                                    <td className="px-3 py-2">{sourceTypeLabel(row?.sourceType)}</td>
+                                    <td className="px-3 py-2">{pickNote(row)}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  ))
                 )}
               </div>
             </div>

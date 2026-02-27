@@ -195,7 +195,7 @@ export default function ProductList() {
             <div>SKU</div>
             <div>Status</div>
             <div>Type</div>
-            <div>Price</div>
+            <div>Avg Cost</div>
             <div>Stock</div>
             <div>Created At</div>
             <div>Actions</div>
@@ -477,9 +477,9 @@ function mapProductsToRows(apiRows, auth) {
 
     let priceDisplay = "—";
     if (!hasVariants) {
-      if (p?.retailPrice != null) priceDisplay = fmt(p.retailPrice);
+      if (p?.avgCostPerUnit != null) priceDisplay = fmt(p.avgCostPerUnit);
     } else {
-      const nums = variants.map((v) => Number(v?.retailPrice)).filter((n) => Number.isFinite(n));
+      const nums = variants.map((v) => Number(v?.avgCostPerUnit)).filter((n) => Number.isFinite(n));
       if (nums.length) {
         const lo = Math.min(...nums);
         const hi = Math.max(...nums);

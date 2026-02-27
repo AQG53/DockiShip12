@@ -44,6 +44,8 @@ const formatCurrency = (value, currency = "USD") => {
 
 export default function PurchaseOrderViewModal({ po, loading, onClose, currency }) {
     const open = Boolean(po);
+    const poStatus = String(po?.status || "").toLowerCase();
+    const showLandedCost = poStatus === "received" || poStatus === "partially_received";
     const orderedItems = useMemo(() => {
         const items = Array.isArray(po?.items) ? po.items : [];
         const grouped = new Map();
@@ -206,6 +208,7 @@ export default function PurchaseOrderViewModal({ po, loading, onClose, currency 
                                             <th className="px-3 py-2 text-center">Received</th>
                                             <th className="px-3 py-2 text-center">Remaining</th>
                                             <th className="px-3 py-2 text-center">Unit price</th>
+                                            {showLandedCost && <th className="px-3 py-2 text-center">Landed cost</th>}
                                             <th className="px-3 py-2 text-center">Tax %</th>
                                             <th className="px-3 py-2 text-right">Line total</th>
                                         </tr>
@@ -214,6 +217,7 @@ export default function PurchaseOrderViewModal({ po, loading, onClose, currency 
                                         {orderedItems.map((item) => {
                                             const qty = Number(item.quantity) || 0;
                                             const price = Number(item.unitPrice) || 0;
+                                            const landedCost = item.landedCostPerUnit != null ? Number(item.landedCostPerUnit) : null;
                                             const taxRate = Number(item.taxRate) || 0;
                                             const subtotal = qty * price;
                                             const tax = subtotal * (taxRate / 100);
@@ -249,6 +253,13 @@ export default function PurchaseOrderViewModal({ po, loading, onClose, currency 
                                                     <td className="px-3 py-3 text-center align-middle text-emerald-600 font-medium">{item.receivedQty || 0}</td>
                                                     <td className="px-3 py-3 text-center align-middle text-amber-600 font-medium">{Math.max(0, qty - (item.receivedQty || 0))}</td>
                                                     <td className="px-3 py-3 text-center align-middle text-gray-600">{formatCurrency(price, currency)}</td>
+                                                    {showLandedCost && (
+                                                        <td className="px-3 py-3 text-center align-middle text-gray-600">
+                                                            {landedCost != null && Number.isFinite(landedCost)
+                                                                ? formatCurrency(landedCost, currency)
+                                                                : "—"}
+                                                        </td>
+                                                    )}
                                                     <td className="px-3 py-3 text-center align-middle">{taxRate}</td>
                                                     <td className="px-3 py-3 text-right align-middle font-semibold text-gray-900">
                                                         {formatCurrency(lineTotal, currency)}
