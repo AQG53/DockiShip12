@@ -51,17 +51,28 @@ const resolveOrderProductImages = ({ listing, product, variant, name }) => {
     }
 
     const rawImages = Array.isArray(product?.images) ? product.images : [];
+    const toGalleryRows = (rows) =>
+        rows
+            .filter((img) => isImagePath(img?.url))
+            .map((img) => ({
+                url: img.url,
+                alt: name,
+                productName: name,
+            }));
 
-    if (variant?.id && rawImages.length > 0) {
-        const variantImages = rawImages.filter((img) => img?.url && String(img.url).includes(String(variant.id)));
-        return variantImages.map((img) => ({
-            url: img.url,
-            alt: name,
-            productName: name,
-        }));
+    if (variant?.id) {
+        const variantEntityImages = Array.isArray(variant?.images)
+            ? toGalleryRows(variant.images)
+            : [];
+        if (variantEntityImages.length > 0) return variantEntityImages;
+
+        const variantImagesFromProduct = toGalleryRows(
+            rawImages.filter((img) => img?.url && String(img.url).includes(String(variant.id))),
+        );
+        if (variantImagesFromProduct.length > 0) return variantImagesFromProduct;
     }
 
-    // Product-level listing (no variant attached): fallback to product image.
+    // Parent product image fallback.
     const productImages = rawImages.filter((img) => {
         const u = img?.url || "";
         if (!u.includes("/uploads/")) return true;
@@ -69,11 +80,11 @@ const resolveOrderProductImages = ({ listing, product, variant, name }) => {
         return parts.length === 2;
     });
 
-    return productImages.map((img) => ({
-        url: img.url,
-        alt: name,
-        productName: name,
-    }));
+    const productImageRows = toGalleryRows(productImages);
+    if (productImageRows.length > 0) return productImageRows;
+
+    // Last safety fallback: any product image path.
+    return toGalleryRows(rawImages);
 };
 
 // Helper for Copy
