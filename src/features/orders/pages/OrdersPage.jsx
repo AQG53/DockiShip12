@@ -229,6 +229,8 @@ export default function OrdersPage() {
     // Pagination
     const [page, setPage] = useState(1);
     const [perPage, setPerPage] = useState(25);
+    const [activeSortKey, setActiveSortKey] = useState("date");
+    const [dateSortOrder, setDateSortOrder] = useState("desc");
     const [marketplaceSortOrder, setMarketplaceSortOrder] = useState("asc");
     const [highlightOrderId, setHighlightOrderId] = useState(null);
 
@@ -282,6 +284,13 @@ export default function OrdersPage() {
         ...(Array.isArray(remarkTypes) ? remarkTypes : []).map(r => ({ id: r.id, name: r.name }))
     ], [remarkTypes]);
 
+    const sortParams = useMemo(() => {
+        if (activeSortKey === "marketplace") {
+            return { sortBy: "marketplace", sortOrder: marketplaceSortOrder };
+        }
+        return { sortBy: "date", sortOrder: dateSortOrder };
+    }, [activeSortKey, dateSortOrder, marketplaceSortOrder]);
+
     const buildOrderQueryParams = ({ page: queryPage, perPage: queryPerPage } = {}) => ({
         search: debouncedSearch,
         status: statusParam || (statusFilter.id === "ALL" ? undefined : statusFilter.id),
@@ -292,6 +301,8 @@ export default function OrdersPage() {
         startDate: formatAsDateOnlyParam(dateRange?.from),
         endDate: formatAsDateOnlyParam(dateRange?.to || dateRange?.from),
         isSettled: settledFilter.id !== "all" ? settledFilter.id : undefined,
+        sortBy: sortParams.sortBy,
+        sortOrder: sortParams.sortOrder,
         page: queryPage,
         perPage: queryPerPage,
     });
@@ -307,6 +318,8 @@ export default function OrdersPage() {
             remarkFilter.id,
             dateTypeFilter.id,
             settledFilter.id,
+            sortParams.sortBy,
+            sortParams.sortOrder,
             page,
             perPage,
             dateRange?.from?.getTime(),
@@ -325,6 +338,8 @@ export default function OrdersPage() {
             remarkFilter.id,
             dateTypeFilter.id,
             settledFilter.id,
+            sortParams.sortBy,
+            sortParams.sortOrder,
             dateRange?.from?.getTime(),
             dateRange?.to?.getTime(),
         ]
@@ -334,31 +349,6 @@ export default function OrdersPage() {
 
     const orders = orderData?.rows || [];
     const meta = orderData?.meta || {};
-    const sortedOrders = useMemo(() => {
-        const parseTime = (value) => {
-            const ts = Date.parse(value);
-            return Number.isFinite(ts) ? ts : Number.NEGATIVE_INFINITY;
-        };
-
-        const rows = [...orders];
-        rows.sort((a, b) => {
-            const dateDiff = parseTime(b?.date) - parseTime(a?.date);
-            if (dateDiff !== 0) return dateDiff;
-
-            const aMarketplace = (a?.tenantChannel?.marketplace || "").toString();
-            const bMarketplace = (b?.tenantChannel?.marketplace || "").toString();
-            const marketplaceDiff = marketplaceSortOrder === "asc"
-                ? aMarketplace.localeCompare(bMarketplace, undefined, { sensitivity: "base" })
-                : bMarketplace.localeCompare(aMarketplace, undefined, { sensitivity: "base" });
-            if (marketplaceDiff !== 0) return marketplaceDiff;
-
-            const createdAtDiff = parseTime(b?.createdAt) - parseTime(a?.createdAt);
-            if (createdAtDiff !== 0) return createdAtDiff;
-
-            return String(a?.id || "").localeCompare(String(b?.id || ""));
-        });
-        return rows;
-    }, [orders, marketplaceSortOrder]);
 
     const [filteredOrdersForSummary, setFilteredOrdersForSummary] = useState([]);
     const [previousMonthOrdersForSummary, setPreviousMonthOrdersForSummary] = useState([]);
@@ -672,7 +662,7 @@ export default function OrdersPage() {
 
     const handleSelectAll = (checked) => {
         if (checked) {
-            const allIds = sortedOrders.map(o => o.id);
+            const allIds = orders.map(o => o.id);
             setSelectedIds(new Set(allIds));
         } else {
             setSelectedIds(new Set());
@@ -927,7 +917,7 @@ export default function OrdersPage() {
                     type="checkbox"
                     className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     onChange={(e) => handleSelectAll(e.target.checked)}
-                    checked={sortedOrders.length > 0 && selectedIds.size === sortedOrders.length}
+                    checked={orders.length > 0 && selectedIds.size === orders.length}
                 />
             ),
             className: "!pr-0 !pl-4 w-[40px] !items-start",
@@ -945,7 +935,29 @@ export default function OrdersPage() {
         },
         {
             key: "date",
-            label: "Date",
+            label: (
+                <button
+                    type="button"
+                    className="inline-flex items-center gap-1 hover:text-gray-900"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        if (activeSortKey === "date") {
+                            setDateSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+                            setPage(1);
+                            return;
+                        }
+                        setActiveSortKey("date");
+                        setPage(1);
+                    }}
+                    title={`Sort date ${dateSortOrder === "asc" ? "oldest first" : "newest first"}`}
+                >
+                    <span>Date</span>
+                    <span className="inline-flex items-center gap-0.5 text-[10px]">
+                        <span className={activeSortKey === "date" && dateSortOrder === "asc" ? "text-gray-900" : "text-gray-400"}>↑</span>
+                        <span className={activeSortKey === "date" && dateSortOrder === "desc" ? "text-gray-900" : "text-gray-400"}>↓</span>
+                    </span>
+                </button>
+            ),
             className: "!items-start",
             render: (row) => (
                 <div className="flex items-center min-h-[3rem] py-1">
@@ -977,14 +989,20 @@ export default function OrdersPage() {
                     className="inline-flex items-center gap-1 hover:text-gray-900"
                     onClick={(e) => {
                         e.stopPropagation();
-                        setMarketplaceSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+                        if (activeSortKey === "marketplace") {
+                            setMarketplaceSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+                            setPage(1);
+                            return;
+                        }
+                        setActiveSortKey("marketplace");
+                        setPage(1);
                     }}
                     title={`Sort marketplace ${marketplaceSortOrder === "asc" ? "Z to A" : "A to Z"}`}
                 >
                     <span>Marketplace</span>
                     <span className="inline-flex items-center gap-0.5 text-[10px]">
-                        <span className={marketplaceSortOrder === "asc" ? "text-gray-900" : "text-gray-400"}>↑</span>
-                        <span className={marketplaceSortOrder === "desc" ? "text-gray-900" : "text-gray-400"}>↓</span>
+                        <span className={activeSortKey === "marketplace" && marketplaceSortOrder === "asc" ? "text-gray-900" : "text-gray-400"}>↑</span>
+                        <span className={activeSortKey === "marketplace" && marketplaceSortOrder === "desc" ? "text-gray-900" : "text-gray-400"}>↓</span>
                     </span>
                 </button>
             ),
@@ -1800,7 +1818,7 @@ export default function OrdersPage() {
 
             <DataTable
                 columns={columns}
-                rows={sortedOrders}
+                rows={orders}
                 isLoading={isLoading}
                 toolbar={toolbar}
                 gridCols="grid-cols-[40px_minmax(100px,0.7fr)_minmax(130px,0.9fr)_minmax(110px,0.7fr)_minmax(240px,1.4fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(100px,0.8fr)_minmax(140px,1fr)_minmax(120px,0.9fr)_160px]"
