@@ -52,7 +52,11 @@ import { useSuppliers } from "../hooks/useSuppliers";
 import { useProducts } from "../../inventory/hooks/useProducts";
 import { useAuthCheck } from "../../auth/hooks/useAuthCheck";
 import { randomId } from "../../../lib/id";
-import { uploadPurchaseOrderAttachment, deletePurchaseOrderAttachment } from "../../../lib/api";
+import {
+  uploadPurchaseOrderAttachment,
+  deletePurchaseOrderAttachment,
+  getPurchaseOrder as fetchPurchaseOrder,
+} from "../../../lib/api";
 import ViewModal from "../../../components/ViewModal";
 import PurchaseOrderViewModal from "../components/PurchaseOrderViewModal";
 
@@ -84,6 +88,41 @@ const absImg = (url) =>
     : /^https?:\/\//i.test(url)
       ? url
       : `${API_BASE}${url}`;
+const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif", "heic", "heif"]);
+const getFileExtension = (value = "") => {
+  const cleanValue = String(value || "").split("?")[0];
+  const dotIndex = cleanValue.lastIndexOf(".");
+  return dotIndex === -1 ? "" : cleanValue.slice(dotIndex + 1).toLowerCase();
+};
+const isImageAttachment = (attachment = {}) => {
+  const mimeType = String(attachment?.mimeType || "").toLowerCase();
+  if (mimeType.startsWith("image/")) return true;
+  const ext = getFileExtension(attachment?.fileName || attachment?.filePath || "");
+  return IMAGE_EXTENSIONS.has(ext);
+};
+const isPdfAttachment = (attachment = {}) => {
+  const mimeType = String(attachment?.mimeType || "").toLowerCase();
+  if (mimeType === "application/pdf") return true;
+  const ext = getFileExtension(attachment?.fileName || attachment?.filePath || "");
+  return ext === "pdf";
+};
+const attachmentUrlFromPath = (filePath) =>
+  !filePath
+    ? ""
+    : /^https?:\/\//i.test(filePath)
+      ? filePath
+      : `${API_BASE}${filePath}`;
+const triggerAttachmentDownload = (url, fileName = "attachment") => {
+  if (!url) return;
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.target = "_blank";
+  anchor.rel = "noopener noreferrer";
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+};
 
 const statusTone = (status) => {
   const base = (status || "draft").toLowerCase();
@@ -234,6 +273,9 @@ export default function PurchasesPage() {
   // Payment Modal State
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [paymentItem, setPaymentItem] = useState(null);
+  const [quickAttachmentLoadingId, setQuickAttachmentLoadingId] = useState(null);
+  const [imageAttachmentPreview, setImageAttachmentPreview] = useState(null);
+  const [pdfAttachmentPreview, setPdfAttachmentPreview] = useState(null);
 
   // Fetch full PO details when editing
   const { data: editingPo, isLoading: loadingEditingPo } = usePurchaseOrder(editingId);
@@ -360,6 +402,67 @@ export default function PurchasesPage() {
       setConfirmItem(null);
     } catch (err) {
       toast.error(err?.message || "Failed to delete purchase order");
+    }
+  };
+
+  const handleQuickAttachmentPreview = async (po) => {
+    if (!po?.id) return;
+    setQuickAttachmentLoadingId(po.id);
+    try {
+      const fullPo = await fetchPurchaseOrder(po.id);
+      const attachments = Array.isArray(fullPo?.attachments) ? fullPo.attachments : [];
+      if (attachments.length === 0) {
+        toast.error("No attachments found for this purchase order");
+        return;
+      }
+
+      const latestAttachment = attachments[0];
+      const latestUrl = attachmentUrlFromPath(latestAttachment.filePath);
+      if (!latestUrl) {
+        toast.error("Attachment file is not available");
+        return;
+      }
+
+      if (isImageAttachment(latestAttachment)) {
+        const imageAttachments = attachments.filter(isImageAttachment);
+        const imagePreviewItems = (imageAttachments.length > 0 ? imageAttachments : [latestAttachment])
+          .map((att) => ({
+            id: att.id,
+            url: attachmentUrlFromPath(att.filePath),
+            alt: att.fileName || "Attachment image",
+            productName: att.fileName || "Attachment image",
+          }))
+          .filter((img) => Boolean(img.url));
+
+        if (imagePreviewItems.length === 0) {
+          toast.error("Attachment file is not available");
+          return;
+        }
+
+        setPdfAttachmentPreview(null);
+        setImageAttachmentPreview({
+          poLabel: fullPo?.poNumber || po?.poNumber || po.id,
+          images: imagePreviewItems,
+        });
+        return;
+      }
+
+      if (isPdfAttachment(latestAttachment)) {
+        setImageAttachmentPreview(null);
+        setPdfAttachmentPreview({
+          poLabel: fullPo?.poNumber || po?.poNumber || po.id,
+          fileName: latestAttachment.fileName || "attachment.pdf",
+          url: latestUrl,
+        });
+        return;
+      }
+
+      triggerAttachmentDownload(latestUrl, latestAttachment.fileName || "attachment");
+      toast.success("Attachment download started");
+    } catch (err) {
+      toast.error(err?.message || "Failed to quick view attachment");
+    } finally {
+      setQuickAttachmentLoadingId(null);
     }
   };
 
@@ -703,6 +806,21 @@ export default function PurchasesPage() {
 
                         return (
                           <>
+                            <Button
+                              variant="secondary"
+                              size="xs"
+                              className="rounded-md px-2"
+                              onClick={() => handleQuickAttachmentPreview(po)}
+                              disabled={quickAttachmentLoadingId === po.id}
+                              title="Quick view latest attachment"
+                              aria-label="Quick view latest attachment"
+                            >
+                              {quickAttachmentLoadingId === po.id ? (
+                                <Loader className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Paperclip className="h-3.5 w-3.5" />
+                              )}
+                            </Button>
                             {visibleActions.map((action, idx) => (
                               <Button
                                 key={idx}
@@ -774,6 +892,74 @@ export default function PurchasesPage() {
         onClose={() => setViewPo(null)}
         currency={currency}
       />
+      <ViewModal
+        open={Boolean(imageAttachmentPreview)}
+        onClose={() => setImageAttachmentPreview(null)}
+        title={`Attachment Preview${imageAttachmentPreview?.poLabel ? ` • ${imageAttachmentPreview.poLabel}` : ""}`}
+        subtitle={imageAttachmentPreview?.images?.length > 1
+          ? `${imageAttachmentPreview.images.length} image files`
+          : imageAttachmentPreview?.images?.[0]?.productName || "Image attachment"}
+        widthClass="max-w-5xl"
+        heightClass="h-[85vh]"
+        footer={(
+          <Button variant="secondary" onClick={() => setImageAttachmentPreview(null)}>
+            Close
+          </Button>
+        )}
+      >
+        {imageAttachmentPreview?.images?.length ? (
+          <div className="flex justify-center">
+            <ImageGallery
+              images={imageAttachmentPreview.images}
+              absImg={(url) => url || IMG_PLACEHOLDER}
+              placeholder={IMG_PLACEHOLDER}
+              className="w-full max-w-4xl"
+              thumbnailClassName="h-[62vh] w-full bg-white"
+              showName
+            />
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500">No image attachment found.</p>
+        )}
+      </ViewModal>
+      <ViewModal
+        open={Boolean(pdfAttachmentPreview)}
+        onClose={() => setPdfAttachmentPreview(null)}
+        title={`PDF Preview${pdfAttachmentPreview?.poLabel ? ` • ${pdfAttachmentPreview.poLabel}` : ""}`}
+        subtitle={pdfAttachmentPreview?.fileName || "Attachment PDF"}
+        widthClass="max-w-5xl"
+        heightClass="h-[85vh]"
+        footer={(
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                if (!pdfAttachmentPreview?.url) return;
+                triggerAttachmentDownload(
+                  pdfAttachmentPreview.url,
+                  pdfAttachmentPreview.fileName || "attachment.pdf",
+                );
+              }}
+              disabled={!pdfAttachmentPreview?.url}
+            >
+              Download
+            </Button>
+            <Button variant="ghost" onClick={() => setPdfAttachmentPreview(null)}>
+              Close
+            </Button>
+          </>
+        )}
+      >
+        {pdfAttachmentPreview?.url ? (
+          <iframe
+            src={pdfAttachmentPreview.url}
+            title={pdfAttachmentPreview.fileName || "PDF attachment"}
+            className="h-[66vh] w-full rounded-lg border border-gray-200 bg-white"
+          />
+        ) : (
+          <p className="text-sm text-gray-500">No PDF attachment available.</p>
+        )}
+      </ViewModal>
 
       <ConfirmModal
         open={confirmOpen}

@@ -241,8 +241,8 @@ export default function LoginPageMember() {
         {/* Footer (stays visible; no scroll) */}
         <div className="shrink-0 pt-3 mt-3 text-center text-xs text-gray-600">
           © 2025 DockiShip •{' '}
-          <a href="#" className="hover:text-blue-600">Terms of service</a> •{' '}
-          <a href="#" className="hover:text-blue-600">Privacy policy</a> •{' '}
+          <button type="button" onClick={() => navigate('/terms-of-service')} className="hover:text-blue-600">Terms of service</button> •{' '}
+          <button type="button" onClick={() => navigate('/privacy-policy')} className="hover:text-blue-600">Privacy policy</button> •{' '}
           <a href="#" className="hover:text-blue-600">Help center</a>
         </div>
       </div>

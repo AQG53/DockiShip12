@@ -123,12 +123,65 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
     const [existingLabel, setExistingLabel] = useState(null); // url string
     const [newLabel, setNewLabel] = useState(null); // File object
 
+    const normalizeAttachmentName = (name) => String(name ?? "").trim().toLowerCase();
+    const extractApiErrorMessage = (error) => {
+        const data = error?.response?.data;
+        if (typeof data?.message === 'string') return data.message;
+        if (Array.isArray(data?.message)) return data.message.join(', ');
+        return error?.message || 'Unknown error';
+    };
+
     // Handlers
     const handleFileSelect = (e) => {
         const files = Array.from(e.target.files || []);
-        if (files.length > 0) {
-            setNewAttachments(prev => [...prev, ...files]);
+        if (files.length === 0) {
+            e.target.value = null;
+            return;
         }
+
+        const existingNames = new Set(
+            existingAttachments
+                .map((att) => normalizeAttachmentName(att?.fileName))
+                .filter(Boolean),
+        );
+        const queuedNames = new Set(
+            newAttachments
+                .map((att) => normalizeAttachmentName(att?.name))
+                .filter(Boolean),
+        );
+
+        const acceptedFiles = [];
+        const duplicateNames = [];
+
+        for (const file of files) {
+            const normalized = normalizeAttachmentName(file?.name);
+            if (!normalized) continue;
+
+            if (existingNames.has(normalized) || queuedNames.has(normalized)) {
+                duplicateNames.push(file.name);
+                continue;
+            }
+
+            queuedNames.add(normalized);
+            acceptedFiles.push(file);
+        }
+
+        if (acceptedFiles.length > 0) {
+            setNewAttachments((prev) => [...prev, ...acceptedFiles]);
+        }
+
+        if (duplicateNames.length > 0) {
+            const uniqueDuplicates = Array.from(new Set(duplicateNames));
+            const first = uniqueDuplicates[0];
+            const suffix = uniqueDuplicates.length > 1
+                ? ` and ${uniqueDuplicates.length - 1} more.`
+                : '.';
+            alert.error(
+                "Attachment Already Exists",
+                `Attachment "${first}" already exists for this order${suffix}`,
+            );
+        }
+
         e.target.value = null; // reset
     };
 
@@ -476,16 +529,35 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
             // Upload Attachments
             if (newAttachments.length > 0) {
                 const loadingToast = toast.loading("Uploading attachments...");
-                try {
-                    await Promise.all(newAttachments.map(file => {
+                const results = await Promise.allSettled(
+                    newAttachments.map((file) => {
                         const fd = new FormData();
                         fd.append('file', file);
                         return uploadOrderAttachment(savedOrderId, fd);
-                    }));
+                    }),
+                );
+
+                const failedResults = results.filter((r) => r.status === 'rejected');
+
+                if (failedResults.length === 0) {
                     toast.dismiss(loadingToast);
-                } catch (err) {
-                    console.error("Upload error", err);
-                    toast.error("Some attachments failed to upload", { id: loadingToast });
+                } else {
+                    const duplicateError = failedResults.find((r) => {
+                        const msg = extractApiErrorMessage(r.reason).toLowerCase();
+                        return msg.includes('already exists');
+                    });
+
+                    if (duplicateError) {
+                        alert.error("Attachment Already Exists", extractApiErrorMessage(duplicateError.reason));
+                    }
+
+                    const failedCount = failedResults.length;
+                    toast.error(
+                        failedCount === newAttachments.length
+                            ? "Attachments failed to upload"
+                            : `${failedCount} attachment${failedCount > 1 ? 's' : ''} failed to upload`,
+                        { id: loadingToast },
+                    );
                 }
             }
 

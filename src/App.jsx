@@ -34,6 +34,9 @@ import PurchasesPage from './features/purchases/pages/PurchasesPage.jsx'
 import SuppliersManage from './features/purchases/pages/SuppliersManage.jsx'
 import OrdersLayout from './features/orders/pages/OrdersLayout.jsx'
 import OrdersPage from './features/orders/pages/OrdersPage.jsx'
+import TemuCallbackPage from './pages/TemuCallbackPage.jsx'
+import TermsOfServicePage from './features/auth/pages/TermsOfServicePage.jsx'
+import PrivacyPolicyPage from './features/auth/pages/PrivacyPolicyPage.jsx'
 
 function OwnerOnly({ children }) {
   const { claims, ready } = useUserPermissions();
@@ -159,6 +162,21 @@ const App = () => {
         <Route
           path='/invite/accept'
           element={<AcceptInvite />}
+        />
+
+        <Route
+          path='/integrations/temu/callback'
+          element={<TemuCallbackPage />}
+        />
+
+        <Route
+          path='/terms-of-service'
+          element={<TermsOfServicePage />}
+        />
+
+        <Route
+          path='/privacy-policy'
+          element={<PrivacyPolicyPage />}
         />
 
         <Route

@@ -335,13 +335,27 @@ export default function OrdersPage() {
     const orders = orderData?.rows || [];
     const meta = orderData?.meta || {};
     const sortedOrders = useMemo(() => {
+        const parseTime = (value) => {
+            const ts = Date.parse(value);
+            return Number.isFinite(ts) ? ts : Number.NEGATIVE_INFINITY;
+        };
+
         const rows = [...orders];
         rows.sort((a, b) => {
+            const dateDiff = parseTime(b?.date) - parseTime(a?.date);
+            if (dateDiff !== 0) return dateDiff;
+
             const aMarketplace = (a?.tenantChannel?.marketplace || "").toString();
             const bMarketplace = (b?.tenantChannel?.marketplace || "").toString();
-            return marketplaceSortOrder === "asc"
+            const marketplaceDiff = marketplaceSortOrder === "asc"
                 ? aMarketplace.localeCompare(bMarketplace, undefined, { sensitivity: "base" })
                 : bMarketplace.localeCompare(aMarketplace, undefined, { sensitivity: "base" });
+            if (marketplaceDiff !== 0) return marketplaceDiff;
+
+            const createdAtDiff = parseTime(b?.createdAt) - parseTime(a?.createdAt);
+            if (createdAtDiff !== 0) return createdAtDiff;
+
+            return String(a?.id || "").localeCompare(String(b?.id || ""));
         });
         return rows;
     }, [orders, marketplaceSortOrder]);
