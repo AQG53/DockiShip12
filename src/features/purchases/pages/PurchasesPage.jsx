@@ -25,6 +25,8 @@ import {
   Trash2,
   XCircle,
   CheckCircle,
+  ChevronLeft,
+  ChevronRight,
   DollarSign,
   Plus,
 } from "lucide-react";
@@ -106,12 +108,50 @@ const isPdfAttachment = (attachment = {}) => {
   const ext = getFileExtension(attachment?.fileName || attachment?.filePath || "");
   return ext === "pdf";
 };
+const OFFICE_EXTENSIONS = new Set([
+  "doc",
+  "docx",
+  "xls",
+  "xlsx",
+  "xlsm",
+  "ppt",
+  "pptx",
+]);
+const OFFICE_MIME_PREFIXES = [
+  "application/msword",
+  "application/vnd.ms-excel",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument",
+];
+const isOfficeAttachment = (attachment = {}) => {
+  const mimeType = String(attachment?.mimeType || "").toLowerCase();
+  if (OFFICE_MIME_PREFIXES.some((prefix) => mimeType.startsWith(prefix))) return true;
+  const ext = getFileExtension(attachment?.fileName || attachment?.filePath || "");
+  return OFFICE_EXTENSIONS.has(ext);
+};
 const attachmentUrlFromPath = (filePath) =>
   !filePath
     ? ""
     : /^https?:\/\//i.test(filePath)
       ? filePath
       : `${API_BASE}${filePath}`;
+const getVariantAwareProductImages = ({ productImages = [], variantId = null } = {}) => {
+  const rawImages = Array.isArray(productImages) ? productImages : [];
+  if (rawImages.length === 0) return [];
+  if (!variantId) return rawImages;
+
+  const variantImages = rawImages.filter((img) => String(img?.url || "").includes(String(variantId)));
+  if (variantImages.length > 0) return variantImages;
+
+  return rawImages.filter((img) => {
+    const u = String(img?.url || "");
+    if (!u.includes("/uploads/")) return true;
+    const parts = u.split("/uploads/")[1]?.split("/") || [];
+    return parts.length === 2;
+  });
+};
+const officeViewerUrlFromAttachmentUrl = (fileUrl = "") =>
+  fileUrl ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}` : "";
 const triggerAttachmentDownload = (url, fileName = "attachment") => {
   if (!url) return;
   const anchor = document.createElement("a");
@@ -274,8 +314,8 @@ export default function PurchasesPage() {
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [paymentItem, setPaymentItem] = useState(null);
   const [quickAttachmentLoadingId, setQuickAttachmentLoadingId] = useState(null);
-  const [imageAttachmentPreview, setImageAttachmentPreview] = useState(null);
-  const [pdfAttachmentPreview, setPdfAttachmentPreview] = useState(null);
+  const [attachmentViewer, setAttachmentViewer] = useState(null);
+  const [viewerTouchStartX, setViewerTouchStartX] = useState(null);
 
   // Fetch full PO details when editing
   const { data: editingPo, isLoading: loadingEditingPo } = usePurchaseOrder(editingId);
@@ -415,55 +455,76 @@ export default function PurchasesPage() {
         toast.error("No attachments found for this purchase order");
         return;
       }
+      const viewerItems = attachments
+        .map((att) => {
+          const url = attachmentUrlFromPath(att?.filePath);
+          if (!url) return null;
+          const kind = isImageAttachment(att)
+            ? "image"
+            : isPdfAttachment(att)
+              ? "pdf"
+              : isOfficeAttachment(att)
+                ? "office"
+                : "other";
+          return {
+            id: att.id,
+            fileName: att.fileName || "attachment",
+            kind,
+            url,
+            viewerUrl: kind === "office" ? officeViewerUrlFromAttachmentUrl(url) : "",
+          };
+        })
+        .filter(Boolean);
 
-      const latestAttachment = attachments[0];
-      const latestUrl = attachmentUrlFromPath(latestAttachment.filePath);
-      if (!latestUrl) {
+      if (viewerItems.length === 0) {
         toast.error("Attachment file is not available");
         return;
       }
 
-      if (isImageAttachment(latestAttachment)) {
-        const imageAttachments = attachments.filter(isImageAttachment);
-        const imagePreviewItems = (imageAttachments.length > 0 ? imageAttachments : [latestAttachment])
-          .map((att) => ({
-            id: att.id,
-            url: attachmentUrlFromPath(att.filePath),
-            alt: att.fileName || "Attachment image",
-            productName: att.fileName || "Attachment image",
-          }))
-          .filter((img) => Boolean(img.url));
-
-        if (imagePreviewItems.length === 0) {
-          toast.error("Attachment file is not available");
-          return;
-        }
-
-        setPdfAttachmentPreview(null);
-        setImageAttachmentPreview({
-          poLabel: fullPo?.poNumber || po?.poNumber || po.id,
-          images: imagePreviewItems,
-        });
-        return;
-      }
-
-      if (isPdfAttachment(latestAttachment)) {
-        setImageAttachmentPreview(null);
-        setPdfAttachmentPreview({
-          poLabel: fullPo?.poNumber || po?.poNumber || po.id,
-          fileName: latestAttachment.fileName || "attachment.pdf",
-          url: latestUrl,
-        });
-        return;
-      }
-
-      triggerAttachmentDownload(latestUrl, latestAttachment.fileName || "attachment");
-      toast.success("Attachment download started");
+      setAttachmentViewer({
+        poLabel: fullPo?.poNumber || po?.poNumber || po.id,
+        items: viewerItems,
+        index: 0,
+      });
     } catch (err) {
       toast.error(err?.message || "Failed to quick view attachment");
     } finally {
       setQuickAttachmentLoadingId(null);
     }
+  };
+
+  const viewerCurrentItem = attachmentViewer?.items?.[attachmentViewer?.index ?? 0] || null;
+  const viewerCount = attachmentViewer?.items?.length || 0;
+  const viewerCanPrev = Boolean(attachmentViewer && viewerCount > 1 && attachmentViewer.index > 0);
+  const viewerCanNext = Boolean(attachmentViewer && viewerCount > 1 && attachmentViewer.index < viewerCount - 1);
+  const handleViewerPrev = () => {
+    setAttachmentViewer((prev) => {
+      if (!prev || prev.index <= 0) return prev;
+      return { ...prev, index: prev.index - 1 };
+    });
+  };
+  const handleViewerNext = () => {
+    setAttachmentViewer((prev) => {
+      if (!prev || prev.index >= prev.items.length - 1) return prev;
+      return { ...prev, index: prev.index + 1 };
+    });
+  };
+  const handleViewerTouchStart = (e) => {
+    const x = e?.touches?.[0]?.clientX;
+    setViewerTouchStartX(typeof x === "number" ? x : null);
+  };
+  const handleViewerTouchEnd = (e) => {
+    if (viewerTouchStartX == null) return;
+    const endX = e?.changedTouches?.[0]?.clientX;
+    if (typeof endX !== "number") {
+      setViewerTouchStartX(null);
+      return;
+    }
+    const delta = endX - viewerTouchStartX;
+    const threshold = 48;
+    if (delta > threshold) handleViewerPrev();
+    else if (delta < -threshold) handleViewerNext();
+    setViewerTouchStartX(null);
   };
 
   const handleReceivePo = useCallback((po) => {
@@ -639,9 +700,13 @@ export default function PurchasesPage() {
                       const images = [];
                       if (po.items && Array.isArray(po.items)) {
                         po.items.forEach(item => {
-                          if (item.product?.images?.length > 0) {
+                          const variantImages = getVariantAwareProductImages({
+                            productImages: item.product?.images || [],
+                            variantId: item.productVariantId || item.productVar?.id || item.productVariant?.id || null,
+                          });
+                          if (variantImages.length > 0) {
                             // Attach product name to each image
-                            const productImages = item.product.images.map(img => ({
+                            const productImages = variantImages.map(img => ({
                               ...img,
                               productName: item.product.name
                             }));
@@ -672,7 +737,20 @@ export default function PurchasesPage() {
                     })()}
                   </div>
                   <div>
-                    <div className="font-semibold text-gray-900">{po.poNumber || po.id}</div>
+                    <div className="relative inline-flex group/po-note">
+                      <div className="font-semibold text-gray-900 cursor-default">
+                        {po.poNumber || po.id}
+                      </div>
+                      <div className="pointer-events-none absolute left-0 top-full z-30 mt-2 hidden w-[340px] rounded-xl border border-gray-200 bg-white p-3 shadow-xl group-hover/po-note:block">
+                        <div className="absolute -top-1.5 left-4 h-3 w-3 rotate-45 border-l border-t border-gray-200 bg-white" />
+                        <div className="relative">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">PO Notes</p>
+                          <p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-[12px] leading-relaxed text-gray-700">
+                            {po?.notes?.trim() || "No notes available for this purchase order."}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                     <div className="text-xs text-gray-500">{new Date(po.createdAt || po.created_at || Date.now()).toLocaleDateString()}</div>
                   </div>
                   <div>
@@ -893,24 +971,58 @@ export default function PurchasesPage() {
         currency={currency}
       />
       <ViewModal
-        open={Boolean(imageAttachmentPreview)}
-        onClose={() => setImageAttachmentPreview(null)}
-        title={`Attachment Preview${imageAttachmentPreview?.poLabel ? ` • ${imageAttachmentPreview.poLabel}` : ""}`}
-        subtitle={imageAttachmentPreview?.images?.length > 1
-          ? `${imageAttachmentPreview.images.length} image files`
-          : imageAttachmentPreview?.images?.[0]?.productName || "Image attachment"}
+        open={Boolean(attachmentViewer)}
+        onClose={() => setAttachmentViewer(null)}
+        title={`Attachment Viewer${attachmentViewer?.poLabel ? ` • ${attachmentViewer.poLabel}` : ""}`}
+        subtitle={viewerCurrentItem?.fileName || "Attachment"}
         widthClass="max-w-5xl"
         heightClass="h-[85vh]"
         footer={(
-          <Button variant="secondary" onClick={() => setImageAttachmentPreview(null)}>
-            Close
-          </Button>
+          <div className="flex items-center justify-between w-full gap-2">
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" onClick={handleViewerPrev} disabled={!viewerCanPrev}>
+                <ChevronLeft className="h-4 w-4" />
+                Prev
+              </Button>
+              <Button variant="secondary" onClick={handleViewerNext} disabled={!viewerCanNext}>
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+              <span className="text-xs text-gray-500">
+                {viewerCount > 0 ? `${(attachmentViewer?.index || 0) + 1} / ${viewerCount}` : "0 / 0"}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  if (!viewerCurrentItem?.url) return;
+                  triggerAttachmentDownload(
+                    viewerCurrentItem.url,
+                    viewerCurrentItem.fileName || "attachment",
+                  );
+                }}
+                disabled={!viewerCurrentItem?.url}
+              >
+                Download
+              </Button>
+              <Button variant="ghost" onClick={() => setAttachmentViewer(null)}>
+                Close
+              </Button>
+            </div>
+          </div>
         )}
       >
-        {imageAttachmentPreview?.images?.length ? (
+        <div onTouchStart={handleViewerTouchStart} onTouchEnd={handleViewerTouchEnd}>
+        {viewerCurrentItem?.kind === "image" ? (
           <div className="flex justify-center">
             <ImageGallery
-              images={imageAttachmentPreview.images}
+              images={[{
+                id: viewerCurrentItem.id,
+                url: viewerCurrentItem.url,
+                alt: viewerCurrentItem.fileName || "Attachment image",
+                productName: viewerCurrentItem.fileName || "Attachment image",
+              }]}
               absImg={(url) => url || IMG_PLACEHOLDER}
               placeholder={IMG_PLACEHOLDER}
               className="w-full max-w-4xl"
@@ -918,47 +1030,42 @@ export default function PurchasesPage() {
               showName
             />
           </div>
-        ) : (
-          <p className="text-sm text-gray-500">No image attachment found.</p>
-        )}
-      </ViewModal>
-      <ViewModal
-        open={Boolean(pdfAttachmentPreview)}
-        onClose={() => setPdfAttachmentPreview(null)}
-        title={`PDF Preview${pdfAttachmentPreview?.poLabel ? ` • ${pdfAttachmentPreview.poLabel}` : ""}`}
-        subtitle={pdfAttachmentPreview?.fileName || "Attachment PDF"}
-        widthClass="max-w-5xl"
-        heightClass="h-[85vh]"
-        footer={(
-          <>
+        ) : viewerCurrentItem?.kind === "office" ? (
+          viewerCurrentItem?.viewerUrl ? (
+            <iframe
+              src={viewerCurrentItem.viewerUrl}
+              title={viewerCurrentItem.fileName || "Office attachment"}
+              className="h-[66vh] w-full rounded-lg border border-gray-200 bg-white"
+            />
+          ) : (
+            <p className="text-sm text-gray-500">No Office document preview available.</p>
+          )
+        ) : viewerCurrentItem?.kind === "pdf" ? (
+          viewerCurrentItem?.url ? (
+            <iframe
+              src={viewerCurrentItem.url}
+              title={viewerCurrentItem.fileName || "PDF attachment"}
+              className="h-[66vh] w-full rounded-lg border border-gray-200 bg-white"
+            />
+          ) : (
+            <p className="text-sm text-gray-500">No PDF attachment available.</p>
+          )
+        ) : viewerCurrentItem?.url ? (
+          <div className="h-[66vh] w-full rounded-lg border border-gray-200 bg-white p-6 flex flex-col items-center justify-center gap-3">
+            <p className="text-sm text-gray-600 text-center">
+              Preview is not available for this file type.
+            </p>
             <Button
               variant="secondary"
-              onClick={() => {
-                if (!pdfAttachmentPreview?.url) return;
-                triggerAttachmentDownload(
-                  pdfAttachmentPreview.url,
-                  pdfAttachmentPreview.fileName || "attachment.pdf",
-                );
-              }}
-              disabled={!pdfAttachmentPreview?.url}
+              onClick={() => triggerAttachmentDownload(viewerCurrentItem.url, viewerCurrentItem.fileName || "attachment")}
             >
-              Download
+              Download File
             </Button>
-            <Button variant="ghost" onClick={() => setPdfAttachmentPreview(null)}>
-              Close
-            </Button>
-          </>
-        )}
-      >
-        {pdfAttachmentPreview?.url ? (
-          <iframe
-            src={pdfAttachmentPreview.url}
-            title={pdfAttachmentPreview.fileName || "PDF attachment"}
-            className="h-[66vh] w-full rounded-lg border border-gray-200 bg-white"
-          />
+          </div>
         ) : (
-          <p className="text-sm text-gray-500">No PDF attachment available.</p>
+          <p className="text-sm text-gray-500">No attachment available.</p>
         )}
+        </div>
       </ViewModal>
 
       <ConfirmModal
@@ -1103,7 +1210,10 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
         colorText: variant?.colorText || "",
         packagingType: variant?.packagingType || product?.packagingType || "",
         packagingQuantity: variant?.packagingQuantity || product?.packagingQuantity || null,
-        images: product?.images || [],
+        images: getVariantAwareProductImages({
+          productImages: product?.images || item?.product?.images || [],
+          variantId: item.productVariantId || variant?.id || null,
+        }),
       };
     });
 

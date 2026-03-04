@@ -970,8 +970,8 @@ export default function OrdersPage() {
         {
             key: "orderId",
             label: "Order ID",
-            className: "!items-start min-w-[250px]",
-            headerClassName: "min-w-[250px]",
+            className: "!items-start min-w-[469px]",
+            headerClassName: "min-w-[469px]",
             render: (row) => (
                 <div className="flex items-center gap-1 min-h-[3rem] py-1">
                     <span className="text-gray-900 text-[13px] truncate" title={row.orderId}>
@@ -1019,7 +1019,8 @@ export default function OrdersPage() {
         {
             key: "product",
             label: "Product",
-            className: "!items-start",
+            className: "!items-start min-w-[360px]",
+            headerClassName: "min-w-[360px]",
             render: (row) => {
                 // Multi-product support with stacked layout
                 if (row.items && row.items.length > 0) {
@@ -1047,7 +1048,7 @@ export default function OrdersPage() {
                                 const variantInfo = variantParts.join(" · ");
 
                                 return (
-                                    <div key={idx} className="flex items-center gap-3 min-h-[3rem] py-1 border-b border-gray-100 last:border-0 w-full text-left">
+                                    <div key={idx} className="flex items-center gap-3 min-h-[3rem] py-1 border-b border-gray-100 last:border-0 w-full min-w-0 overflow-hidden text-left">
                                         {/* Thumbnail */}
                                         <div className="flex-shrink-0">
                                             <ImageGallery
@@ -1061,12 +1062,12 @@ export default function OrdersPage() {
                                             />
                                         </div>
                                         {/* Text */}
-                                        <div className="flex flex-col gap-0.5 min-w-0">
-                                            <span className="text-gray-900 text-[13px] truncate" title={name}>
+                                        <div className="flex-1 min-w-0 overflow-hidden flex flex-col gap-0.5">
+                                            <span className="block w-full overflow-hidden text-ellipsis whitespace-nowrap text-gray-900 text-[13px]" title={name}>
                                                 {name}
                                             </span>
                                             {variantInfo && (
-                                                <span className="text-[11px] text-gray-400 truncate">
+                                                <span className="block w-full overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-gray-400">
                                                     {variantInfo}
                                                 </span>
                                             )}
@@ -1101,7 +1102,7 @@ export default function OrdersPage() {
                     : null;
 
                 return (
-                    <div className="flex items-center gap-3 w-full min-w-0 min-h-[3rem] py-1">
+                    <div className="flex items-center gap-3 w-full min-w-0 min-h-[3rem] py-1 overflow-hidden">
                         <div className="flex-shrink-0" onClick={e => e.stopPropagation()}>
                             <ImageGallery
                                 images={images}
@@ -1113,12 +1114,12 @@ export default function OrdersPage() {
                                 badgeContent={(Number(row.quantity) || 0) > 1 ? row.quantity : null}
                             />
                         </div>
-                        <div className="flex flex-col gap-0.5 min-w-0">
-                            <span className="text-gray-900 text-[13px] truncate" title={productName}>
+                        <div className="flex-1 min-w-0 overflow-hidden flex flex-col gap-0.5">
+                            <span className="block w-full overflow-hidden text-ellipsis whitespace-nowrap text-gray-900 text-[13px]" title={productName}>
                                 {productName}
                             </span>
                             {(variantInfo) && (
-                                <span className="text-[11px] text-gray-500">
+                                <span className="block w-full overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-gray-500">
                                     {variantInfo}
                                 </span>
                             )}
@@ -1314,7 +1315,8 @@ export default function OrdersPage() {
         {
             key: "trackingId",
             label: "Tracking ID",
-            className: "!items-start",
+            className: "!items-start min-w-[203px]",
+            headerClassName: "min-w-[203px]",
             render: (row) => (
                 <div className="flex items-center gap-1 min-h-[3rem] py-1">
                     <span className="text-[11px] text-blue-600 truncate" title={row.trackingId}>
@@ -1821,7 +1823,8 @@ export default function OrdersPage() {
                 rows={orders}
                 isLoading={isLoading}
                 toolbar={toolbar}
-                gridCols="grid-cols-[40px_minmax(100px,0.7fr)_minmax(130px,0.9fr)_minmax(110px,0.7fr)_minmax(240px,1.4fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(100px,0.8fr)_minmax(140px,1fr)_minmax(120px,0.9fr)_160px]"
+                gridCols="grid-cols-[40px_minmax(100px,0.7fr)_minmax(244px,1.69fr)_minmax(110px,0.7fr)_minmax(360px,2.1fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(100px,0.8fr)_minmax(140px,1fr)_minmax(203px,1.52fr)_160px]"
+                contentMinWidthClass="min-w-[2017px]"
                 rowClassName={(row) => row.id === highlightOrderId ? "bg-amber-100 transition-colors duration-1000" : ""}
             />
 

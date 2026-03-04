@@ -2,9 +2,48 @@ import { useMemo, useRef } from "react";
 import { Package, Truck, User, Calendar, Hash, DollarSign, Tag, MessageSquare, Copy, Check, Paperclip, Download, Trash2, Loader2, Plus, Receipt } from "lucide-react";
 import { useState, useEffect } from "react";
 import ViewModal from "../../../components/ViewModal";
+import ImageGallery from "../../../components/ImageGallery";
 import { useAuthCheck } from "../../auth/hooks/useAuthCheck";
 import { uploadOrderAttachment, deleteOrderAttachment } from "../../../lib/api";
 import { useQueryClient } from "@tanstack/react-query";
+
+const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif", "heic", "heif"]);
+const OFFICE_EXTENSIONS = new Set(["doc", "docx", "xls", "xlsx", "xlsm", "ppt", "pptx"]);
+const OFFICE_MIME_PREFIXES = [
+    "application/msword",
+    "application/vnd.ms-excel",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument",
+];
+const resolveAttachmentName = (attachment = {}) =>
+    attachment?.fileName || attachment?.name || attachment?.originalName || "";
+const resolveAttachmentMime = (attachment = {}) =>
+    String(attachment?.mimeType || attachment?.mime || attachment?.contentType || "").toLowerCase();
+const getFileExtension = (value = "") => {
+    const cleanValue = String(value || "").split("?")[0];
+    const dotIndex = cleanValue.lastIndexOf(".");
+    return dotIndex === -1 ? "" : cleanValue.slice(dotIndex + 1).toLowerCase();
+};
+const isImageAttachment = (attachment = {}) => {
+    const mimeType = resolveAttachmentMime(attachment);
+    if (mimeType.startsWith("image/")) return true;
+    const ext = getFileExtension(resolveAttachmentName(attachment) || attachment?.filePath || "");
+    return IMAGE_EXTENSIONS.has(ext);
+};
+const isPdfAttachment = (attachment = {}) => {
+    const mimeType = resolveAttachmentMime(attachment);
+    if (mimeType === "application/pdf") return true;
+    const ext = getFileExtension(resolveAttachmentName(attachment) || attachment?.filePath || "");
+    return ext === "pdf";
+};
+const isOfficeAttachment = (attachment = {}) => {
+    const mimeType = resolveAttachmentMime(attachment);
+    if (OFFICE_MIME_PREFIXES.some((prefix) => mimeType.startsWith(prefix))) return true;
+    const ext = getFileExtension(resolveAttachmentName(attachment) || attachment?.filePath || "");
+    return OFFICE_EXTENSIONS.has(ext);
+};
+const officeViewerUrlFromAttachmentUrl = (fileUrl = "") =>
+    fileUrl ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}` : "";
 
 
 // Copy Button Helper
@@ -205,8 +244,80 @@ export default function ViewOrderModal({ open, onClose, order }) {
         return `${API_BASE}${path}`;
     };
 
+    const [imageAttachmentPreview, setImageAttachmentPreview] = useState(null);
+    const [documentAttachmentPreview, setDocumentAttachmentPreview] = useState(null);
+
+    const attachmentUrl = (filePath) => {
+        if (!filePath) return "";
+        if (/^https?:\/\//i.test(filePath)) return filePath;
+        return `${API_BASE}${filePath}`;
+    };
+
+    const handleOpenAttachmentPreview = (attachment) => {
+        const url = attachmentUrl(attachment?.filePath);
+        if (!url) return;
+
+        if (isImageAttachment(attachment)) {
+            const imageAttachments = localAttachments.filter(isImageAttachment);
+            const imagePreviewItems = (imageAttachments.length > 0 ? imageAttachments : [attachment])
+                .map((att) => ({
+                    id: att.id,
+                    url: attachmentUrl(att.filePath),
+                    alt: att.fileName || "Attachment image",
+                    productName: att.fileName || "Attachment image",
+                }))
+                .filter((img) => Boolean(img.url));
+
+            if (imagePreviewItems.length === 0) return;
+
+            setDocumentAttachmentPreview(null);
+            setImageAttachmentPreview({
+                orderLabel: order?.orderId || order?.id,
+                images: imagePreviewItems,
+            });
+            return;
+        }
+
+        if (isPdfAttachment(attachment)) {
+            setImageAttachmentPreview(null);
+            setDocumentAttachmentPreview({
+                kind: "pdf",
+                orderLabel: order?.orderId || order?.id,
+                fileName: attachment?.fileName || "attachment.pdf",
+                url,
+            });
+            return;
+        }
+
+        if (isOfficeAttachment(attachment)) {
+            setImageAttachmentPreview(null);
+            setDocumentAttachmentPreview({
+                kind: "office",
+                orderLabel: order?.orderId || order?.id,
+                fileName: attachment?.fileName || "attachment",
+                url,
+                viewerUrl: officeViewerUrlFromAttachmentUrl(url),
+            });
+            return;
+        }
+
+        window.open(url, "_blank", "noopener,noreferrer");
+    };
+
+    const handleOpenLabelPreview = () => {
+        if (!order?.label) return;
+        setImageAttachmentPreview(null);
+        setDocumentAttachmentPreview({
+            kind: "pdf",
+            orderLabel: order?.orderId || order?.id,
+            fileName: order.label.split("/").pop() || "label.pdf",
+            url: absImg(order.label),
+        });
+    };
+
     return (
-        <ViewModal
+        <>
+            <ViewModal
             open={open}
             onClose={onClose}
             title="Order Details"
@@ -341,35 +452,55 @@ export default function ViewOrderModal({ open, onClose, order }) {
             {/* Attachments Section */}
             <CardSection icon={Paperclip} title="Attachments">
                 <div className="space-y-3">
-                    {order.attachments && order.attachments.length > 0 ? (
+                    {order.label && (
+                        <button
+                            type="button"
+                            onClick={handleOpenLabelPreview}
+                            className="w-full flex items-center justify-between p-2 rounded-lg border border-gray-100 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+                        >
+                            <div className="flex items-center gap-3 min-w-0">
+                                <div className="h-8 w-8 rounded bg-white border border-gray-200 flex items-center justify-center flex-shrink-0">
+                                    <Receipt size={14} className="text-gray-400" />
+                                </div>
+                                <div className="min-w-0">
+                                    <p className="text-sm font-medium text-gray-900 truncate max-w-[200px]">
+                                        {order.label.split("/").pop() || "Order Label"}
+                                    </p>
+                                    <p className="text-xs text-gray-500">Label file</p>
+                                </div>
+                            </div>
+                            <span className="p-1.5 text-gray-500" title="Preview Label">
+                                <Download size={14} />
+                            </span>
+                        </button>
+                    )}
+
+                    {localAttachments.length > 0 ? (
                         <div className="grid grid-cols-1 gap-2">
-                            {order.attachments.map((att) => (
-                                <div key={att.id} className="flex items-center justify-between p-2 rounded-lg border border-gray-100 bg-gray-50 hover:bg-gray-100 transition-colors">
+                            {localAttachments.map((att) => (
+                                <button
+                                    key={att.id}
+                                    type="button"
+                                    onClick={() => handleOpenAttachmentPreview(att)}
+                                    className="w-full flex items-center justify-between p-2 rounded-lg border border-gray-100 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+                                >
                                     <div className="flex items-center gap-3 min-w-0">
                                         <div className="h-8 w-8 rounded bg-white border border-gray-200 flex items-center justify-center flex-shrink-0">
                                             <Paperclip size={14} className="text-gray-400" />
                                         </div>
                                         <div className="min-w-0">
-                                            <p className="text-sm font-medium text-gray-900 truncate max-w-[200px]">{att.fileName}</p>
+                                            <p className="text-sm font-medium text-gray-900 truncate max-w-[200px]">{resolveAttachmentName(att) || "Attachment"}</p>
                                             <p className="text-xs text-gray-500">{(att.fileSize / 1024).toFixed(1)} KB · {new Date(att.createdAt).toLocaleDateString()}</p>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                        <a
-                                            href={`${API_BASE}${att.filePath}`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
-                                            title="Download/View"
-                                        >
+                                    <span className="p-1.5 text-gray-500" title="Preview">
                                             <Download size={14} />
-                                        </a>
-                                    </div>
-                                </div>
+                                    </span>
+                                </button>
                             ))}
                         </div>
                     ) : (
-                        <p className="text-sm text-gray-500 italic">No attachments added.</p>
+                        !order.label ? <p className="text-sm text-gray-500 italic">No attachments added.</p> : null
                     )}
                 </div>
             </CardSection>
@@ -427,6 +558,78 @@ export default function ViewOrderModal({ open, onClose, order }) {
                     )}
                 </div>
             </CardSection>
-        </ViewModal>
+            </ViewModal>
+
+            <ViewModal
+                open={Boolean(imageAttachmentPreview)}
+                onClose={() => setImageAttachmentPreview(null)}
+                title={`Attachment Preview${imageAttachmentPreview?.orderLabel ? ` • ${imageAttachmentPreview.orderLabel}` : ""}`}
+                subtitle={imageAttachmentPreview?.images?.length > 1
+                    ? `${imageAttachmentPreview.images.length} image files`
+                    : imageAttachmentPreview?.images?.[0]?.productName || "Image attachment"}
+                widthClass="max-w-5xl"
+                heightClass="h-[85vh]"
+                footer={(
+                    <button
+                        className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                        onClick={() => setImageAttachmentPreview(null)}
+                    >
+                        Close
+                    </button>
+                )}
+            >
+                {imageAttachmentPreview?.images?.length ? (
+                    <div className="flex justify-center">
+                        <ImageGallery
+                            images={imageAttachmentPreview.images}
+                            absImg={(url) => url || IMG_PLACEHOLDER}
+                            placeholder={IMG_PLACEHOLDER}
+                            className="w-full max-w-4xl"
+                            thumbnailClassName="h-[62vh] w-full bg-white"
+                            showName
+                        />
+                    </div>
+                ) : (
+                    <p className="text-sm text-gray-500">No image attachment found.</p>
+                )}
+            </ViewModal>
+
+            <ViewModal
+                open={Boolean(documentAttachmentPreview)}
+                onClose={() => setDocumentAttachmentPreview(null)}
+                title={`${documentAttachmentPreview?.kind === "office" ? "Document Preview" : "PDF Preview"}${documentAttachmentPreview?.orderLabel ? ` • ${documentAttachmentPreview.orderLabel}` : ""}`}
+                subtitle={documentAttachmentPreview?.fileName || "Attachment"}
+                widthClass="max-w-5xl"
+                heightClass="h-[85vh]"
+                footer={(
+                    <button
+                        className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                        onClick={() => setDocumentAttachmentPreview(null)}
+                    >
+                        Close
+                    </button>
+                )}
+            >
+                {documentAttachmentPreview?.kind === "office" ? (
+                    documentAttachmentPreview?.viewerUrl ? (
+                        <iframe
+                            src={documentAttachmentPreview.viewerUrl}
+                            title={documentAttachmentPreview.fileName || "Office attachment"}
+                            className="h-[66vh] w-full rounded-lg border border-gray-200 bg-white"
+                        />
+                    ) : (
+                        <p className="text-sm text-gray-500">No Office document preview available.</p>
+                    )
+                ) : documentAttachmentPreview?.url ? (
+                    <iframe
+                        src={documentAttachmentPreview.url}
+                        title={documentAttachmentPreview.fileName || "PDF attachment"}
+                        className="h-[66vh] w-full rounded-lg border border-gray-200 bg-white"
+                    />
+                ) : (
+                    <p className="text-sm text-gray-500">No document attachment available.</p>
+                )}
+            </ViewModal>
+        </>
     );
 }

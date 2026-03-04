@@ -13,7 +13,7 @@ import {
 import { useRemarkTypes } from "../../settings/hooks/useRemarkTypes";
 import { useSearchMarketplaceChannels } from "../../../hooks/useProducts";
 import { useCourierMediums } from "../../settings/hooks/useCourierMediums";
-import { uploadOrderAttachment, deleteOrderAttachment, checkOrderTrackingIdExists } from "../../../lib/api";
+import { uploadOrderAttachment, deleteOrderAttachment, checkOrderTrackingIdExists, checkOrderLabelNameExists } from "../../../lib/api";
 import toast from "react-hot-toast";
 import { Trash2, Plus, Paperclip, Loader2, X, Info, Check, ChevronDown, ChevronRight } from "lucide-react";
 
@@ -124,6 +124,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
     const [newLabel, setNewLabel] = useState(null); // File object
 
     const normalizeAttachmentName = (name) => String(name ?? "").trim().toLowerCase();
+    const normalizeLabelName = (name) => String(name ?? "").trim().toLowerCase();
     const extractApiErrorMessage = (error) => {
         const data = error?.response?.data;
         if (typeof data?.message === 'string') return data.message;
@@ -187,6 +188,53 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
 
     const removeNewAttachment = (index) => {
         setNewAttachments(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const handleLabelSelect = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) {
+            e.target.value = null;
+            return;
+        }
+
+        if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+            alert.error("Invalid File", "Only PDF files are allowed for labels.");
+            e.target.value = null;
+            return;
+        }
+
+        const incomingName = normalizeLabelName(file.name);
+        if (!incomingName) {
+            setNewLabel(file);
+            e.target.value = null;
+            return;
+        }
+
+        try {
+            const result = await checkOrderLabelNameExists({
+                fileName: file.name,
+                excludeOrderId: editing?.id || undefined,
+            });
+
+            if (result?.exists) {
+                const existingOrderId = result?.order?.orderId || result?.order?.id;
+                alert.showAlert({
+                    type: "info",
+                    title: "Label Name Already Used",
+                    message: `Label "${file.name}" already exists on${existingOrderId ? ` order ${existingOrderId}` : " another order"}. Do you want to continue anyway?`,
+                    confirmLabel: "Proceed",
+                    cancelLabel: "Cancel",
+                    showCancel: true,
+                    onConfirm: () => setNewLabel(file),
+                });
+            } else {
+                setNewLabel(file);
+            }
+        } catch {
+            alert.error("Label Check Failed", "Could not verify label name uniqueness. Please try again.");
+        } finally {
+            e.target.value = null;
+        }
     };
 
     const deleteExistingAttachment = async (id) => {
@@ -900,18 +948,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                         <label className="cursor-pointer text-xs font-medium text-blue-600 hover:text-blue-800 flex items-center gap-1">
                             <Plus size={14} />
                             {existingLabel || newLabel ? 'Replace Label' : 'Add Label'}
-                            <input type="file" accept=".pdf,application/pdf" className="hidden" onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) {
-                                    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-                                        alert.error("Invalid File", "Only PDF files are allowed for labels.");
-                                        e.target.value = null;
-                                        return;
-                                    }
-                                    setNewLabel(file);
-                                }
-                                e.target.value = null;
-                            }} />
+                            <input type="file" accept=".pdf,application/pdf" className="hidden" onChange={handleLabelSelect} />
                         </label>
                     </div>
 

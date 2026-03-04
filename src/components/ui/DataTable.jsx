@@ -18,6 +18,7 @@ export function DataTable({
     rows = [],
     isLoading = false,
     gridCols,
+    contentMinWidthClass = "min-w-max",
     rowKey = (row) => row.id,
     emptyMessage,
     toolbar,
@@ -38,10 +39,10 @@ export function DataTable({
             <div className="overflow-x-auto w-full max-w-full">
                 {/* Header row */}
                 <div
-                    className={`grid ${gridClass} bg-gray-50 text-[12px] font-semibold text-gray-700 min-w-max [&>*:first-child]:pl-4 [&>*:last-child]:pr-4`}
+                    className={`grid ${gridClass} bg-gray-50 text-[12px] font-semibold text-gray-700 ${contentMinWidthClass} [&>*:first-child]:pl-4 [&>*:last-child]:pr-4`}
                 >
                     {columns.map((col) => (
-                        <div key={col.key} className={`${col.headerClassName || col.className || ""} py-3 flex items-center`}>
+                        <div key={col.key} className={`${col.headerClassName || col.className || ""} py-3 flex items-center min-w-0`}>
                             {col.label}
                         </div>
                     ))}
@@ -59,10 +60,10 @@ export function DataTable({
                         {rows.map((row) => (
                             <li
                                 key={rowKey(row)}
-                                className={`grid ${gridClass} text-[13px] text-gray-800 hover:bg-gray-50/50 transition-colors min-w-max group [&>*:first-child]:pl-4 [&>*:last-child]:pr-4 ${typeof rowClassName === 'function' ? rowClassName(row) : rowClassName}`}
+                                className={`grid ${gridClass} text-[13px] text-gray-800 hover:bg-gray-50/50 transition-colors ${contentMinWidthClass} group [&>*:first-child]:pl-4 [&>*:last-child]:pr-4 ${typeof rowClassName === 'function' ? rowClassName(row) : rowClassName}`}
                             >
                                 {columns.map((col) => (
-                                    <div key={col.key} className={`${col.className || ""} py-3 flex items-center`}>
+                                    <div key={col.key} className={`${col.className || ""} py-3 flex items-center min-w-0 overflow-hidden`}>
                                         {col.render ? col.render(row) : row[col.key] ?? "—"}
                                     </div>
                                 ))}
