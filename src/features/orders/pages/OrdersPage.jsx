@@ -229,9 +229,7 @@ export default function OrdersPage() {
     // Pagination
     const [page, setPage] = useState(1);
     const [perPage, setPerPage] = useState(25);
-    const [activeSortKey, setActiveSortKey] = useState("date");
     const [dateSortOrder, setDateSortOrder] = useState("desc");
-    const [marketplaceSortOrder, setMarketplaceSortOrder] = useState("asc");
     const [highlightOrderId, setHighlightOrderId] = useState(null);
 
     const handleOrderSaved = (id) => {
@@ -284,13 +282,6 @@ export default function OrdersPage() {
         ...(Array.isArray(remarkTypes) ? remarkTypes : []).map(r => ({ id: r.id, name: r.name }))
     ], [remarkTypes]);
 
-    const sortParams = useMemo(() => {
-        if (activeSortKey === "marketplace") {
-            return { sortBy: "marketplace", sortOrder: marketplaceSortOrder };
-        }
-        return { sortBy: "date", sortOrder: dateSortOrder };
-    }, [activeSortKey, dateSortOrder, marketplaceSortOrder]);
-
     const buildOrderQueryParams = ({ page: queryPage, perPage: queryPerPage } = {}) => ({
         search: debouncedSearch,
         status: statusParam || (statusFilter.id === "ALL" ? undefined : statusFilter.id),
@@ -301,8 +292,8 @@ export default function OrdersPage() {
         startDate: formatAsDateOnlyParam(dateRange?.from),
         endDate: formatAsDateOnlyParam(dateRange?.to || dateRange?.from),
         isSettled: settledFilter.id !== "all" ? settledFilter.id : undefined,
-        sortBy: sortParams.sortBy,
-        sortOrder: sortParams.sortOrder,
+        sortBy: "date",
+        sortOrder: dateSortOrder,
         page: queryPage,
         perPage: queryPerPage,
     });
@@ -318,8 +309,7 @@ export default function OrdersPage() {
             remarkFilter.id,
             dateTypeFilter.id,
             settledFilter.id,
-            sortParams.sortBy,
-            sortParams.sortOrder,
+            dateSortOrder,
             page,
             perPage,
             dateRange?.from?.getTime(),
@@ -338,8 +328,7 @@ export default function OrdersPage() {
             remarkFilter.id,
             dateTypeFilter.id,
             settledFilter.id,
-            sortParams.sortBy,
-            sortParams.sortOrder,
+            dateSortOrder,
             dateRange?.from?.getTime(),
             dateRange?.to?.getTime(),
         ]
@@ -941,20 +930,15 @@ export default function OrdersPage() {
                     className="inline-flex items-center gap-1 hover:text-gray-900"
                     onClick={(e) => {
                         e.stopPropagation();
-                        if (activeSortKey === "date") {
-                            setDateSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
-                            setPage(1);
-                            return;
-                        }
-                        setActiveSortKey("date");
+                        setDateSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
                         setPage(1);
                     }}
                     title={`Sort date ${dateSortOrder === "asc" ? "oldest first" : "newest first"}`}
                 >
                     <span>Date</span>
                     <span className="inline-flex items-center gap-0.5 text-[10px]">
-                        <span className={activeSortKey === "date" && dateSortOrder === "asc" ? "text-gray-900" : "text-gray-400"}>↑</span>
-                        <span className={activeSortKey === "date" && dateSortOrder === "desc" ? "text-gray-900" : "text-gray-400"}>↓</span>
+                        <span className={dateSortOrder === "asc" ? "text-gray-900" : "text-gray-400"}>↑</span>
+                        <span className={dateSortOrder === "desc" ? "text-gray-900" : "text-gray-400"}>↓</span>
                     </span>
                 </button>
             ),
@@ -983,29 +967,7 @@ export default function OrdersPage() {
         },
         {
             key: "channel",
-            label: (
-                <button
-                    type="button"
-                    className="inline-flex items-center gap-1 hover:text-gray-900"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        if (activeSortKey === "marketplace") {
-                            setMarketplaceSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
-                            setPage(1);
-                            return;
-                        }
-                        setActiveSortKey("marketplace");
-                        setPage(1);
-                    }}
-                    title={`Sort marketplace ${marketplaceSortOrder === "asc" ? "Z to A" : "A to Z"}`}
-                >
-                    <span>Marketplace</span>
-                    <span className="inline-flex items-center gap-0.5 text-[10px]">
-                        <span className={activeSortKey === "marketplace" && marketplaceSortOrder === "asc" ? "text-gray-900" : "text-gray-400"}>↑</span>
-                        <span className={activeSortKey === "marketplace" && marketplaceSortOrder === "desc" ? "text-gray-900" : "text-gray-400"}>↓</span>
-                    </span>
-                </button>
-            ),
+            label: "Marketplace",
             className: "!items-start min-w-[180px] max-w-[180px]",
             headerClassName: "min-w-[180px] max-w-[180px]",
             render: (row) => (
