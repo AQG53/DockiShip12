@@ -18,7 +18,8 @@ import toast from "react-hot-toast";
 import ImageGallery from "../../../components/ImageGallery";
 import {
     listOrders,
-    downloadBulkLabels
+    downloadBulkLabels,
+    checkOrderLabelNameExists
 } from "../../../lib/api";
 import { AnimatedAlert } from "../../../components/ui/AnimatedAlert";
 
@@ -793,9 +794,31 @@ export default function OrdersPage() {
         const file = e.target.files?.[0];
         if (!file || !uploadTargetId) return;
 
-        if (file.type !== 'application/pdf') {
+        if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
             toast.error("Only PDF files are allowed");
             // Clear input
+            if (fileInputRef.current) fileInputRef.current.value = "";
+            return;
+        }
+
+        try {
+            const duplicateCheck = await checkOrderLabelNameExists({
+                fileName: file.name,
+                excludeOrderId: uploadTargetId,
+            });
+
+            if (duplicateCheck?.exists) {
+                const existingOrderId = duplicateCheck?.order?.orderId || duplicateCheck?.order?.id;
+                const proceed = window.confirm(
+                    `Label "${file.name}" already exists on${existingOrderId ? ` order ${existingOrderId}` : " another order"}. Do you want to upload anyway?`
+                );
+                if (!proceed) {
+                    if (fileInputRef.current) fileInputRef.current.value = "";
+                    return;
+                }
+            }
+        } catch (err) {
+            toast.error("Could not verify label name uniqueness. Please try again.");
             if (fileInputRef.current) fileInputRef.current.value = "";
             return;
         }
