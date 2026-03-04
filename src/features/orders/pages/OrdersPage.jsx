@@ -1277,8 +1277,8 @@ export default function OrdersPage() {
         {
             key: "trackingId",
             label: "Tracking ID",
-            className: "!items-start min-w-[203px]",
-            headerClassName: "min-w-[203px]",
+            className: "!items-start !min-w-[250px]",
+            headerClassName: "!min-w-[250px]",
             render: (row) => (
                 <div className="flex items-center gap-1 min-h-[3rem] py-1">
                     <span className="text-[11px] text-blue-600 truncate" title={row.trackingId}>
@@ -1785,8 +1785,8 @@ export default function OrdersPage() {
                 rows={orders}
                 isLoading={isLoading}
                 toolbar={toolbar}
-                gridCols="grid-cols-[40px_minmax(100px,0.7fr)_minmax(244px,1.69fr)_minmax(110px,0.7fr)_minmax(360px,2.1fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(100px,0.8fr)_minmax(140px,1fr)_minmax(203px,1.52fr)_160px]"
-                contentMinWidthClass="min-w-[2017px]"
+                gridCols="grid-cols-[40px_minmax(100px,0.7fr)_minmax(244px,1.69fr)_minmax(110px,0.7fr)_minmax(360px,2.1fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(100px,0.8fr)_minmax(250px,1fr)_minmax(203px,1.52fr)_160px]"
+                contentMinWidthClass="min-w-[2127px]"
                 rowClassName={(row) => row.id === highlightOrderId ? "bg-amber-100 transition-colors duration-1000" : ""}
             />
 
