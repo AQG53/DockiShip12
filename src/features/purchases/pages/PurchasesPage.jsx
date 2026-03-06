@@ -20,6 +20,7 @@ import {
   MapPin,
   Clock,
   Search,
+  Copy,
   MoreHorizontal,
   Edit,
   Trash2,
@@ -207,11 +208,16 @@ const paymentStatusMeta = (po) => {
   };
 };
 
-const toDecimalInput = (value) =>
-  String(value || "")
+const toDecimalInput = (value, maxDecimals = 2) => {
+  const sanitized = String(value || "")
     .replace(/[^0-9.]/g, "")
-    .replace(/(\..*)\./g, "$1")
-    .replace(/^(\d*\.\d{0,2}).*$/, "$1"); // clamp to 2 decimals
+    .replace(/(\..*)\./g, "$1");
+
+  if (!sanitized.includes(".")) return sanitized;
+
+  const [whole, decimals = ""] = sanitized.split(".");
+  return `${whole}.${decimals.slice(0, maxDecimals)}`;
+};
 
 const toIntegerInput = (value) => String(value || "").replace(/[^0-9]/g, "");
 
@@ -671,7 +677,7 @@ export default function PurchasesPage() {
               }
 
               // 6. Delete
-              if ((po.status === "to_purchase" || po.status === "draft") && can("purchases.delete")) {
+              if (po.status === "to_purchase" && can("purchases.delete")) {
                 actions.push({
                   label: "Delete",
                   onClick: () => {
@@ -737,14 +743,33 @@ export default function PurchasesPage() {
                     })()}
                   </div>
                   <div>
-                    <div className="relative inline-flex group/po-note">
+                    <div className="relative inline-flex group/po-note pb-1">
                       <div className="font-semibold text-gray-900 cursor-default">
                         {po.poNumber || po.id}
                       </div>
-                      <div className="pointer-events-none absolute left-0 top-full z-30 mt-2 hidden w-[340px] rounded-xl border border-gray-200 bg-white p-3 shadow-xl group-hover/po-note:block">
+                      <div className="pointer-events-none invisible absolute left-0 top-full z-30 w-[340px] rounded-xl border border-gray-200 bg-white p-3 shadow-xl opacity-0 transition-opacity duration-150 group-hover/po-note:pointer-events-auto group-hover/po-note:visible group-hover/po-note:opacity-100">
                         <div className="absolute -top-1.5 left-4 h-3 w-3 rotate-45 border-l border-t border-gray-200 bg-white" />
                         <div className="relative">
-                          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">PO Notes</p>
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">PO Notes</p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const notes = po?.notes?.trim();
+                                if (!notes) {
+                                  toast.error("No notes to copy");
+                                  return;
+                                }
+                                navigator.clipboard.writeText(notes);
+                                toast.success("Notes copied");
+                              }}
+                              className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-[10px] font-medium text-gray-600 hover:bg-gray-50"
+                              title="Copy notes"
+                            >
+                              <Copy className="h-3 w-3" />
+                              Copy
+                            </button>
+                          </div>
                           <p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-[12px] leading-relaxed text-gray-700">
                             {po?.notes?.trim() || "No notes available for this purchase order."}
                           </p>
@@ -862,7 +887,7 @@ export default function PurchasesPage() {
                         }
 
                         // 6. Delete
-                        if ((po.status === "to_purchase" || po.status === "draft") && can("purchases.delete")) {
+                        if (po.status === "to_purchase" && can("purchases.delete")) {
                           formattedActions.push({
                             label: "Delete",
                             onClick: () => {
@@ -1464,7 +1489,8 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
           return { ...line, qty: toIntegerInput(value) };
         }
         if (key === "unitPrice" || key === "taxRate") {
-          return { ...line, [key]: toDecimalInput(value) };
+          const maxDecimals = key === "unitPrice" ? 3 : 2;
+          return { ...line, [key]: toDecimalInput(value, maxDecimals) };
         }
         return line;
       }),
@@ -1918,6 +1944,7 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
                                               value={line.unitPrice}
                                               onChange={(e) => handleLineChange(line.id, "unitPrice", e.target.value)}
                                               inputMode="decimal"
+                                              step="0.001"
                                             />
                                           </td>
                                           <td className="px-3 py-3 text-center align-middle">

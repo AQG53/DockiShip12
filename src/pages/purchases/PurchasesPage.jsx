@@ -73,11 +73,16 @@ const statusTone = (status) => {
   return map[base] || "bg-gray-100 text-gray-700";
 };
 
-const toDecimalInput = (value) =>
-  String(value || "")
+const toDecimalInput = (value, maxDecimals = 2) => {
+  const sanitized = String(value || "")
     .replace(/[^0-9.]/g, "")
-    .replace(/(\..*)\./g, "$1")
-    .replace(/^(\d*\.\d{0,2}).*$/, "$1"); // clamp to 2 decimals
+    .replace(/(\..*)\./g, "$1");
+
+  if (!sanitized.includes(".")) return sanitized;
+
+  const [whole, decimals = ""] = sanitized.split(".");
+  return `${whole}.${decimals.slice(0, maxDecimals)}`;
+};
 
 const toIntegerInput = (value) => String(value || "").replace(/[^0-9]/g, "");
 
@@ -389,7 +394,7 @@ export default function PurchasesPage() {
               }
 
               // 6. Delete
-              if ((po.status === "to_purchase" || po.status === "draft") && can("purchases.delete")) {
+              if (po.status === "to_purchase" && can("purchases.delete")) {
                 actions.push({
                   label: "Delete",
                   onClick: () => {
@@ -845,7 +850,7 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
         product?.retailPrice ?? null;
       return price != null ? String(price) : "";
     })();
-    const sanitizedPrice = fallbackPrice ? toDecimalInput(fallbackPrice) : "";
+    const sanitizedPrice = fallbackPrice ? toDecimalInput(fallbackPrice, 3) : "";
     const variantLabel =
       variant && variant.name && variant.name !== variant.sku ? variant.name : "";
     const displayName = variantLabel
@@ -884,7 +889,8 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
           return { ...line, qty: toIntegerInput(value) };
         }
         if (key === "unitPrice" || key === "taxRate") {
-          return { ...line, [key]: toDecimalInput(value) };
+          const maxDecimals = key === "unitPrice" ? 3 : 2;
+          return { ...line, [key]: toDecimalInput(value, maxDecimals) };
         }
         return line;
       }),
@@ -1189,6 +1195,7 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
                                               value={line.unitPrice}
                                               onChange={(e) => handleLineChange(line.id, "unitPrice", e.target.value)}
                                               inputMode="decimal"
+                                              step="0.001"
                                             />
                                           </td>
                                           <td className="px-3 py-3 text-center align-middle">
@@ -1290,5 +1297,3 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
     </Transition>
   );
 }
-
-

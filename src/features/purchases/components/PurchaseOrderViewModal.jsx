@@ -43,6 +43,21 @@ const formatCurrency = (value, currency = "USD") => {
   }
 };
 
+const formatUnitPrice = (value, currency = "USD") => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "—";
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 3,
+    }).format(num);
+  } catch {
+    return `${currency} ${num.toFixed(3)}`;
+  }
+};
+
 const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif", "heic", "heif"]);
 const OFFICE_EXTENSIONS = new Set(["doc", "docx", "xls", "xlsx", "xlsm", "ppt", "pptx"]);
 const OFFICE_MIME_PREFIXES = [
@@ -451,7 +466,7 @@ export default function PurchaseOrderViewModal({ po, loading, onClose, currency 
                           <td className="px-3 py-3 text-center align-middle text-gray-600">{qty}</td>
                           <td className="px-3 py-3 text-center align-middle font-medium text-emerald-600">{item.receivedQty || 0}</td>
                           <td className="px-3 py-3 text-center align-middle font-medium text-amber-600">{Math.max(0, qty - (item.receivedQty || 0))}</td>
-                          <td className="px-3 py-3 text-center align-middle text-gray-600">{formatCurrency(price, currency)}</td>
+                          <td className="px-3 py-3 text-center align-middle text-gray-600">{formatUnitPrice(price, currency)}</td>
                           {showLandedCost && (
                             <td className="px-3 py-3 text-center align-middle text-gray-600">
                               {landedCost != null && Number.isFinite(landedCost) ? formatCurrency(landedCost, currency) : "—"}
