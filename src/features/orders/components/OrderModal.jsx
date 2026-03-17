@@ -470,40 +470,47 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                 const qty = parseFloat(item.quantity) || 0;
                 const units = item.units || 1;
                 const required = qty * units;
-                let available = item.stockOnHand || 0;
+                const available = Number(item.stockOnHand) || 0;
 
-                // 2. If editing an ACTIVE order, add back the *original* quantity to available stock
-                // because we "own" that stock currently.
-                if (editing && editing.items) {
-                    // Check if the editing order was holding stock
-                    const wasHoldingStock = !['CANCEL', 'RETURN', 'REFUND'].includes(editing.status);
-
-                    if (wasHoldingStock) {
-                        // Find original item match (by variantId or productId)
-                        // Note: item.id is random UI ID, so match by content
-                        const original = editing.items.find(orig =>
-                            (item.variantId && orig.productVariantId === item.variantId) ||
-                            (!item.variantId && orig.productId === item.productId && !orig.productVariantId)
-                        );
-                        if (original) {
-                            const origUnits = original.channelListing?.units || 1; // get original units
-                            available += ((original.quantity || 0) * origUnits); // add back FULL QUANTITY (units * qty)
-                        }
+                let originalRequired = 0;
+                if (editing && editing.items && !['CANCEL', 'RETURN', 'REFUND'].includes(editing.status)) {
+                    const original = editing.items.find(orig =>
+                        (item.listingId && orig.channelListingId === item.listingId) ||
+                        (item.variantId && orig.productVariantId === item.variantId) ||
+                        (!item.variantId && item.productId && orig.productId === item.productId && !orig.productVariantId)
+                    );
+                    if (original) {
+                        const origUnits = original.channelListing?.units || 1;
+                        originalRequired = (Number(original.quantity) || 0) * origUnits;
                     }
                 }
 
-                return required > available;
+                const increaseRequired = Math.max(0, required - originalRequired);
+                return increaseRequired > available;
             });
 
             if (overStockItems.length > 0) {
                 const names = overStockItems.map(i => {
                     const req = (parseFloat(i.quantity) || 0) * (i.units || 1);
-                    return `${i.displayName} (Req: ${req}, Avail: ${i.stockOnHand})`;
+                    let originalReq = 0;
+                    if (editing && editing.items && !['CANCEL', 'RETURN', 'REFUND'].includes(editing.status)) {
+                        const original = editing.items.find(orig =>
+                            (i.listingId && orig.channelListingId === i.listingId) ||
+                            (i.variantId && orig.productVariantId === i.variantId) ||
+                            (!i.variantId && i.productId && orig.productId === i.productId && !orig.productVariantId)
+                        );
+                        if (original) {
+                            const origUnits = original.channelListing?.units || 1;
+                            originalReq = (Number(original.quantity) || 0) * origUnits;
+                        }
+                    }
+                    const increaseReq = Math.max(0, req - originalReq);
+                    return `${i.displayName} (Addl Req: ${increaseReq}, Avail: ${i.stockOnHand || 0})`;
                 }).join(", ");
 
                 alert.error(
                     "Insufficient Stock",
-                    `Quantity exceeds available stock for: ${names}`
+                    `Additional quantity exceeds available stock for: ${names}`
                 );
                 return;
             }
@@ -732,7 +739,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
     ];
     const statusOptions = [
         "PENDING", "LABEL_UPLOADED", "LABEL_PRINTED", "PACKED", "SHIPPED",
-        "DELIVERED", "RETURN", "CANCEL", "REFUND"
+        "DELIVERED", "CANCEL", "REFUND"
     ].map(s => ({ value: s, label: s.replace(/_/g, " ") }));
 
     const productSelectOpts = useMemo(() => {

@@ -35,13 +35,13 @@ import { Button } from "../../../components/ui/Button";
 import { ActionMenu } from "../../../components/ui/ActionMenu";
 import { HeadlessSelect } from "../../../components/ui/HeadlessSelect";
 import ImageGallery from "../../../components/ImageGallery";
-import { ConfirmModal } from "../../../components/ConfirmModal";
 import { ReceiveItemsModal } from "../components/ReceiveItemsModal";
 import { PaymentUpdateModal } from "../components/PaymentUpdateModal";
 import { ConfirmPOModal, CancelPOModal } from "../components/PurchaseOrderActionModals";
 import toast from "react-hot-toast";
 import SelectCompact from "../../../components/SelectCompact";
 import { NoData } from "../../../components/NoData";
+import { useAnimatedAlert } from "../../../components/ui/AnimatedAlert";
 import {
   usePurchaseOrders,
   useCreatePurchaseOrder,
@@ -312,10 +312,6 @@ export default function PurchasesPage() {
   const [receiveModalOpen, setReceiveModalOpen] = useState(false);
   const [receiveItem, setReceiveItem] = useState(null);
 
-  // Confirm Delete Modal State
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [confirmItem, setConfirmItem] = useState(null);
-
   // Payment Modal State
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [paymentItem, setPaymentItem] = useState(null);
@@ -335,6 +331,7 @@ export default function PurchasesPage() {
   const { data: auth } = useAuthCheck({ refetchOnWindowFocus: false });
   const perms = auth?.perms || [];
   const can = (p) => perms.includes(p);
+  const alert = useAnimatedAlert();
 
   const currency = auth?.tenant?.currency || "USD";
   const [page, setPage] = useState(1);
@@ -379,7 +376,7 @@ export default function PurchasesPage() {
 
   const { mutateAsync: updateStatusMut } = useUpdatePurchaseOrderStatus();
   const { mutateAsync: updatePoMut } = useUpdatePurchaseOrder();
-  const { mutateAsync: deletePoMut, isPending: deleting } = useDeletePurchaseOrder();
+  const { mutateAsync: deletePoMut } = useDeletePurchaseOrder();
   const [statusUpdatingId, setStatusUpdatingId] = useState(null);
 
   // Confirm Order Modal State
@@ -439,17 +436,24 @@ export default function PurchasesPage() {
     }
   };
 
-  const deletePo = async () => {
-    if (!confirmItem?.id) return;
-    try {
-      await deletePoMut(confirmItem.id);
-      toast.success("Purchase order deleted");
-      setConfirmOpen(false);
-      setConfirmItem(null);
-    } catch (err) {
-      toast.error(err?.message || "Failed to delete purchase order");
-    }
-  };
+  const handleDeletePo = useCallback((po) => {
+    if (!po?.id) return;
+    const poLabel = po?.poNumber || po?.id || "this order";
+    alert.confirm(
+      "Delete Purchase Order",
+      `Are you sure you want to delete ${poLabel}? This action cannot be undone.`,
+      async () => {
+        try {
+          await deletePoMut(po.id);
+          toast.success("Purchase order deleted");
+        } catch (err) {
+          toast.error(err?.message || "Failed to delete purchase order");
+        }
+      },
+      "Delete",
+      "Cancel",
+    );
+  }, [alert, deletePoMut]);
 
   const handleQuickAttachmentPreview = async (po) => {
     if (!po?.id) return;
@@ -605,7 +609,7 @@ export default function PurchasesPage() {
           <div>Expected</div>
           <div>Status</div>
           <div className="text-center">Total</div>
-          <div className="text-right">Actions</div>
+          <div className="text-center">Actions</div>
         </div>
         {isLoading ? (
           <div className="flex items-center justify-center gap-2 py-10 text-sm text-gray-500">
@@ -619,6 +623,13 @@ export default function PurchasesPage() {
           <ul className="divide-y divide-gray-100">
             {rows.map((po) => {
               const actions = [];
+              const normalizedStatus = String(po?.status || "").toLowerCase();
+              const paymentMeta = paymentStatusMeta(po);
+              const isPoNotConfirmed = normalizedStatus === "to_purchase";
+              const isPoCanceled = normalizedStatus === "canceled" || normalizedStatus === "cancelled";
+              const isPoUnpaid = paymentMeta.label === "Unpaid";
+              const canDeletePo = can("purchases.delete")
+                && (isPoNotConfirmed || isPoCanceled || isPoUnpaid);
 
               // 1. Confirm (Primary for to_purchase)
               if (po.status === "to_purchase" && can("purchases.po.update")) {
@@ -677,13 +688,10 @@ export default function PurchasesPage() {
               }
 
               // 6. Delete
-              if (po.status === "to_purchase" && can("purchases.delete")) {
+              if (canDeletePo) {
                 actions.push({
                   label: "Delete",
-                  onClick: () => {
-                    setConfirmItem(po);
-                    setConfirmOpen(true);
-                  },
+                  onClick: () => handleDeletePo(po),
                   rowClass: "border-gray-300 text-red-700",
                   menuClass: "text-red-700",
                   activeClass: "bg-red-50 text-red-900",
@@ -789,15 +797,14 @@ export default function PurchasesPage() {
                   <div>{po.expectedDeliveryDate ? new Date(po.expectedDeliveryDate).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" }) : "—"}</div>
                   <div>
                     {(() => {
-                      const payment = paymentStatusMeta(po);
                       return (
                         <div className="flex flex-col items-start gap-1">
                           <div className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusTone(po.status)}`}>
                             {STATUS_OPTIONS.find(o => o.value === po.status)?.label || po.status || "—"}
                           </div>
-                          <div className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium whitespace-nowrap ${payment.tone}`}>
-                            <payment.Icon className={`h-3.5 w-3.5 ${payment.iconTone}`} />
-                            <span>{payment.label}</span>
+                          <div className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium whitespace-nowrap ${paymentMeta.tone}`}>
+                            <paymentMeta.Icon className={`h-3.5 w-3.5 ${paymentMeta.iconTone}`} />
+                            <span>{paymentMeta.label}</span>
                           </div>
                         </div>
                       );
@@ -827,7 +834,7 @@ export default function PurchasesPage() {
                             // Or just use secondary and override class?
                             variant: "secondary",
                             className: "text-blue-700 font-medium",
-                            icon: null
+                            icon: CheckCircle
                           });
                         }
 
@@ -837,7 +844,7 @@ export default function PurchasesPage() {
                             label: "Receive",
                             onClick: () => handleReceivePo(po),
                             variant: "secondary",
-                            icon: null
+                            icon: Package
                           });
                         }
 
@@ -887,13 +894,10 @@ export default function PurchasesPage() {
                         }
 
                         // 6. Delete
-                        if (po.status === "to_purchase" && can("purchases.delete")) {
+                        if (canDeletePo) {
                           formattedActions.push({
                             label: "Delete",
-                            onClick: () => {
-                              setConfirmItem(po);
-                              setConfirmOpen(true);
-                            },
+                            onClick: () => handleDeletePo(po),
                             variant: "danger-outline",
                             className: "text-red-700 hover:bg-red-50",
                             icon: Trash2
@@ -1092,19 +1096,6 @@ export default function PurchasesPage() {
         )}
         </div>
       </ViewModal>
-
-      <ConfirmModal
-        open={confirmOpen}
-        onClose={() => setConfirmOpen(false)}
-        title="Delete Purchase Order"
-        loading={deleting}
-        onConfirm={deletePo}
-      >
-        Are you sure you want to delete{" "}
-        <span className="font-semibold">{confirmItem?.poNumber || "this order"}</span>?
-        <br />
-        This action cannot be undone.
-      </ConfirmModal>
 
       <ConfirmPOModal
         open={confirmOrderOpen}

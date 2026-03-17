@@ -366,6 +366,26 @@ export async function reconcileInventoryStock(payload) {
   return res?.data ?? {};
 }
 
+export async function previewReorderInvoices(payload) {
+  const res = await axiosInstance.post("/inventory/reorder-invoices/preview", payload);
+  return res?.data ?? {};
+}
+
+export async function downloadReorderInvoicesPdf(payload) {
+  const res = await axiosInstance.post("/inventory/reorder-invoices/pdf", payload, {
+    responseType: "blob",
+  });
+  return {
+    blob: res?.data,
+    headers: res?.headers || {},
+  };
+}
+
+export async function emailReorderInvoices(payload) {
+  const res = await axiosInstance.post("/inventory/reorder-invoices/email", payload);
+  return res?.data ?? {};
+}
+
 /**
  * Fetch products with variants flattened for order selection dropdown.
  * Returns: [{ id, type: 'product'|'variant', productId, variantId, name, sku, imageUrl, retailPrice, sizeText, colorText, stockOnHand }]

@@ -162,6 +162,27 @@ export default function OrdersFilter({
                                     />
                                 </div>
 
+                                {/* Remarks */}
+                                <div className="space-y-1.5">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-sm font-medium text-gray-700">Remarks</label>
+                                        {localFilters.remark?.id && (
+                                            <button
+                                                onClick={() => setLocalFilters(prev => ({ ...prev, remark: options.remarkOptions[0] }))}
+                                                className="text-xs text-emerald-600 hover:text-emerald-700 font-medium"
+                                            >
+                                                Reset
+                                            </button>
+                                        )}
+                                    </div>
+                                    <HeadlessSelect
+                                        value={localFilters.remark}
+                                        onChange={(val) => setLocalFilters(prev => ({ ...prev, remark: val }))}
+                                        options={options.remarkOptions}
+                                        className="w-full"
+                                    />
+                                </div>
+
                                 {/* Settled */}
                                 <div className="space-y-1.5">
                                     <div className="flex items-center justify-between">

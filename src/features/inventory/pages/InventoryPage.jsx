@@ -7,6 +7,7 @@ import { useInventory } from "../hooks/useInventory";
 import { useWarehouses } from "../hooks/useWarehouses";
 import { useSuppliers } from "../../purchases/hooks/useSuppliers";
 import InventoryFilter from "../components/InventoryFilter";
+import ReorderInvoiceModal from "../components/ReorderInvoiceModal";
 import ImageGallery from "../../../components/ImageGallery";
 import SelectCompact from "../../../components/SelectCompact";
 import {
@@ -304,6 +305,7 @@ export default function InventoryPage() {
   const [reconcileLoading, setReconcileLoading] = useState(false);
   const [selectedReconcileItems, setSelectedReconcileItems] = useState([]);
   const [reconcileSaving, setReconcileSaving] = useState(false);
+  const [reorderInvoiceOpen, setReorderInvoiceOpen] = useState(false);
 
   const transferWarehouseOptions = useMemo(
     () => (Array.isArray(warehouses) ? warehouses.filter((w) => w?.isActive !== false) : []),
@@ -1483,6 +1485,13 @@ export default function InventoryPage() {
       >
         Transfer Stock
       </Button>
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={() => setReorderInvoiceOpen(true)}
+      >
+        Reorder Invoice
+      </Button>
       <div className="text-[13px] text-gray-500 font-medium">
         {meta.total} items
       </div>
@@ -2194,6 +2203,12 @@ export default function InventoryPage() {
           </div>
         </div>
       </Modal>
+
+      <ReorderInvoiceModal
+        open={reorderInvoiceOpen}
+        onClose={() => setReorderInvoiceOpen(false)}
+        inventoryRows={rows}
+      />
     </div>
   );
 }

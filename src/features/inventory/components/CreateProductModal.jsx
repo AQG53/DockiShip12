@@ -1815,8 +1815,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                     {!variantEnabled && (
                                                         <Field className="col-span-1" label="Stock">
                                                             <input
-                                                                type="number"
-                                                                min={0}
+                                                                type="text"
                                                                 className={input}
                                                                 placeholder="0"
                                                                 value={mainStockOnHand}
@@ -1828,8 +1827,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                     {!variantEnabled && (
                                                         <Field className="col-span-1" label="Threshold">
                                                             <input
-                                                                type="number"
-                                                                min={0}
+                                                                type="text"
                                                                 className={input}
                                                                 placeholder="0"
                                                                 value={mainThreshold}
@@ -2144,8 +2142,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                         </Field>
                                                                                         <Field className="col-span-1" label="Stock">
                                                                                             <input
-                                                                                                type="number"
-                                                                                                min={0}
+                                                                                                type="text"
                                                                                                 className={input}
                                                                                                 placeholder="0"
                                                                                                 value={v.stockOnHand ?? ""}
@@ -2155,8 +2152,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                         </Field>
                                                                                         <Field className="col-span-1" label="Threshold">
                                                                                             <input
-                                                                                                type="number"
-                                                                                                min={0}
+                                                                                                type="text"
                                                                                                 className={input}
                                                                                                 placeholder="0"
                                                                                                 value={v.threshold ?? ""}

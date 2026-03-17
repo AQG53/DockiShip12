@@ -1,12 +1,15 @@
 import { useState, useMemo, useEffect, useRef, Fragment } from "react";
-import { Package, Plus, Pencil, Trash2, Search, Copy, Check, X, Download, Printer, Truck, CheckCircle, Upload } from "lucide-react";
+import { Package, Plus, Trash2, Search, Copy, Check, X, Download, Printer, Truck, CheckCircle, Upload, RotateCcw } from "lucide-react";
 import { useLocation, useNavigate } from "react-router";
 import { DataTable } from "../../../components/ui/DataTable";
 import { Button } from "../../../components/ui/Button";
+import { ActionMenu } from "../../../components/ui/ActionMenu";
 import OrdersFilter from "../components/OrdersFilter"; // New Filter Component
 import { ConfirmModal } from "../../../components/ConfirmModal";
 import OrderModal from "../components/OrderModal";
 import ViewOrderModal from "../components/ViewOrderModal";
+import ReturnOrderModal from "../components/ReturnOrderModal";
+import BulkReturnModal from "../components/BulkReturnModal";
 import { useOrders, useDeleteOrder, useUpdateOrder, useBulkUpdateOrder, useUploadOrderLabel } from "../hooks/useOrders";
 import SelectCompact from "../../../components/SelectCompact"; // Ensure imported
 import { Modal } from "../../../components/ui/Modal";
@@ -624,9 +627,21 @@ export default function OrdersPage() {
     const [target, setTarget] = useState(null);
     const [viewOpen, setViewOpen] = useState(false);
     const [viewOrder, setViewOrder] = useState(null);
+    const [returnModalOpen, setReturnModalOpen] = useState(false);
+    const [returnTarget, setReturnTarget] = useState(null);
     const [labelPreviewOpen, setLabelPreviewOpen] = useState(false);
     const [labelPreviewTarget, setLabelPreviewTarget] = useState(null);
     const [isLabelPrintProcessing, setIsLabelPrintProcessing] = useState(false);
+
+    useEffect(() => {
+        if (!viewOrder?.id || !Array.isArray(orders) || orders.length === 0) return;
+        const freshOrder = orders.find((o) => o.id === viewOrder.id);
+        if (!freshOrder) return;
+        setViewOrder((prev) => {
+            if (!prev || prev.id !== freshOrder.id) return prev;
+            return prev === freshOrder ? prev : freshOrder;
+        });
+    }, [orders, viewOrder?.id]);
 
     // Expandable Rows State
     const [expandedOrderIds, setExpandedOrderIds] = useState(new Set());
@@ -644,6 +659,8 @@ export default function OrdersPage() {
     const bulkUpdateMut = useBulkUpdateOrder();
     const [bulkStatusModalOpen, setBulkStatusModalOpen] = useState(false);
     const [bulkStatus, setBulkStatus] = useState("SHIPPED");
+    const [bulkReturnOpen, setBulkReturnOpen] = useState(false);
+    const [isBulkReturnSubmitting, setIsBulkReturnSubmitting] = useState(false);
 
     // Clear selection on filter change
     useEffect(() => {
@@ -667,6 +684,12 @@ export default function OrdersPage() {
             return next;
         });
     };
+
+    const selectedOrdersForBulkReturn = useMemo(() => {
+        if (selectedIds.size === 0) return [];
+        return orders.filter((order) => selectedIds.has(order.id) && order.status === "SHIPPED");
+    }, [orders, selectedIds]);
+    const allSelectedAreShipped = selectedIds.size > 0 && selectedOrdersForBulkReturn.length === selectedIds.size;
 
     const handleBulkUpdate = async () => {
         if (selectedIds.size === 0) return;
@@ -755,6 +778,15 @@ export default function OrdersPage() {
     const openModal = (item = null) => {
         setEditing(item);
         setModalOpen(true);
+    };
+
+    const openReturnModal = (item) => {
+        if (!item || item.status !== "SHIPPED") {
+            toast.error("Return is allowed only when order status is SHIPPED.");
+            return;
+        }
+        setReturnTarget(item || null);
+        setReturnModalOpen(true);
     };
 
     // Delete Confirmation
@@ -847,6 +879,69 @@ export default function OrdersPage() {
             setSettleTarget(null);
         } catch (err) {
             toast.error("Failed to update order");
+        }
+    };
+
+    const handleReturnSubmit = async ({ returns, returnNote }) => {
+        if (!returnTarget?.id || !Array.isArray(returns) || returns.length === 0) {
+            toast.error("Please select at least one item and quantity.");
+            return;
+        }
+
+        try {
+            await updateMut.mutateAsync({
+                id: returnTarget.id,
+                payload: {
+                    returns,
+                    returnNote,
+                },
+            });
+            toast.success("Return processed successfully.");
+            setReturnModalOpen(false);
+            setReturnTarget(null);
+        } catch (err) {
+            const message = err?.response?.data?.message || err?.message || "Failed to process return";
+            toast.error(Array.isArray(message) ? message.join(", ") : message);
+        }
+    };
+
+    const handleBulkReturnSubmit = async (entries) => {
+        if (!Array.isArray(entries) || entries.length === 0) {
+            toast.error("Please add return quantities first.");
+            return;
+        }
+
+        setIsBulkReturnSubmitting(true);
+        let success = 0;
+        let failed = 0;
+
+        for (const entry of entries) {
+            try {
+                await updateMut.mutateAsync({
+                    id: entry.orderId,
+                    payload: {
+                        returns: entry.returns,
+                        returnNote: entry.returnNote,
+                    },
+                });
+                success += 1;
+            } catch (err) {
+                failed += 1;
+            }
+        }
+
+        setIsBulkReturnSubmitting(false);
+
+        if (success > 0) {
+            toast.success(`Return applied on ${success} order${success > 1 ? "s" : ""}.`);
+        }
+        if (failed > 0) {
+            toast.error(`${failed} order${failed > 1 ? "s" : ""} failed during bulk return.`);
+        }
+
+        if (success > 0) {
+            setBulkReturnOpen(false);
+            setSelectedIds(new Set());
         }
     };
 
@@ -1360,124 +1455,123 @@ export default function OrdersPage() {
         {
             key: "actions",
             label: "Actions",
-            headerClassName: "sticky right-0 z-20 !bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)] justify-center pl-4 w-[220px]",
-            className: "sticky right-0 z-10 !bg-white group-hover:!bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)] h-full flex items-center justify-start pl-4 w-[220px]",
-            render: (row) => (
-                <div className="flex items-center gap-1">
-                    <Button variant="secondary" size="xs" className="rounded-md" onClick={(e) => { e.stopPropagation(); setViewOrder(row); setViewOpen(true); }}>
-                        View
-                    </Button>
-                    {canUpdate && (
-                        <Button variant="secondary" size="xs" className="rounded-md" onClick={(e) => { e.stopPropagation(); openModal(row); }}>
-                            Edit
+            headerClassName: "sticky right-0 z-20 !bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)] justify-center text-center",
+            className: "sticky right-0 z-10 !bg-white group-hover:!bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)] h-full flex items-center justify-center !overflow-visible",
+            render: (row) => {
+                const overflowActions = [];
+
+                if (canUpdate && row.status === "SHIPPED" && Array.isArray(row.items) && row.items.length > 0) {
+                    overflowActions.push({
+                        label: "Return",
+                        icon: RotateCcw,
+                        onClick: () => openReturnModal(row),
+                    });
+                }
+
+                if ((row.status === "PENDING" || row.status === "Pending") && canUpdate) {
+                    overflowActions.push({
+                        label: "Upload Label",
+                        icon: Upload,
+                        onClick: () => handleUploadClick(row.id),
+                    });
+                }
+
+                if (row.label) {
+                    overflowActions.push({
+                        label: "Preview Label",
+                        icon: Printer,
+                        onClick: () => handleOpenLabelPreview(row),
+                    });
+                }
+
+                if (row.status === "LABEL_PRINTED" && canUpdate) {
+                    overflowActions.push({
+                        label: "Mark Packed",
+                        icon: Package,
+                        onClick: async () => {
+                            try {
+                                await updateMut.mutateAsync({
+                                    id: row.id,
+                                    payload: { status: "PACKED" },
+                                });
+                                toast.success("Order marked as Packed");
+                            } catch (err) {
+                                toast.error("Failed to update status");
+                            }
+                        },
+                    });
+                }
+
+                if (row.status === "PACKED" && canUpdate) {
+                    overflowActions.push({
+                        label: "Mark Shipped",
+                        icon: Truck,
+                        onClick: async () => {
+                            try {
+                                await updateMut.mutateAsync({
+                                    id: row.id,
+                                    payload: { status: "SHIPPED" },
+                                });
+                                toast.success("Order marked as Shipped");
+                            } catch (err) {
+                                toast.error("Failed to update status");
+                            }
+                        },
+                    });
+                }
+
+                if (row.status === "SHIPPED" && canUpdate) {
+                    overflowActions.push({
+                        label: "Mark Delivered",
+                        icon: CheckCircle,
+                        onClick: async () => {
+                            try {
+                                await updateMut.mutateAsync({
+                                    id: row.id,
+                                    payload: { status: "DELIVERED" },
+                                });
+                                toast.success("Order marked as Delivered");
+                            } catch (err) {
+                                toast.error("Failed to update status");
+                            }
+                        },
+                    });
+                }
+
+                if (canDelete) {
+                    overflowActions.push({
+                        label: "Delete",
+                        icon: Trash2,
+                        className: "text-red-600",
+                        onClick: () => {
+                            setTarget(row);
+                            setConfirmOpen(true);
+                        },
+                    });
+                }
+
+                return (
+                    <div className="flex w-full items-center justify-center gap-1 whitespace-nowrap">
+                        <Button variant="secondary" size="xs" className="rounded-md" onClick={(e) => { e.stopPropagation(); setViewOrder(row); setViewOpen(true); }}>
+                            View
                         </Button>
-                    )}
-                    {canDelete && (
-                        <Button variant="secondary" size="xs" className="rounded-md text-red-600 hover:bg-red-50" onClick={(e) => { e.stopPropagation(); setTarget(row); setConfirmOpen(true); }}>
-                            Delete
-                        </Button>
-                    )}
-                    {/* Upload Label Action - PENDING */}
-                    {(row.status === 'PENDING' || row.status === 'Pending') && canUpdate && (
-                        <Button
-                            variant="secondary"
-                            size="xs"
-                            className="rounded-md text-blue-600 hover:bg-blue-50"
-                            title="Upload Label"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                handleUploadClick(row.id);
-                            }}
-                        >
-                            <Upload size={14} />
-                        </Button>
-                    )}
-                    {/* Download Label Action */}
-                    {row.label && (
-                        <Button
-                            variant="secondary"
-                            size="xs"
-                            className="rounded-md text-gray-600 hover:bg-gray-100"
-                            title="Preview/Print Label"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenLabelPreview(row);
-                            }}
-                        >
-                            <Printer size={14} />
-                        </Button>
-                    )}
-                    {/* Pack Action */}
-                    {row.status === 'LABEL_PRINTED' && canUpdate && (
-                        <Button
-                            variant="secondary"
-                            size="xs"
-                            className="rounded-md text-amber-600 hover:bg-amber-50"
-                            title="Mark as Packed"
-                            onClick={async (e) => {
-                                e.stopPropagation();
-                                try {
-                                    await updateMut.mutateAsync({
-                                        id: row.id,
-                                        payload: { status: 'PACKED' }
-                                    });
-                                    toast.success("Order marked as Packed");
-                                } catch (err) {
-                                    toast.error("Failed to update status");
-                                }
-                            }}
-                        >
-                            <Package size={14} />
-                        </Button>
-                    )}
-                    {/* Ship Action */}
-                    {row.status === 'PACKED' && canUpdate && (
-                        <Button
-                            variant="secondary"
-                            size="xs"
-                            className="rounded-md text-emerald-600 hover:bg-emerald-50"
-                            title="Mark as Shipped"
-                            onClick={async (e) => {
-                                e.stopPropagation();
-                                try {
-                                    await updateMut.mutateAsync({
-                                        id: row.id,
-                                        payload: { status: 'SHIPPED' }
-                                    });
-                                    toast.success("Order marked as Shipped");
-                                } catch (err) {
-                                    toast.error("Failed to update status");
-                                }
-                            }}
-                        >
-                            <Truck size={14} />
-                        </Button>
-                    )}
-                    {/* Deliver Action */}
-                    {row.status === 'SHIPPED' && canUpdate && (
-                        <Button
-                            variant="secondary"
-                            size="xs"
-                            className="rounded-md text-emerald-700 hover:bg-emerald-100"
-                            title="Mark as Delivered"
-                            onClick={async (e) => {
-                                e.stopPropagation();
-                                try {
-                                    await updateMut.mutateAsync({
-                                        id: row.id,
-                                        payload: { status: 'DELIVERED' }
-                                    });
-                                    toast.success("Order marked as Delivered");
-                                } catch (err) {
-                                    toast.error("Failed to update status");
-                                }
-                            }}
-                        >
-                            <CheckCircle size={14} />
-                        </Button>
-                    )}
-                </div>
-            )
+                        {canUpdate && (
+                            <Button variant="secondary" size="xs" className="rounded-md" onClick={(e) => { e.stopPropagation(); openModal(row); }}>
+                                Edit
+                            </Button>
+                        )}
+                        <div onClick={(e) => e.stopPropagation()}>
+                            <ActionMenu
+                                actions={overflowActions}
+                                direction="up"
+                                openOnHover
+                                hoverOpenDelay={320}
+                                hoverCloseDelay={320}
+                            />
+                        </div>
+                    </div>
+                );
+            }
         }
     ];
 
@@ -1808,7 +1902,7 @@ export default function OrdersPage() {
                 rows={orders}
                 isLoading={isLoading}
                 toolbar={toolbar}
-                gridCols="grid-cols-[40px_minmax(100px,0.7fr)_minmax(244px,1.69fr)_minmax(110px,0.7fr)_minmax(360px,2.1fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(100px,0.8fr)_minmax(250px,1fr)_minmax(203px,1.52fr)_160px]"
+                gridCols="grid-cols-[40px_minmax(100px,0.7fr)_minmax(244px,1.69fr)_minmax(110px,0.7fr)_minmax(360px,2.1fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(100px,0.8fr)_minmax(250px,1fr)_minmax(203px,1.52fr)_minmax(136px,max-content)]"
                 contentMinWidthClass="min-w-[2127px]"
                 rowClassName={(row) => row.id === highlightOrderId ? "bg-amber-100 transition-colors duration-1000" : ""}
             />
@@ -1880,6 +1974,17 @@ export default function OrdersPage() {
                     >
                         <Printer size={16} /> <span>Download Labels</span>
                     </button>
+                    {canUpdate && allSelectedAreShipped && (
+                        <>
+                            <div className="h-4 w-px bg-gray-700" />
+                            <button
+                                onClick={() => setBulkReturnOpen(true)}
+                                className="text-sm hover:text-indigo-300 font-medium transition-colors flex items-center gap-2"
+                            >
+                                <RotateCcw size={16} /> <span>Bulk Return</span>
+                            </button>
+                        </>
+                    )}
 
                     {/* Mark Packed - Only in LABEL_PRINTED */}
                     {statusFilter.id === 'LABEL_PRINTED' && (
@@ -1979,7 +2084,7 @@ export default function OrdersPage() {
                     <SelectCompact
                         value={bulkStatus}
                         onChange={setBulkStatus}
-                        options={statusOptions.filter(o => o.id !== 'ALL').map(o => ({ value: o.id, label: o.name }))}
+                        options={statusOptions.filter(o => o.id !== 'ALL' && o.id !== 'RETURN').map(o => ({ value: o.id, label: o.name }))}
                         addNewLabel={null}
                     />
                     <div className="mt-6 flex justify-end gap-3">
@@ -1990,6 +2095,14 @@ export default function OrdersPage() {
                     </div>
                 </div>
             </Modal>
+
+            <BulkReturnModal
+                open={bulkReturnOpen}
+                onClose={() => setBulkReturnOpen(false)}
+                orders={selectedOrdersForBulkReturn}
+                isLoading={isBulkReturnSubmitting}
+                onSubmit={handleBulkReturnSubmit}
+            />
 
             <Modal
                 open={labelPreviewOpen}
@@ -2028,6 +2141,18 @@ export default function OrdersPage() {
                 onClose={() => setModalOpen(false)}
                 editing={editing}
                 onSuccess={handleOrderSaved}
+            />
+
+            <ReturnOrderModal
+                open={returnModalOpen}
+                onClose={() => {
+                    if (updateMut.isPending) return;
+                    setReturnModalOpen(false);
+                    setReturnTarget(null);
+                }}
+                order={returnTarget}
+                isLoading={updateMut.isPending}
+                onSubmit={handleReturnSubmit}
             />
 
             <AnimatedAlert

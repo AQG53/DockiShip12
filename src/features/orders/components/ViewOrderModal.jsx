@@ -1,11 +1,12 @@
 import { useMemo, useRef } from "react";
-import { Package, Truck, User, Calendar, Hash, DollarSign, Tag, MessageSquare, Copy, Check, Paperclip, Download, Trash2, Loader2, Plus, Receipt } from "lucide-react";
+import { Package, Truck, User, Calendar, Hash, DollarSign, Tag, MessageSquare, Copy, Check, Paperclip, Download, Trash2, Loader2, Plus, Receipt, RotateCcw } from "lucide-react";
 import { useState, useEffect } from "react";
 import ViewModal from "../../../components/ViewModal";
 import ImageGallery from "../../../components/ImageGallery";
 import { useAuthCheck } from "../../auth/hooks/useAuthCheck";
 import { uploadOrderAttachment, deleteOrderAttachment } from "../../../lib/api";
 import { useQueryClient } from "@tanstack/react-query";
+import { absOrderImage, ORDER_IMG_PLACEHOLDER, resolveOrderItemImage } from "../utils/orderItemImage";
 
 const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif", "heic", "heif"]);
 const OFFICE_EXTENSIONS = new Set(["doc", "docx", "xls", "xlsx", "xlsm", "ppt", "pptx"]);
@@ -44,6 +45,95 @@ const isOfficeAttachment = (attachment = {}) => {
 };
 const officeViewerUrlFromAttachmentUrl = (fileUrl = "") =>
     fileUrl ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}` : "";
+
+const RETURN_EVENT_PREFIX = "[RETURN_EVENT]";
+
+const normalizeText = (value) => {
+    if (typeof value === "string") return value;
+    if (Array.isArray(value)) return value.map((v) => String(v ?? "")).join("\n");
+    if (value === null || value === undefined) return "";
+    return String(value);
+};
+
+const toNumber = (value, fallback = 0) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : fallback;
+};
+
+const parseReturnEventsFromRemarks = (remarksRaw) => {
+    const remarksText = normalizeText(remarksRaw);
+    if (!remarksText.trim()) return [];
+
+    const salvageTruncatedReturnEvent = (payload) => {
+        const atMatch = payload.match(/"at"\s*:\s*"([^"]+)"/);
+        const noteMatch = payload.match(/"note"\s*:\s*"([^"]*)"/);
+        const productMatch = payload.match(/"productDescription"\s*:\s*"([^"]+)"/);
+        const returnedQtyMatch = payload.match(/"returnedQty"\s*:\s*(\d+)/);
+        const unitsPerQtyMatch = payload.match(/"unitsPerQty"\s*:\s*(\d+)/);
+        const restockedUnitsMatch = payload.match(/"restockedUnits"\s*:\s*(\d+)/);
+
+        const returnedQty = toNumber(returnedQtyMatch?.[1], 0);
+        if (returnedQty <= 0) return null;
+
+        const unitsPerQty = toNumber(unitsPerQtyMatch?.[1], 1);
+        const restockedUnits = toNumber(restockedUnitsMatch?.[1], returnedQty * unitsPerQty);
+
+        return {
+            at: atMatch?.[1] || null,
+            note: noteMatch?.[1] || "",
+            items: [
+                {
+                    productDescription: productMatch?.[1] || "Order Item",
+                    returnedQty,
+                    unitsPerQty,
+                    restockedUnits,
+                },
+            ],
+        };
+    };
+
+    return remarksText
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .map((line) => {
+            const prefixIndex = line.indexOf(RETURN_EVENT_PREFIX);
+            if (prefixIndex === -1) return null;
+            const payload = line.slice(prefixIndex + RETURN_EVENT_PREFIX.length).trim();
+            try {
+                const parsed = JSON.parse(payload);
+                if (!parsed || typeof parsed !== "object") return null;
+                return {
+                    at: parsed.at || parsed.createdAt || null,
+                    note: parsed.note || parsed.returnNote || "",
+                    items: Array.isArray(parsed.items) ? parsed.items : [],
+                };
+            } catch {
+                return salvageTruncatedReturnEvent(payload);
+            }
+        })
+        .filter(Boolean);
+};
+
+const parseReturnEventsFromRecords = (recordsRaw) => {
+    if (!Array.isArray(recordsRaw) || recordsRaw.length === 0) return [];
+
+    return recordsRaw
+        .map((record) => {
+            const items = Array.isArray(record?.items) ? record.items : [];
+            return {
+                at: record?.createdAt || record?.at || null,
+                note: record?.note || "",
+                items: items.map((item) => ({
+                    orderItemId: item?.orderItemId || null,
+                    productDescription: item?.productDescription || "Order Item",
+                    returnedQty: toNumber(item?.returnedQty, 0),
+                    unitsPerQty: toNumber(item?.unitsPerQty, 1),
+                    restockedUnits: toNumber(item?.restockedUnits, 0),
+                })),
+            };
+        })
+        .filter((event) => Array.isArray(event.items) && event.items.length > 0);
+};
 
 
 // Copy Button Helper
@@ -184,6 +274,71 @@ export default function ViewOrderModal({ open, onClose, order }) {
         };
     }, [order]);
 
+    const returnEvents = useMemo(() => {
+        const fromRecords = parseReturnEventsFromRecords(order?.returnRecords);
+        if (fromRecords.length > 0) return fromRecords;
+        return parseReturnEventsFromRemarks(order?.remarks ?? order?.remark);
+    }, [order?.returnRecords, order?.remarks, order?.remark]);
+
+    const returnedProductRows = useMemo(() => {
+        const orderItemsById = new Map((Array.isArray(order?.items) ? order.items : []).map((row) => [row.id, row]));
+        const rows = [];
+        returnEvents.forEach((event) => {
+            (Array.isArray(event.items) ? event.items : []).forEach((item) => {
+                const returnedQty = toNumber(
+                    item?.returnedQty ?? item?.quantity ?? item?.qty ?? item?.returnedQuantity,
+                    0,
+                );
+                if (returnedQty <= 0) return;
+
+                const unitsPerQty = toNumber(
+                    item?.unitsPerQty ?? item?.units ?? item?.unit ?? 1,
+                    1,
+                );
+                const restockedUnits = toNumber(
+                    item?.restockedUnits ?? item?.restockQty ?? item?.restockedQty ?? returnedQty * unitsPerQty,
+                    returnedQty * unitsPerQty,
+                );
+                const linkedOrderItem = item?.orderItemId ? orderItemsById.get(item.orderItemId) : null;
+                const linkedListing = linkedOrderItem?.channelListing;
+                const linkedVariant = linkedListing?.productVariant || linkedOrderItem?.productVariant || null;
+                const linkedProduct = linkedListing?.product || linkedVariant?.product || linkedOrderItem?.product || null;
+                rows.push({
+                    at: event.at,
+                    orderItemId: item?.orderItemId || null,
+                    imageUrl: linkedOrderItem ? resolveOrderItemImage(linkedOrderItem) : null,
+                    productDescription:
+                        linkedListing?.productName
+                        || linkedOrderItem?.productDescription
+                        || linkedProduct?.name
+                        || item?.productName
+                        || item?.name
+                        || item?.title
+                        || item?.productDescription
+                        || "Order Item",
+                    sku:
+                        linkedVariant?.sku
+                        || linkedListing?.externalSku
+                        || linkedProduct?.sku
+                        || "",
+                    returnedQty,
+                    unitsPerQty,
+                    restockedUnits,
+                    note: event.note || "",
+                });
+            });
+        });
+        return rows;
+    }, [returnEvents, order?.items]);
+
+    const visibleRemarks = useMemo(() => {
+        return normalizeText(order?.remarks || "")
+            .split(/\r?\n/)
+            .filter((line) => !line.includes(RETURN_EVENT_PREFIX))
+            .join("\n")
+            .trim();
+    }, [order?.remarks]);
+
     const profitClass = calculatedProfit >= 0 ? "text-emerald-600" : "text-rose-500";
 
     // Attachments Logic
@@ -323,7 +478,7 @@ export default function ViewOrderModal({ open, onClose, order }) {
             title="Order Details"
             subtitle={`Order ID: ${order.orderId || "—"}`}
             icon={Package}
-            widthClass="max-w-3xl"
+            widthClass="max-w-5xl"
             heightClass="h-auto max-h-[85vh]"
             footer={
                 <button
@@ -365,7 +520,7 @@ export default function ViewOrderModal({ open, onClose, order }) {
                                     const variant = listing?.productVariant || item.productVariant;
                                     const product = listing?.product || variant?.product || item.product;
 
-                                    const imageUrl = listing?.url || listing?.imageUrl || product?.images?.[0]?.url;
+                                    const imageUrl = resolveOrderItemImage(item);
                                     const name = listing?.productName || item.productDescription || product?.name || "Product";
                                     const sku = variant?.sku || product?.sku || "";
                                     const units = listing?.units || 1;
@@ -376,10 +531,10 @@ export default function ViewOrderModal({ open, onClose, order }) {
                                                 <div className="flex items-center gap-3">
                                                     <div className="h-10 w-10 rounded-lg border border-gray-200 overflow-hidden flex-shrink-0 bg-gray-50 flex items-center justify-center">
                                                         <img
-                                                            src={absImg(imageUrl)}
+                                                            src={absOrderImage(imageUrl)}
                                                             alt=""
                                                             className="h-full w-full object-contain"
-                                                            onError={(e) => { e.currentTarget.src = IMG_PLACEHOLDER; }}
+                                                            onError={(e) => { e.currentTarget.src = ORDER_IMG_PLACEHOLDER; }}
                                                         />
                                                     </div>
                                                     <div>
@@ -448,6 +603,52 @@ export default function ViewOrderModal({ open, onClose, order }) {
                     </div>
                 </div>
             </CardSection>
+
+            {returnedProductRows.length > 0 && (
+                <CardSection icon={RotateCcw} title="Returned Products">
+                    <div className="border border-gray-200 rounded-lg overflow-hidden bg-white shadow-sm">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-gray-50 border-b border-gray-100">
+                                <tr>
+                                    <th className="px-4 py-3 font-medium text-gray-500 w-[45%]">Product</th>
+                                    <th className="px-3 py-2 font-medium text-gray-500 text-center w-[10%]">Returned Qty</th>
+                                    <th className="px-3 py-2 font-medium text-gray-500 text-center w-[12%]">Restocked Qty</th>
+                                    <th className="px-3 py-2 font-medium text-gray-500 w-[33%]">Note</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                                {returnedProductRows.map((row, idx) => (
+                                    <tr key={`${row.productDescription}-${idx}`} className="hover:bg-gray-50/50 transition-colors">
+                                        <td className="px-4 py-3 align-top">
+                                            <div className="flex items-center gap-3">
+                                                <div className="h-10 w-10 rounded-lg border border-gray-200 overflow-hidden flex-shrink-0 bg-gray-50 flex items-center justify-center">
+                                                    <img
+                                                        src={absOrderImage(row.imageUrl)}
+                                                        alt=""
+                                                        className="h-full w-full object-contain"
+                                                        onError={(e) => { e.currentTarget.src = ORDER_IMG_PLACEHOLDER; }}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <p className="font-medium text-gray-900 line-clamp-1">
+                                                        {row.productDescription}
+                                                    </p>
+                                                    <p className="text-xs text-gray-400 truncate">
+                                                        {row.sku || "—"}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td className="px-3 py-2 text-center text-gray-900 font-medium">{row.returnedQty}</td>
+                                        <td className="px-3 py-2 text-center text-gray-900 font-medium">{row.restockedUnits}</td>
+                                        <td className="px-3 py-2 text-gray-600 break-words whitespace-normal">{row.note || "—"}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </CardSection>
+            )}
 
             {/* Attachments Section */}
             <CardSection icon={Paperclip} title="Attachments">
@@ -531,16 +732,16 @@ export default function ViewOrderModal({ open, onClose, order }) {
             )}
 
             {/* Remarks Section (if available) */}
-            {(order.remarkType || order.remarks) && (
+            {(order.remarkType || visibleRemarks) && (
                 <CardSection icon={MessageSquare} title="Remarks">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {order.remarkType && (
                             <DetailRow label="Remark Type" value={order.remarkType.name} />
                         )}
-                        {order.remarks && (
+                        {visibleRemarks && (
                             <DetailRow
                                 label="Notes"
-                                value={order.remarks}
+                                value={visibleRemarks}
                                 className={order.remarkType ? "" : "col-span-2"}
                             />
                         )}
