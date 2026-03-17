@@ -35,10 +35,28 @@ export default function BulkReturnModal({
   const rows = useMemo(() => {
     const list = [];
     (Array.isArray(orders) ? orders : []).forEach((order) => {
+      const returnedUnitsByItem = new Map();
+      const records = Array.isArray(order?.returnRecords) ? order.returnRecords : [];
+      records.forEach((record) => {
+        const items = Array.isArray(record?.items) ? record.items : [];
+        items.forEach((item) => {
+          const orderItemId = item?.orderItemId;
+          if (!orderItemId) return;
+          const unitsPerQty = Math.max(1, toInt(item?.unitsPerQty ?? 1));
+          const returnedQty = toInt(item?.returnedQty ?? 0);
+          const restockedUnits = toInt(item?.restockedUnits ?? (returnedQty * unitsPerQty));
+          if (restockedUnits <= 0) return;
+          returnedUnitsByItem.set(orderItemId, (returnedUnitsByItem.get(orderItemId) || 0) + restockedUnits);
+        });
+      });
+
       const orderItems = Array.isArray(order?.items) ? order.items : [];
       orderItems.forEach((item) => {
         const availableQty = Math.max(0, toInt(item?.quantity));
         const units = Math.max(1, toInt(item?.channelListing?.units || 1));
+        const previouslyReturnedUnits = toInt(returnedUnitsByItem.get(item.id) || 0);
+        const remainderUnits = previouslyReturnedUnits % units;
+        const availableUnits = Math.max(0, (availableQty * units) - remainderUnits);
         list.push({
           orderId: order.id,
           orderLabel: order.orderId || order.id,
@@ -48,6 +66,7 @@ export default function BulkReturnModal({
           imageUrl: resolveOrderItemImage(item),
           availableQty,
           units,
+          availableUnits,
         });
       });
     });
@@ -66,15 +85,15 @@ export default function BulkReturnModal({
 
   const totals = useMemo(() => {
     let selectedLines = 0;
-    let totalQty = 0;
+    let totalUnits = 0;
     rows.forEach((row) => {
-      const qty = Math.min(row.availableQty, toInt(qtyMap[row.key]));
-      if (qty > 0) {
+      const units = Math.min(row.availableUnits, toInt(qtyMap[row.key]));
+      if (units > 0) {
         selectedLines += 1;
-        totalQty += qty;
+        totalUnits += units;
       }
     });
-    return { selectedLines, totalQty };
+    return { selectedLines, totalUnits };
   }, [rows, qtyMap]);
 
   const grouped = useMemo(() => {
@@ -92,13 +111,13 @@ export default function BulkReturnModal({
     return Array.from(byOrder.values());
   }, [rows]);
 
-  const setQty = (rowKey, rawValue, maxQty) => {
+  const setQty = (rowKey, rawValue, maxUnits) => {
     const clean = String(rawValue ?? "").replace(/[^0-9]/g, "");
     if (!clean) {
       setQtyMap((prev) => ({ ...prev, [rowKey]: "" }));
       return;
     }
-    const value = Math.min(maxQty, toInt(clean));
+    const value = Math.min(maxUnits, toInt(clean));
     setQtyMap((prev) => ({ ...prev, [rowKey]: String(value) }));
   };
 
@@ -107,11 +126,11 @@ export default function BulkReturnModal({
       .map((orderGroup) => {
         const returns = orderGroup.items
           .map((row) => {
-            const qty = Math.min(row.availableQty, toInt(qtyMap[row.key]));
-            if (qty <= 0) return null;
+            const units = Math.min(row.availableUnits, toInt(qtyMap[row.key]));
+            if (units <= 0) return null;
             return {
               orderItemId: row.orderItemId,
-              quantity: qty,
+              returnUnits: units,
             };
           })
           .filter(Boolean);
@@ -148,9 +167,9 @@ export default function BulkReturnModal({
     >
       <div className="space-y-4">
         <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
-          Select products and quantities across selected orders.
+          Select returned units across selected orders.
           <span className="ml-2 font-medium">Lines: {totals.selectedLines}</span>
-          <span className="ml-3 font-medium">Qty: {totals.totalQty}</span>
+          <span className="ml-3 font-medium">Units: {totals.totalUnits}</span>
         </div>
 
         <div className="max-h-[52vh] overflow-auto rounded-lg border border-gray-200">
@@ -159,8 +178,9 @@ export default function BulkReturnModal({
               <tr>
                 <th className="px-3 py-2 text-left font-medium">Order</th>
                 <th className="px-3 py-2 text-left font-medium">Product</th>
-                <th className="px-3 py-2 text-right font-medium">Available</th>
-                <th className="px-3 py-2 text-right font-medium">Return Qty</th>
+                <th className="px-3 py-2 text-right font-medium">Quantity</th>
+                <th className="px-3 py-2 text-right font-medium">Units</th>
+                <th className="px-3 py-2 text-right font-medium">Return Units</th>
                 <th className="px-3 py-2 text-right font-medium"></th>
               </tr>
             </thead>
@@ -183,11 +203,12 @@ export default function BulkReturnModal({
                       </div>
                     </td>
                     <td className="px-3 py-2 text-right text-gray-700">{row.availableQty}</td>
+                    <td className="px-3 py-2 text-right text-gray-700">{row.units}</td>
                     <td className="px-3 py-2 text-right">
                       <input
                         className={inputClass}
                         value={qtyMap[row.key] ?? ""}
-                        onChange={(e) => setQty(row.key, e.target.value, row.availableQty)}
+                        onChange={(e) => setQty(row.key, e.target.value, row.availableUnits)}
                         inputMode="numeric"
                         placeholder="0"
                       />
@@ -196,8 +217,8 @@ export default function BulkReturnModal({
                       <button
                         type="button"
                         className="text-xs text-blue-600 hover:text-blue-700"
-                        onClick={() => setQtyMap((prev) => ({ ...prev, [row.key]: String(row.availableQty) }))}
-                        disabled={row.availableQty <= 0}
+                        onClick={() => setQtyMap((prev) => ({ ...prev, [row.key]: String(row.availableUnits) }))}
+                        disabled={row.availableUnits <= 0}
                       >
                         Max
                       </button>
@@ -207,7 +228,7 @@ export default function BulkReturnModal({
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td className="px-3 py-6 text-center text-gray-500" colSpan={5}>
+                  <td className="px-3 py-6 text-center text-gray-500" colSpan={6}>
                     No order items available for return.
                   </td>
                 </tr>

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, Fragment } from "react";
-import { Package, Plus, Trash2, Search, Copy, Check, X, Download, Printer, Truck, CheckCircle, Upload, RotateCcw } from "lucide-react";
+import { Package, Plus, Trash2, Search, Copy, Check, X, Download, Printer, Truck, CheckCircle, Upload, RotateCcw, Eye, Pencil } from "lucide-react";
 import { useLocation, useNavigate } from "react-router";
 import { DataTable } from "../../../components/ui/DataTable";
 import { Button } from "../../../components/ui/Button";
@@ -687,9 +687,9 @@ export default function OrdersPage() {
 
     const selectedOrdersForBulkReturn = useMemo(() => {
         if (selectedIds.size === 0) return [];
-        return orders.filter((order) => selectedIds.has(order.id) && order.status === "SHIPPED");
+        return orders.filter((order) => selectedIds.has(order.id) && (order.status === "SHIPPED" || order.status === "DELIVERED"));
     }, [orders, selectedIds]);
-    const allSelectedAreShipped = selectedIds.size > 0 && selectedOrdersForBulkReturn.length === selectedIds.size;
+    const allSelectedAreReturnEligible = selectedIds.size > 0 && selectedOrdersForBulkReturn.length === selectedIds.size;
 
     const handleBulkUpdate = async () => {
         if (selectedIds.size === 0) return;
@@ -781,8 +781,8 @@ export default function OrdersPage() {
     };
 
     const openReturnModal = (item) => {
-        if (!item || item.status !== "SHIPPED") {
-            toast.error("Return is allowed only when order status is SHIPPED.");
+        if (!item || (item.status !== "SHIPPED" && item.status !== "DELIVERED")) {
+            toast.error("Return is allowed only when order status is SHIPPED or DELIVERED.");
             return;
         }
         setReturnTarget(item || null);
@@ -1455,12 +1455,13 @@ export default function OrdersPage() {
         {
             key: "actions",
             label: "Actions",
-            headerClassName: "sticky right-0 z-20 !bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)] justify-center text-center",
-            className: "sticky right-0 z-10 !bg-white group-hover:!bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)] h-full flex items-center justify-center !overflow-visible",
+            headerClassName: "sticky right-0 z-20 !bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)] justify-center text-center min-w-[196px]",
+            className: "sticky right-0 z-10 !bg-white group-hover:!bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)] h-full flex items-center justify-center !overflow-visible !min-w-[196px]",
             render: (row) => {
                 const overflowActions = [];
+                const directActions = [];
 
-                if (canUpdate && row.status === "SHIPPED" && Array.isArray(row.items) && row.items.length > 0) {
+                if (canUpdate && (row.status === "SHIPPED" || row.status === "DELIVERED") && Array.isArray(row.items) && row.items.length > 0) {
                     overflowActions.push({
                         label: "Return",
                         icon: RotateCcw,
@@ -1469,7 +1470,8 @@ export default function OrdersPage() {
                 }
 
                 if ((row.status === "PENDING" || row.status === "Pending") && canUpdate) {
-                    overflowActions.push({
+                    directActions.push({
+                        key: "upload-label",
                         label: "Upload Label",
                         icon: Upload,
                         onClick: () => handleUploadClick(row.id),
@@ -1477,15 +1479,17 @@ export default function OrdersPage() {
                 }
 
                 if (row.label) {
-                    overflowActions.push({
-                        label: "Preview Label",
+                    directActions.push({
+                        key: "download-label",
+                        label: "Download Label",
                         icon: Printer,
                         onClick: () => handleOpenLabelPreview(row),
                     });
                 }
 
                 if (row.status === "LABEL_PRINTED" && canUpdate) {
-                    overflowActions.push({
+                    directActions.push({
+                        key: "mark-packed",
                         label: "Mark Packed",
                         icon: Package,
                         onClick: async () => {
@@ -1503,7 +1507,8 @@ export default function OrdersPage() {
                 }
 
                 if (row.status === "PACKED" && canUpdate) {
-                    overflowActions.push({
+                    directActions.push({
+                        key: "mark-shipped",
                         label: "Mark Shipped",
                         icon: Truck,
                         onClick: async () => {
@@ -1521,7 +1526,8 @@ export default function OrdersPage() {
                 }
 
                 if (row.status === "SHIPPED" && canUpdate) {
-                    overflowActions.push({
+                    directActions.push({
+                        key: "mark-delivered",
                         label: "Mark Delivered",
                         icon: CheckCircle,
                         onClick: async () => {
@@ -1550,25 +1556,68 @@ export default function OrdersPage() {
                     });
                 }
 
+                const renderIconAction = ({ key, label, onClick, Icon }) => (
+                    <div key={key} className="relative group/action">
+                        <Button
+                            variant="secondary"
+                            size="icon"
+                            className="h-7 w-7 rounded-md p-0"
+                            aria-label={label}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onClick?.();
+                            }}
+                        >
+                            <Icon size={14} />
+                        </Button>
+                        <span className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 rounded bg-gray-900 px-1.5 py-0.5 text-[10px] font-medium text-white opacity-0 transition-opacity duration-150 group-hover/action:opacity-100 whitespace-nowrap z-20">
+                            {label}
+                        </span>
+                    </div>
+                );
+
                 return (
                     <div className="flex w-full items-center justify-center gap-1 whitespace-nowrap">
-                        <Button variant="secondary" size="xs" className="rounded-md" onClick={(e) => { e.stopPropagation(); setViewOrder(row); setViewOpen(true); }}>
-                            View
-                        </Button>
+                        {renderIconAction({
+                            key: "view",
+                            label: "View",
+                            Icon: Eye,
+                            onClick: () => {
+                                setViewOrder(row);
+                                setViewOpen(true);
+                            }
+                        })}
                         {canUpdate && (
-                            <Button variant="secondary" size="xs" className="rounded-md" onClick={(e) => { e.stopPropagation(); openModal(row); }}>
-                                Edit
-                            </Button>
+                            renderIconAction({
+                                key: "edit",
+                                label: "Edit",
+                                Icon: Pencil,
+                                onClick: () => openModal(row),
+                            })
                         )}
-                        <div onClick={(e) => e.stopPropagation()}>
-                            <ActionMenu
-                                actions={overflowActions}
-                                direction="up"
-                                openOnHover
-                                hoverOpenDelay={320}
-                                hoverCloseDelay={320}
-                            />
-                        </div>
+                        {directActions.map((action) => {
+                            const Icon = action.icon || Eye;
+                            return renderIconAction({
+                                key: action.key,
+                                label: action.label,
+                                Icon,
+                                onClick: action.onClick,
+                            });
+                        })}
+                        {overflowActions.length > 0 && (
+                            <div className="relative group/action" onClick={(e) => e.stopPropagation()}>
+                                <ActionMenu
+                                    actions={overflowActions}
+                                    direction="up"
+                                    openOnHover
+                                    hoverOpenDelay={320}
+                                    hoverCloseDelay={320}
+                                />
+                                <span className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 rounded bg-gray-900 px-1.5 py-0.5 text-[10px] font-medium text-white opacity-0 transition-opacity duration-150 group-hover/action:opacity-100 whitespace-nowrap z-20">
+                                    More
+                                </span>
+                            </div>
+                        )}
                     </div>
                 );
             }
@@ -1902,7 +1951,7 @@ export default function OrdersPage() {
                 rows={orders}
                 isLoading={isLoading}
                 toolbar={toolbar}
-                gridCols="grid-cols-[40px_minmax(100px,0.7fr)_minmax(244px,1.69fr)_minmax(110px,0.7fr)_minmax(360px,2.1fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(100px,0.8fr)_minmax(250px,1fr)_minmax(203px,1.52fr)_minmax(136px,max-content)]"
+                gridCols="grid-cols-[40px_minmax(100px,0.7fr)_minmax(244px,1.69fr)_minmax(110px,0.7fr)_minmax(360px,2.1fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(100px,0.8fr)_minmax(250px,1fr)_minmax(203px,1.52fr)_minmax(196px,max-content)]"
                 contentMinWidthClass="min-w-[2127px]"
                 rowClassName={(row) => row.id === highlightOrderId ? "bg-amber-100 transition-colors duration-1000" : ""}
             />
@@ -1974,7 +2023,7 @@ export default function OrdersPage() {
                     >
                         <Printer size={16} /> <span>Download Labels</span>
                     </button>
-                    {canUpdate && allSelectedAreShipped && (
+                    {canUpdate && allSelectedAreReturnEligible && (
                         <>
                             <div className="h-4 w-px bg-gray-700" />
                             <button

@@ -34,21 +34,42 @@ export default function ReturnOrderModal({
 }) {
   const [qtyMap, setQtyMap] = useState({});
   const [note, setNote] = useState("");
+  const returnedUnitsByItem = useMemo(() => {
+    const map = new Map();
+    const records = Array.isArray(order?.returnRecords) ? order.returnRecords : [];
+    records.forEach((record) => {
+      const items = Array.isArray(record?.items) ? record.items : [];
+      items.forEach((item) => {
+        const orderItemId = item?.orderItemId;
+        if (!orderItemId) return;
+        const unitsPerQty = Math.max(1, toInt(item?.unitsPerQty ?? 1));
+        const returnedQty = toInt(item?.returnedQty ?? 0);
+        const restockedUnits = toInt(item?.restockedUnits ?? (returnedQty * unitsPerQty));
+        if (restockedUnits <= 0) return;
+        map.set(orderItemId, (map.get(orderItemId) || 0) + restockedUnits);
+      });
+    });
+    return map;
+  }, [order?.returnRecords]);
 
   const rows = useMemo(() => {
     const items = Array.isArray(order?.items) ? order.items : [];
     return items.map((item) => {
       const availableQty = Math.max(0, toInt(item?.quantity));
       const units = Math.max(1, toInt(item?.channelListing?.units || 1));
+      const previouslyReturnedUnits = toInt(returnedUnitsByItem.get(item.id) || 0);
+      const remainderUnits = previouslyReturnedUnits % units;
+      const availableUnits = Math.max(0, (availableQty * units) - remainderUnits);
       return {
         id: item.id,
         label: getItemLabel(item),
         imageUrl: resolveOrderItemImage(item),
         availableQty,
         units,
+        availableUnits,
       };
     });
-  }, [order]);
+  }, [order, returnedUnitsByItem]);
 
   useEffect(() => {
     if (!open) return;
@@ -62,48 +83,48 @@ export default function ReturnOrderModal({
 
   const totals = useMemo(() => {
     let selectedLines = 0;
-    let totalQty = 0;
     let totalUnits = 0;
+    let totalQtyEquivalent = 0;
 
     rows.forEach((row) => {
-      const qty = Math.min(row.availableQty, toInt(qtyMap[row.id]));
-      if (qty > 0) {
+      const units = Math.min(row.availableUnits, toInt(qtyMap[row.id]));
+      if (units > 0) {
         selectedLines += 1;
-        totalQty += qty;
-        totalUnits += qty * row.units;
+        totalUnits += units;
+        totalQtyEquivalent += units / row.units;
       }
     });
 
-    return { selectedLines, totalQty, totalUnits };
+    return { selectedLines, totalUnits, totalQtyEquivalent };
   }, [rows, qtyMap]);
 
-  const setQty = (rowId, rawValue, maxQty) => {
+  const setQty = (rowId, rawValue, maxUnits) => {
     const clean = String(rawValue ?? "").replace(/[^0-9]/g, "");
     if (!clean) {
       setQtyMap((prev) => ({ ...prev, [rowId]: "" }));
       return;
     }
 
-    const value = Math.min(maxQty, toInt(clean));
+    const value = Math.min(maxUnits, toInt(clean));
     setQtyMap((prev) => ({ ...prev, [rowId]: String(value) }));
   };
 
-  const nudgeQty = (rowId, delta, maxQty) => {
+  const nudgeQty = (rowId, delta, maxUnits) => {
     setQtyMap((prev) => {
       const current = toInt(prev[rowId]);
-      const next = Math.max(0, Math.min(maxQty, current + delta));
+      const next = Math.max(0, Math.min(maxUnits, current + delta));
       return { ...prev, [rowId]: next === 0 ? "" : String(next) };
     });
   };
 
-  const setRowToMax = (rowId, maxQty) => {
-    setQtyMap((prev) => ({ ...prev, [rowId]: maxQty > 0 ? String(maxQty) : "" }));
+  const setRowToMax = (rowId, maxUnits) => {
+    setQtyMap((prev) => ({ ...prev, [rowId]: maxUnits > 0 ? String(maxUnits) : "" }));
   };
 
   const handleReturnAll = () => {
     const next = {};
     rows.forEach((row) => {
-      next[row.id] = row.availableQty > 0 ? String(row.availableQty) : "";
+      next[row.id] = row.availableUnits > 0 ? String(row.availableUnits) : "";
     });
     setQtyMap(next);
   };
@@ -119,11 +140,11 @@ export default function ReturnOrderModal({
   const handleSubmit = async () => {
     const returns = rows
       .map((row) => {
-        const qty = Math.min(row.availableQty, toInt(qtyMap[row.id]));
-        if (qty <= 0) return null;
+        const units = Math.min(row.availableUnits, toInt(qtyMap[row.id]));
+        if (units <= 0) return null;
         return {
           orderItemId: row.id,
-          quantity: qty,
+          returnUnits: units,
         };
       })
       .filter(Boolean);
@@ -157,8 +178,8 @@ export default function ReturnOrderModal({
         <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-900 flex items-start gap-2">
           <Info size={14} className="mt-0.5 text-blue-700 flex-shrink-0" />
           <div>
-            <p className="font-medium">Select quantities received from customer for each item.</p>
-            <p className="mt-0.5 text-blue-800/90">Use <span className="font-semibold">Return All</span> to auto-fill all lines to available quantity.</p>
+            <p className="font-medium">Select returned units received from customer for each item.</p>
+            <p className="mt-0.5 text-blue-800/90">Use <span className="font-semibold">Return All</span> to auto-fill all lines to available units.</p>
           </div>
         </div>
 
@@ -168,12 +189,12 @@ export default function ReturnOrderModal({
             <p className="text-lg font-semibold text-gray-900">{totals.selectedLines}</p>
           </div>
           <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-            <p className="text-[11px] uppercase tracking-wide text-gray-500">Return Qty</p>
-            <p className="text-lg font-semibold text-gray-900">{totals.totalQty}</p>
-          </div>
-          <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
             <p className="text-[11px] uppercase tracking-wide text-gray-500">Return Units</p>
             <p className="text-lg font-semibold text-gray-900">{totals.totalUnits}</p>
+          </div>
+          <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500">Qty Equivalent</p>
+            <p className="text-lg font-semibold text-gray-900">{totals.totalQtyEquivalent.toFixed(2)}</p>
           </div>
         </div>
 
@@ -204,12 +225,12 @@ export default function ReturnOrderModal({
             <thead className="sticky top-0 bg-gray-50 text-gray-600">
               <tr>
                 <th className="px-3 py-2 text-left font-medium">Product</th>
-                <th className="px-3 py-2 text-center font-medium">Available</th>
-                <th className="px-3 py-2 text-center font-medium">Units/Qty</th>
+                <th className="px-3 py-2 text-center font-medium">Quantity</th>
+                <th className="px-3 py-2 text-center font-medium">Units</th>
                 <th className="px-3 py-2 font-medium">
                   <div className="mx-auto grid w-max grid-cols-[28px_80px_28px_48px] items-center gap-1.5">
                     <span aria-hidden="true" />
-                    <span className="text-center">Return Qty</span>
+                    <span className="text-center">Return Units</span>
                     <span aria-hidden="true" />
                     <span aria-hidden="true" />
                   </div>
@@ -242,8 +263,8 @@ export default function ReturnOrderModal({
                       <button
                         type="button"
                         className="h-7 w-7 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-40"
-                        onClick={() => nudgeQty(row.id, -1, row.availableQty)}
-                        disabled={row.availableQty <= 0 || toInt(qtyMap[row.id]) <= 0}
+                        onClick={() => nudgeQty(row.id, -1, row.availableUnits)}
+                        disabled={row.availableUnits <= 0 || toInt(qtyMap[row.id]) <= 0}
                         title="Decrease"
                       >
                         <Minus size={12} className="mx-auto" />
@@ -251,15 +272,15 @@ export default function ReturnOrderModal({
                       <input
                         className={inputClass}
                         value={qtyMap[row.id] ?? ""}
-                        onChange={(e) => setQty(row.id, e.target.value, row.availableQty)}
+                        onChange={(e) => setQty(row.id, e.target.value, row.availableUnits)}
                         inputMode="numeric"
                         placeholder="0"
                       />
                       <button
                         type="button"
                         className="h-7 w-7 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-40"
-                        onClick={() => nudgeQty(row.id, 1, row.availableQty)}
-                        disabled={row.availableQty <= 0 || toInt(qtyMap[row.id]) >= row.availableQty}
+                        onClick={() => nudgeQty(row.id, 1, row.availableUnits)}
+                        disabled={row.availableUnits <= 0 || toInt(qtyMap[row.id]) >= row.availableUnits}
                         title="Increase"
                       >
                         <Plus size={12} className="mx-auto" />
@@ -267,8 +288,8 @@ export default function ReturnOrderModal({
                       <button
                         type="button"
                         className="h-7 w-12 rounded border border-blue-200 bg-blue-50 px-2 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-40"
-                        onClick={() => setRowToMax(row.id, row.availableQty)}
-                        disabled={row.availableQty <= 0}
+                        onClick={() => setRowToMax(row.id, row.availableUnits)}
+                        disabled={row.availableUnits <= 0}
                       >
                         Max
                       </button>

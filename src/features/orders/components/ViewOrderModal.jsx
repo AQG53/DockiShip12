@@ -285,20 +285,24 @@ export default function ViewOrderModal({ open, onClose, order }) {
         const rows = [];
         returnEvents.forEach((event) => {
             (Array.isArray(event.items) ? event.items : []).forEach((item) => {
-                const returnedQty = toNumber(
-                    item?.returnedQty ?? item?.quantity ?? item?.qty ?? item?.returnedQuantity,
-                    0,
-                );
-                if (returnedQty <= 0) return;
-
                 const unitsPerQty = toNumber(
                     item?.unitsPerQty ?? item?.units ?? item?.unit ?? 1,
                     1,
                 );
                 const restockedUnits = toNumber(
-                    item?.restockedUnits ?? item?.restockQty ?? item?.restockedQty ?? returnedQty * unitsPerQty,
-                    returnedQty * unitsPerQty,
+                    item?.restockedUnits ?? item?.restockQty ?? item?.restockedQty,
+                    0,
                 );
+                const returnedQty = toNumber(
+                    item?.returnedQty ?? item?.quantity ?? item?.qty ?? item?.returnedQuantity,
+                    0,
+                );
+                const returnedUnits = restockedUnits > 0
+                    ? restockedUnits
+                    : returnedQty > 0
+                        ? returnedQty * unitsPerQty
+                        : 0;
+                if (returnedUnits <= 0) return;
                 const linkedOrderItem = item?.orderItemId ? orderItemsById.get(item.orderItemId) : null;
                 const linkedListing = linkedOrderItem?.channelListing;
                 const linkedVariant = linkedListing?.productVariant || linkedOrderItem?.productVariant || null;
@@ -321,9 +325,9 @@ export default function ViewOrderModal({ open, onClose, order }) {
                         || linkedListing?.externalSku
                         || linkedProduct?.sku
                         || "",
-                    returnedQty,
+                    returnedQtyEquivalent: returnedUnits / Math.max(1, unitsPerQty),
                     unitsPerQty,
-                    restockedUnits,
+                    returnedUnits,
                     note: event.note || "",
                 });
             });
@@ -611,8 +615,8 @@ export default function ViewOrderModal({ open, onClose, order }) {
                             <thead className="bg-gray-50 border-b border-gray-100">
                                 <tr>
                                     <th className="px-4 py-3 font-medium text-gray-500 w-[45%]">Product</th>
-                                    <th className="px-3 py-2 font-medium text-gray-500 text-center w-[10%]">Returned Qty</th>
-                                    <th className="px-3 py-2 font-medium text-gray-500 text-center w-[12%]">Restocked Qty</th>
+                                    <th className="px-3 py-2 font-medium text-gray-500 text-center w-[10%]">Returned Units</th>
+                                    <th className="px-3 py-2 font-medium text-gray-500 text-center w-[12%]">Qty Equivalent</th>
                                     <th className="px-3 py-2 font-medium text-gray-500 w-[33%]">Note</th>
                                 </tr>
                             </thead>
@@ -639,8 +643,8 @@ export default function ViewOrderModal({ open, onClose, order }) {
                                                 </div>
                                             </div>
                                         </td>
-                                        <td className="px-3 py-2 text-center text-gray-900 font-medium">{row.returnedQty}</td>
-                                        <td className="px-3 py-2 text-center text-gray-900 font-medium">{row.restockedUnits}</td>
+                                        <td className="px-3 py-2 text-center text-gray-900 font-medium">{row.returnedUnits}</td>
+                                        <td className="px-3 py-2 text-center text-gray-900 font-medium">{row.returnedQtyEquivalent.toFixed(2)}</td>
                                         <td className="px-3 py-2 text-gray-600 break-words whitespace-normal">{row.note || "—"}</td>
                                     </tr>
                                 ))}
