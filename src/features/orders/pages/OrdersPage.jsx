@@ -21,8 +21,11 @@ import toast from "react-hot-toast";
 import ImageGallery from "../../../components/ImageGallery";
 import {
     listOrders,
+    listOrdersByTracking,
+    getOrderSummary,
     downloadBulkLabels,
-    checkOrderLabelNameExists
+    checkOrderLabelNameExists,
+    getPrintableOrderLabel,
 } from "../../../lib/api";
 import { AnimatedAlert } from "../../../components/ui/AnimatedAlert";
 
@@ -44,15 +47,6 @@ const isImagePath = (value) => {
 
 const resolveOrderProductImages = ({ listing, product, variant, name }) => {
     const listingImage = String(listing?.url || listing?.imageUrl || "").trim();
-    if (isImagePath(listingImage)) {
-        return [
-            {
-                url: listingImage,
-                alt: name,
-                productName: name,
-            },
-        ];
-    }
 
     const rawImages = Array.isArray(product?.images) ? product.images : [];
     const toGalleryRows = (rows) =>
@@ -86,6 +80,16 @@ const resolveOrderProductImages = ({ listing, product, variant, name }) => {
 
     const productImageRows = toGalleryRows(productImages);
     if (productImageRows.length > 0) return productImageRows;
+
+    if (isImagePath(listingImage)) {
+        return [
+            {
+                url: listingImage,
+                alt: name,
+                productName: name,
+            },
+        ];
+    }
 
     // Last safety fallback: any product image path.
     return toGalleryRows(rawImages);
@@ -143,61 +147,145 @@ const formatAsDateOnlyParam = (date) => {
     return `${year}-${month}-${day}`;
 };
 
-const formatAsUtcDateOnlyParam = (date) => {
-    if (!date) return undefined;
-    const d = new Date(date);
-    if (Number.isNaN(d.getTime())) return undefined;
-    const year = d.getUTCFullYear();
-    const month = String(d.getUTCMonth() + 1).padStart(2, "0");
-    const day = String(d.getUTCDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-};
-
-const getUTCStartOfDay = (date) => {
-    const d = new Date(date);
-    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
-};
-
-const addUTCDays = (date, days) => {
-    const d = new Date(date);
-    d.setUTCDate(d.getUTCDate() + days);
-    return d;
-};
-
-const shiftMonthKeepingDay = (value, monthOffset) => {
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return null;
-    const year = d.getFullYear();
-    const month = d.getMonth();
-    const day = d.getDate();
-    const targetMonthFirst = new Date(year, month + monthOffset, 1);
-    const targetYear = targetMonthFirst.getFullYear();
-    const targetMonth = targetMonthFirst.getMonth();
-    const maxDay = new Date(targetYear, targetMonth + 1, 0).getDate();
-    const clampedDay = Math.min(day, maxDay);
-    return new Date(
-        targetYear,
-        targetMonth,
-        clampedDay,
-        d.getHours(),
-        d.getMinutes(),
-        d.getSeconds(),
-        d.getMilliseconds()
-    );
-};
-
-const getUtcDayNumber = (value) => {
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return null;
-    return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / 86400000);
-};
-
 const formatMoney = (value) => {
     return new Intl.NumberFormat(undefined, {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
     }).format(toAmount(value));
 };
+
+const PRODUCT_SUMMARY_STATUSES = new Set(["PENDING", "LABEL_UPLOADED", "LABEL_PRINTED", "PACKED"]);
+
+const normalizeSummaryText = (value) => {
+    const text = String(value ?? "").trim();
+    return text || "—";
+};
+
+const getVariantSummaryLabel = (variant) => {
+    if (!variant) return "—";
+    const color = String(variant?.colorText || "").trim();
+    const size = String(variant?.size?.name || variant?.sizeText || "").trim();
+    const parts = [color, size].filter(Boolean);
+    return parts.length > 0 ? parts.join(" + ") : "—";
+};
+
+const getOrderItemSummaryEntities = (item) => {
+    const listing = item?.channelListing || null;
+    const variant = listing?.productVariant || item?.productVariant || null;
+    const product = listing?.product || variant?.product || item?.product || null;
+    return { listing, variant, product };
+};
+
+const getOrderItemSummaryProductName = (item, entities = null) => {
+    const resolved = entities || getOrderItemSummaryEntities(item);
+    return normalizeSummaryText(
+        item?.productDescription ||
+        resolved?.listing?.productName ||
+        resolved?.product?.name ||
+        resolved?.variant?.product?.name
+    );
+};
+
+const getOrderItemSummaryQty = (item) => {
+    const qty = Number(item?.quantity || 0);
+    if (!Number.isFinite(qty) || qty <= 0) return 0;
+    const listingUnits = Number(item?.channelListing?.units);
+    const units = Number.isFinite(listingUnits) && listingUnits > 0 ? listingUnits : 1;
+    return qty * units;
+};
+
+const buildOrderProductSummaryRows = (orders) => {
+    const map = new Map();
+    const upsert = ({ groupKey, groupName, productName, variant, qty, images }) => {
+        if (!Number.isFinite(qty) || qty <= 0) return;
+        const key = `${String(groupKey).toLowerCase()}|||${String(variant).toLowerCase()}`;
+        const prev = map.get(key);
+        if (prev) {
+            prev.qty += qty;
+            if ((!prev.images || prev.images.length === 0) && Array.isArray(images) && images.length > 0) {
+                prev.images = images;
+            }
+            return;
+        }
+        map.set(key, {
+            groupKey,
+            groupName,
+            productName,
+            variant,
+            qty,
+            images: Array.isArray(images) ? images : [],
+        });
+    };
+
+    (Array.isArray(orders) ? orders : []).forEach((order) => {
+        if (Array.isArray(order?.items) && order.items.length > 0) {
+            order.items.forEach((item) => {
+                const entities = getOrderItemSummaryEntities(item);
+                const productName = getOrderItemSummaryProductName(item, entities);
+                const variant = getVariantSummaryLabel(entities?.variant);
+                const groupKey = String(entities?.product?.id || productName).toLowerCase();
+                const groupName = normalizeSummaryText(entities?.product?.name || productName);
+                const images = resolveOrderProductImages({
+                    listing: entities?.listing,
+                    product: entities?.product,
+                    variant: entities?.variant,
+                    name: productName,
+                });
+                upsert({
+                    groupKey,
+                    groupName,
+                    productName,
+                    variant,
+                    qty: getOrderItemSummaryQty(item),
+                    images,
+                });
+            });
+            return;
+        }
+
+        // Legacy fallback for older rows without `items`.
+        const legacyQty = Number(order?.quantity || 0);
+        if (!Number.isFinite(legacyQty) || legacyQty <= 0) return;
+        const legacyListing = order?.channelListing || null;
+        const legacyVariant = legacyListing?.productVariant || order?.productVariant || null;
+        const legacyProduct = legacyListing?.product || legacyVariant?.product || order?.product || null;
+        const productName = normalizeSummaryText(
+            order?.productDescription ||
+            legacyListing?.productName ||
+            legacyProduct?.name ||
+            order?.product?.name
+        );
+        const variant = getVariantSummaryLabel(legacyVariant);
+        const groupKey = String(legacyProduct?.id || productName).toLowerCase();
+        const groupName = normalizeSummaryText(legacyProduct?.name || productName);
+        const images = resolveOrderProductImages({
+            listing: legacyListing,
+            product: legacyProduct,
+            variant: legacyVariant,
+            name: productName,
+        });
+        upsert({
+            groupKey,
+            groupName,
+            productName,
+            variant,
+            qty: legacyQty,
+            images,
+        });
+    });
+
+    return Array.from(map.values()).sort((a, b) => {
+        const groupCmp = String(a.groupName).localeCompare(String(b.groupName), undefined, { sensitivity: "base", numeric: true });
+        if (groupCmp !== 0) return groupCmp;
+        const variantCmp = String(a.variant).localeCompare(String(b.variant), undefined, { sensitivity: "base", numeric: true });
+        if (variantCmp !== 0) return variantCmp;
+        return String(a.productName).localeCompare(String(b.productName), undefined, { sensitivity: "base", numeric: true });
+    });
+};
+
+const formatSummaryQty = (qty) => (
+    Number.isInteger(qty) ? String(qty) : Number(qty).toFixed(2)
+);
 
 export default function OrdersPage() {
     const [search, setSearch] = useState("");
@@ -285,6 +373,7 @@ export default function OrdersPage() {
         { id: "", name: "All Remarks" },
         ...(Array.isArray(remarkTypes) ? remarkTypes : []).map(r => ({ id: r.id, name: r.name }))
     ], [remarkTypes]);
+    const [sharedFlyersOnly, setSharedFlyersOnly] = useState(false);
 
     const buildOrderQueryParams = ({ page: queryPage, perPage: queryPerPage } = {}) => ({
         search: debouncedSearch,
@@ -296,6 +385,7 @@ export default function OrdersPage() {
         startDate: formatAsDateOnlyParam(dateRange?.from),
         endDate: formatAsDateOnlyParam(dateRange?.to || dateRange?.from),
         isSettled: settledFilter.id !== "all" ? settledFilter.id : undefined,
+        sharedFlyersOnly: sharedFlyersOnly ? "true" : undefined,
         sortBy: "date",
         sortOrder: dateSortOrder,
         page: queryPage,
@@ -313,6 +403,7 @@ export default function OrdersPage() {
             remarkFilter.id,
             dateTypeFilter.id,
             settledFilter.id,
+            sharedFlyersOnly,
             dateSortOrder,
             page,
             perPage,
@@ -332,6 +423,7 @@ export default function OrdersPage() {
             remarkFilter.id,
             dateTypeFilter.id,
             settledFilter.id,
+            sharedFlyersOnly,
             dateSortOrder,
             dateRange?.from?.getTime(),
             dateRange?.to?.getTime(),
@@ -341,274 +433,83 @@ export default function OrdersPage() {
     const { data: orderData, isLoading } = useOrders(paginatedOrderParams);
 
     const orders = orderData?.rows || [];
+    const tableRows = useMemo(() => {
+        if (!sharedFlyersOnly) return orders;
+        return orders.filter((order) => Number(order?.trackingGroupCount || 0) > 1);
+    }, [orders, sharedFlyersOnly]);
     const meta = orderData?.meta || {};
 
-    const [filteredOrdersForSummary, setFilteredOrdersForSummary] = useState([]);
-    const [previousMonthOrdersForSummary, setPreviousMonthOrdersForSummary] = useState([]);
+    useEffect(() => {
+        setPage(1);
+    }, [sharedFlyersOnly]);
+
+    const [summaryData, setSummaryData] = useState(null);
     const [isSummaryLoading, setIsSummaryLoading] = useState(false);
-    const [weeklyStats, setWeeklyStats] = useState({
+    const summaryStartDate = useMemo(
+        () => formatAsDateOnlyParam(dateRange?.from),
+        [dateRange?.from?.getTime()]
+    );
+    const summaryEndDate = useMemo(
+        () => formatAsDateOnlyParam(dateRange?.to || dateRange?.from),
+        [dateRange?.from?.getTime(), dateRange?.to?.getTime()]
+    );
+
+    useEffect(() => {
+        let ignore = false;
+
+        const fetchSummary = async () => {
+            setIsSummaryLoading(true);
+            try {
+                const summary = await getOrderSummary({
+                    startDate: summaryStartDate,
+                    endDate: summaryEndDate,
+                });
+                if (!ignore) setSummaryData(summary || null);
+            } catch {
+                if (!ignore) {
+                    setSummaryData(null);
+                    toast.error("Failed to load order totals.");
+                }
+            } finally {
+                if (!ignore) setIsSummaryLoading(false);
+            }
+        };
+
+        fetchSummary();
+        return () => {
+            ignore = true;
+        };
+    }, [summaryStartDate, summaryEndDate]);
+
+    const totals = summaryData?.totals || {
+        totalOrders: 0,
+        totalPurchasePrice: 0,
+        totalSellingPrice: 0,
+        totalPurchaseCost: 0,
+        totalShippingCharges: 0,
+        totalTaxCharges: 0,
+        totalOtherCharges: 0,
+        totalUnits: 0,
+        totalDays: 0,
+        avgOrdersDaily: 0,
+        avgPurchasePricePerProduct: 0,
+        avgSellingPricePerProduct: 0,
+        netProfit: 0,
+        avgNetProfitPerOrder: 0,
+    };
+    const monthOverMonth = summaryData?.monthOverMonth || {
+        orderDiff: 0,
+        purchaseDiffPct: 0,
+        sellingDiffPct: 0,
+        netProfitDiffPct: 0,
+    };
+    const weeklyStats = summaryData?.weeklyStats || {
         currentWeekOrders: 0,
         previousWeekOrders: 0,
         avgOrdersPerDay: 0,
         changePct: 0,
-    });
-    const [isWeeklyStatsLoading, setIsWeeklyStatsLoading] = useState(false);
-
-    useEffect(() => {
-        let ignore = false;
-
-        const loadAllOrders = async (params) => {
-            const firstPage = await listOrders({ ...params, page: 1, perPage: 250 });
-            const totalPages = Number(firstPage?.meta?.totalPages || 1);
-            let allRows = Array.isArray(firstPage?.rows) ? [...firstPage.rows] : [];
-
-            for (let currentPage = 2; currentPage <= totalPages; currentPage += 1) {
-                const pageData = await listOrders({ ...params, page: currentPage, perPage: 250 });
-                if (Array.isArray(pageData?.rows) && pageData.rows.length > 0) {
-                    allRows = allRows.concat(pageData.rows);
-                }
-            }
-
-            return allRows;
-        };
-
-        const fetchFilteredOrders = async () => {
-            setIsSummaryLoading(true);
-            try {
-                const allRows = await loadAllOrders(filteredOrderParams);
-
-                const from = dateRange?.from ? new Date(dateRange.from) : null;
-                const to = dateRange?.to ? new Date(dateRange.to) : from;
-                const previousFrom = from ? shiftMonthKeepingDay(from, -1) : null;
-                const previousTo = to ? shiftMonthKeepingDay(to, -1) : previousFrom;
-
-                let previousRows = [];
-                if (previousFrom && previousTo) {
-                    const previousMonthParams = {
-                        ...filteredOrderParams,
-                        startDate: formatAsDateOnlyParam(previousFrom),
-                        endDate: formatAsDateOnlyParam(previousTo),
-                    };
-                    previousRows = await loadAllOrders(previousMonthParams);
-                }
-
-                if (!ignore) {
-                    setFilteredOrdersForSummary(allRows);
-                    setPreviousMonthOrdersForSummary(previousRows);
-                }
-            } catch {
-                if (!ignore) {
-                    setFilteredOrdersForSummary([]);
-                    setPreviousMonthOrdersForSummary([]);
-                    toast.error("Failed to load order totals.");
-                }
-            } finally {
-                if (!ignore) {
-                    setIsSummaryLoading(false);
-                }
-            }
-        };
-
-        fetchFilteredOrders();
-        return () => {
-            ignore = true;
-        };
-    }, [filteredOrderParams, dateRange?.from, dateRange?.to]);
-
-    useEffect(() => {
-        let ignore = false;
-
-        const fetchWeeklyStats = async () => {
-            setIsWeeklyStatsLoading(true);
-            try {
-                const todayUtcStart = getUTCStartOfDay(new Date());
-                const currentWeekStart = addUTCDays(todayUtcStart, -6);
-                const currentWeekEndExclusive = addUTCDays(todayUtcStart, 1);
-                const previousWeekStart = addUTCDays(currentWeekStart, -7);
-                const rangeEndInclusive = new Date(currentWeekEndExclusive.getTime() - 1);
-
-                const baseParams = {
-                    dateType: "order",
-                    startDate: formatAsUtcDateOnlyParam(previousWeekStart),
-                    endDate: formatAsUtcDateOnlyParam(rangeEndInclusive),
-                };
-
-                const firstPage = await listOrders({ ...baseParams, page: 1, perPage: 250 });
-                const totalPages = Number(firstPage?.meta?.totalPages || 1);
-                let allRows = Array.isArray(firstPage?.rows) ? [...firstPage.rows] : [];
-
-                for (let currentPage = 2; currentPage <= totalPages; currentPage += 1) {
-                    const pageData = await listOrders({ ...baseParams, page: currentPage, perPage: 250 });
-                    if (Array.isArray(pageData?.rows) && pageData.rows.length > 0) {
-                        allRows = allRows.concat(pageData.rows);
-                    }
-                }
-
-                let currentWeekOrders = 0;
-                let previousWeekOrders = 0;
-
-                allRows.forEach((order) => {
-                    const ts = Date.parse(order?.date);
-                    if (!Number.isFinite(ts)) return;
-
-                    if (ts >= currentWeekStart.getTime() && ts < currentWeekEndExclusive.getTime()) {
-                        currentWeekOrders += 1;
-                    } else if (ts >= previousWeekStart.getTime() && ts < currentWeekStart.getTime()) {
-                        previousWeekOrders += 1;
-                    }
-                });
-
-                const avgOrdersPerDay = currentWeekOrders / 7;
-                let changePct = 0;
-                if (previousWeekOrders > 0) {
-                    changePct = ((currentWeekOrders - previousWeekOrders) / previousWeekOrders) * 100;
-                } else if (currentWeekOrders > 0) {
-                    changePct = 100;
-                }
-
-                if (!ignore) {
-                    setWeeklyStats({
-                        currentWeekOrders,
-                        previousWeekOrders,
-                        avgOrdersPerDay,
-                        changePct,
-                    });
-                }
-            } catch {
-                if (!ignore) {
-                    setWeeklyStats({
-                        currentWeekOrders: 0,
-                        previousWeekOrders: 0,
-                        avgOrdersPerDay: 0,
-                        changePct: 0,
-                    });
-                }
-            } finally {
-                if (!ignore) {
-                    setIsWeeklyStatsLoading(false);
-                }
-            }
-        };
-
-        fetchWeeklyStats();
-        return () => {
-            ignore = true;
-        };
-    }, []);
-
-    const totals = useMemo(() => {
-        const summary = filteredOrdersForSummary.reduce((acc, order) => {
-            const orderPurchaseBase = Array.isArray(order.items) && order.items.length > 0
-                ? order.items.reduce((sum, item) => sum + toAmount(item.totalCost), 0)
-                : toAmount(order.totalCost);
-            const orderSellingPrice = Array.isArray(order.items) && order.items.length > 0
-                ? order.items.reduce((sum, item) => sum + toAmount(item.totalAmount), 0)
-                : toAmount(order.totalAmount);
-            const orderUnits = Array.isArray(order.items) && order.items.length > 0
-                ? order.items.reduce((sum, item) => sum + toAmount(item.quantity), 0)
-                : Math.max(toAmount(order.quantity), 1);
-            const shippingCharges = toAmount(order.shippingCharges);
-            const taxCharges = toAmount(order.tax);
-            const otherCharges = toAmount(order.otherCharges);
-            const extraCharges = shippingCharges + taxCharges + otherCharges;
-            const dayNumber = getUtcDayNumber(order.date);
-
-            acc.totalOrders += 1;
-            acc.totalPurchasePrice += orderPurchaseBase + extraCharges;
-            acc.totalSellingPrice += orderSellingPrice;
-            acc.totalPurchaseCost += orderPurchaseBase;
-            acc.totalShippingCharges += shippingCharges;
-            acc.totalTaxCharges += taxCharges;
-            acc.totalOtherCharges += otherCharges;
-            acc.totalUnits += orderUnits;
-            if (dayNumber !== null) {
-                if (acc.minDay === null || dayNumber < acc.minDay) acc.minDay = dayNumber;
-                if (acc.maxDay === null || dayNumber > acc.maxDay) acc.maxDay = dayNumber;
-            }
-            return acc;
-        }, {
-            totalOrders: 0,
-            totalPurchasePrice: 0,
-            totalSellingPrice: 0,
-            totalPurchaseCost: 0,
-            totalShippingCharges: 0,
-            totalTaxCharges: 0,
-            totalOtherCharges: 0,
-            totalUnits: 0,
-            minDay: null,
-            maxDay: null,
-        });
-
-        const selectedFromDay = dateRange?.from ? getUtcDayNumber(dateRange.from) : null;
-        const selectedToDay = dateRange?.to ? getUtcDayNumber(dateRange.to) : selectedFromDay;
-        const hasSelectedRange = selectedFromDay !== null && selectedToDay !== null;
-        const derivedDays = summary.minDay !== null && summary.maxDay !== null
-            ? (summary.maxDay - summary.minDay + 1)
-            : 0;
-        const totalDays = hasSelectedRange
-            ? Math.max(selectedToDay - selectedFromDay + 1, 1)
-            : derivedDays;
-        const avgOrdersDaily = totalDays > 0 ? (summary.totalOrders / totalDays) : 0;
-        const avgPurchasePricePerProduct = summary.totalUnits > 0 ? (summary.totalPurchaseCost / summary.totalUnits) : 0;
-        const avgSellingPricePerProduct = summary.totalUnits > 0 ? (summary.totalSellingPrice / summary.totalUnits) : 0;
-        const netProfit = summary.totalSellingPrice - summary.totalPurchasePrice;
-        const avgNetProfitPerOrder = summary.totalOrders > 0 ? (netProfit / summary.totalOrders) : 0;
-
-        return {
-            ...summary,
-            netProfit,
-            totalDays,
-            avgOrdersDaily,
-            avgPurchasePricePerProduct,
-            avgSellingPricePerProduct,
-            avgNetProfitPerOrder,
-        };
-    }, [filteredOrdersForSummary, dateRange?.from, dateRange?.to]);
-
-    const previousMonthTotals = useMemo(() => {
-        return previousMonthOrdersForSummary.reduce((acc, order) => {
-            const orderPurchaseBase = Array.isArray(order.items) && order.items.length > 0
-                ? order.items.reduce((sum, item) => sum + toAmount(item.totalCost), 0)
-                : toAmount(order.totalCost);
-            const orderSellingPrice = Array.isArray(order.items) && order.items.length > 0
-                ? order.items.reduce((sum, item) => sum + toAmount(item.totalAmount), 0)
-                : toAmount(order.totalAmount);
-            const shippingCharges = toAmount(order.shippingCharges);
-            const taxCharges = toAmount(order.tax);
-            const otherCharges = toAmount(order.otherCharges);
-
-            acc.totalOrders += 1;
-            acc.totalPurchasePrice += orderPurchaseBase + shippingCharges + taxCharges + otherCharges;
-            acc.totalSellingPrice += orderSellingPrice;
-            return acc;
-        }, {
-            totalOrders: 0,
-            totalPurchasePrice: 0,
-            totalSellingPrice: 0,
-        });
-    }, [previousMonthOrdersForSummary]);
-
-    const monthOverMonth = useMemo(() => {
-        const orderDiff = totals.totalOrders - previousMonthTotals.totalOrders;
-        const purchaseDiffPct = previousMonthTotals.totalPurchasePrice > 0
-            ? ((totals.totalPurchasePrice - previousMonthTotals.totalPurchasePrice) / previousMonthTotals.totalPurchasePrice) * 100
-            : (totals.totalPurchasePrice > 0 ? 100 : 0);
-        const sellingDiffPct = previousMonthTotals.totalSellingPrice > 0
-            ? ((totals.totalSellingPrice - previousMonthTotals.totalSellingPrice) / previousMonthTotals.totalSellingPrice) * 100
-            : (totals.totalSellingPrice > 0 ? 100 : 0);
-        const currentNetProfit = totals.totalSellingPrice - totals.totalPurchasePrice;
-        const previousNetProfit = previousMonthTotals.totalSellingPrice - previousMonthTotals.totalPurchasePrice;
-        const netProfitDiffPct = previousNetProfit !== 0
-            ? ((currentNetProfit - previousNetProfit) / Math.abs(previousNetProfit)) * 100
-            : (currentNetProfit !== 0 ? 100 : 0);
-
-        return {
-            orderDiff,
-            purchaseDiffPct,
-            sellingDiffPct,
-            netProfitDiffPct,
-        };
-    }, [totals.totalOrders, totals.totalPurchasePrice, totals.totalSellingPrice, previousMonthTotals.totalOrders, previousMonthTotals.totalPurchasePrice, previousMonthTotals.totalSellingPrice]);
+    };
+    const isWeeklyStatsLoading = isSummaryLoading;
 
     const deleteMut = useDeleteOrder();
 
@@ -661,15 +562,24 @@ export default function OrdersPage() {
     const [bulkStatus, setBulkStatus] = useState("SHIPPED");
     const [bulkReturnOpen, setBulkReturnOpen] = useState(false);
     const [isBulkReturnSubmitting, setIsBulkReturnSubmitting] = useState(false);
+    const [productSummaryOpen, setProductSummaryOpen] = useState(false);
+    const [isProductSummaryLoading, setIsProductSummaryLoading] = useState(false);
+    const [productSummaryRows, setProductSummaryRows] = useState([]);
+    const [productSummaryOrderCount, setProductSummaryOrderCount] = useState(0);
+    const [trackingGroupOpen, setTrackingGroupOpen] = useState(false);
+    const [trackingGroupId, setTrackingGroupId] = useState("");
+    const [trackingGroupOrders, setTrackingGroupOrders] = useState([]);
+    const [isTrackingGroupLoading, setIsTrackingGroupLoading] = useState(false);
+    const canShowProductSummary = PRODUCT_SUMMARY_STATUSES.has(statusFilter.id);
 
     // Clear selection on filter change
     useEffect(() => {
         setSelectedIds(new Set());
-    }, [statusFilter.id, statusParam, channelFilter.id, courierFilter.id, remarkFilter.id, settledFilter.id, dateRange]);
+    }, [statusFilter.id, statusParam, channelFilter.id, courierFilter.id, remarkFilter.id, settledFilter.id, sharedFlyersOnly, dateRange?.from?.getTime(), dateRange?.to?.getTime()]);
 
     const handleSelectAll = (checked) => {
         if (checked) {
-            const allIds = orders.map(o => o.id);
+            const allIds = tableRows.map(o => o.id);
             setSelectedIds(new Set(allIds));
         } else {
             setSelectedIds(new Set());
@@ -687,8 +597,8 @@ export default function OrdersPage() {
 
     const selectedOrdersForBulkReturn = useMemo(() => {
         if (selectedIds.size === 0) return [];
-        return orders.filter((order) => selectedIds.has(order.id) && (order.status === "SHIPPED" || order.status === "DELIVERED"));
-    }, [orders, selectedIds]);
+        return tableRows.filter((order) => selectedIds.has(order.id) && (order.status === "SHIPPED" || order.status === "DELIVERED"));
+    }, [tableRows, selectedIds]);
     const allSelectedAreReturnEligible = selectedIds.size > 0 && selectedOrdersForBulkReturn.length === selectedIds.size;
 
     const handleBulkUpdate = async () => {
@@ -772,6 +682,54 @@ export default function OrdersPage() {
             } else {
                 toast.error("Failed to download labels", { id: toastId });
             }
+        }
+    };
+
+    const handleOpenProductSummary = async () => {
+        setProductSummaryOpen(true);
+        setIsProductSummaryLoading(true);
+        setProductSummaryRows([]);
+        setProductSummaryOrderCount(0);
+
+        try {
+            const firstPage = await listOrders({ ...filteredOrderParams, page: 1, perPage: 250 });
+            const totalPages = Number(firstPage?.meta?.totalPages || 1);
+            const allOrders = Array.isArray(firstPage?.rows) ? [...firstPage.rows] : [];
+
+            for (let currentPage = 2; currentPage <= totalPages; currentPage += 1) {
+                const pageData = await listOrders({ ...filteredOrderParams, page: currentPage, perPage: 250 });
+                if (Array.isArray(pageData?.rows) && pageData.rows.length > 0) {
+                    allOrders.push(...pageData.rows);
+                }
+            }
+
+            setProductSummaryRows(buildOrderProductSummaryRows(allOrders));
+            setProductSummaryOrderCount(allOrders.length);
+        } catch (error) {
+            console.error("Failed to load product summary", error);
+            toast.error("Failed to load product summary.");
+        } finally {
+            setIsProductSummaryLoading(false);
+        }
+    };
+
+    const handleOpenTrackingGroup = async (trackingId) => {
+        const normalizedTrackingId = String(trackingId || "").trim();
+        if (!normalizedTrackingId) return;
+
+        setTrackingGroupOpen(true);
+        setTrackingGroupId(normalizedTrackingId);
+        setTrackingGroupOrders([]);
+        setIsTrackingGroupLoading(true);
+
+        try {
+            const rows = await listOrdersByTracking({ trackingId: normalizedTrackingId });
+            setTrackingGroupOrders(Array.isArray(rows) ? rows : []);
+        } catch (error) {
+            console.error("Failed to load tracking group orders", error);
+            toast.error("Failed to load shared flyer orders.");
+        } finally {
+            setIsTrackingGroupLoading(false);
         }
     };
 
@@ -882,21 +840,45 @@ export default function OrdersPage() {
         }
     };
 
-    const handleReturnSubmit = async ({ returns, returnNote }) => {
+    const handleReturnSubmit = async ({
+        returns,
+        returnNote,
+        returnSellingAmount,
+        returnShippingCharges,
+        returnTaxCharges,
+        returnOtherCharges,
+    }) => {
         if (!returnTarget?.id || !Array.isArray(returns) || returns.length === 0) {
             toast.error("Please select at least one item and quantity.");
             return;
         }
 
         try {
-            await updateMut.mutateAsync({
+            const updatedOrder = await updateMut.mutateAsync({
                 id: returnTarget.id,
                 payload: {
                     returns,
                     returnNote,
+                    returnSellingAmount,
+                    returnShippingCharges,
+                    returnTaxCharges,
+                    returnOtherCharges,
                 },
             });
             toast.success("Return processed successfully.");
+
+            if (editing?.id && editing.id === returnTarget.id) {
+                setEditing((prev) => ({
+                    ...(prev || {}),
+                    ...(updatedOrder || {}),
+                    id: updatedOrder?.id || prev?.id,
+                }));
+            }
+
+            if (viewOpen && viewOrder?.id && viewOrder.id === returnTarget.id) {
+                setViewOrder(updatedOrder);
+            }
+
             setReturnModalOpen(false);
             setReturnTarget(null);
         } catch (err) {
@@ -962,6 +944,27 @@ export default function OrdersPage() {
         setLabelPreviewTarget(null);
     };
 
+    const finalizeLabelPreviewAction = async (successMsg, actionLabel) => {
+        try {
+            if (labelPreviewTarget.status === "LABEL_UPLOADED") {
+                await updateMut.mutateAsync({
+                    id: labelPreviewTarget.id,
+                    payload: { status: "LABEL_PRINTED" }
+                });
+                toast.success(`${successMsg} and order marked as Printed`);
+            } else {
+                toast.success(successMsg);
+            }
+        } catch (err) {
+            console.error(`Status update after label ${actionLabel} failed`, err);
+            toast.error(`${successMsg}, but failed to update status`);
+        } finally {
+            setLabelPreviewOpen(false);
+            setLabelPreviewTarget(null);
+            setIsLabelPrintProcessing(false);
+        }
+    };
+
     const handleDownloadLabelFromPreview = async () => {
         if (!labelPreviewTarget?.label) {
             toast.error("Label not available for this order");
@@ -994,24 +997,57 @@ export default function OrdersPage() {
             return;
         }
 
+        await finalizeLabelPreviewAction("Label downloaded", "download");
+    };
+
+    const handlePrintLabelFromPreview = async () => {
+        if (!labelPreviewTarget?.label) {
+            toast.error("Label not available for this order");
+            return;
+        }
+
+        setIsLabelPrintProcessing(true);
+        let printWindow = null;
+        let objectUrl = null;
+
         try {
-            if (labelPreviewTarget.status === "LABEL_UPLOADED") {
-                await updateMut.mutateAsync({
-                    id: labelPreviewTarget.id,
-                    payload: { status: "LABEL_PRINTED" }
-                });
-                toast.success("Label downloaded and order marked as Printed");
-            } else {
-                toast.success("Label downloaded");
+            printWindow = window.open("", "_blank");
+            if (!printWindow) {
+                throw new Error("Popup blocked");
+            }
+
+            const blob = await getPrintableOrderLabel(labelPreviewTarget.id);
+            objectUrl = window.URL.createObjectURL(blob);
+            const escapedTitle = String(labelPreviewTarget.orderId || "Order Label").replace(/"/g, "&quot;");
+
+            printWindow.document.write(`
+              <html>
+                <head>
+                  <title>${escapedTitle}</title>
+                  <style>
+                    html, body { margin: 0; padding: 0; height: 100%; background: #fff; }
+                    iframe { border: 0; width: 100%; height: 100%; }
+                  </style>
+                </head>
+                <body>
+                  <iframe src="${objectUrl}" onload="window.focus(); window.print();"></iframe>
+                </body>
+              </html>
+            `);
+            printWindow.document.close();
+            if (objectUrl) {
+                setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60_000);
             }
         } catch (err) {
-            console.error("Status update after label download failed", err);
-            toast.error("Label downloaded, but failed to update status");
-        } finally {
-            setLabelPreviewOpen(false);
-            setLabelPreviewTarget(null);
+            console.error("Label print failed", err);
+            if (printWindow && !printWindow.closed) printWindow.close();
+            if (objectUrl) window.URL.revokeObjectURL(objectUrl);
+            toast.error("Failed to open print dialog");
             setIsLabelPrintProcessing(false);
+            return;
         }
+
+        await finalizeLabelPreviewAction("Print dialog opened", "print");
     };
 
 
@@ -1024,7 +1060,7 @@ export default function OrdersPage() {
                     type="checkbox"
                     className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     onChange={(e) => handleSelectAll(e.target.checked)}
-                    checked={orders.length > 0 && selectedIds.size === orders.length}
+                    checked={tableRows.length > 0 && selectedIds.size === tableRows.length}
                 />
             ),
             className: "!pr-0 !pl-4 w-[40px] !items-start",
@@ -1084,6 +1120,39 @@ export default function OrdersPage() {
             )
         },
         {
+            key: "trackingId",
+            label: "Tracking ID",
+            className: "!items-start !min-w-[250px]",
+            headerClassName: "!min-w-[250px]",
+            render: (row) => {
+                const sharedCount = Number(row?.trackingGroupCount || 0);
+                const isSharedFlyer = sharedCount > 1;
+
+                return (
+                    <div className="flex flex-col items-start justify-center gap-1 min-h-[3rem] py-1">
+                        <div className="flex items-center gap-1 w-full">
+                            <span className="text-[11px] text-blue-600 truncate" title={row.trackingId}>
+                                {row.trackingId || "—"}
+                            </span>
+                            {row.trackingId && <CopyButton text={row.trackingId} />}
+                        </div>
+                        {row.trackingId && isSharedFlyer && (
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenTrackingGroup(row.trackingId);
+                                }}
+                                className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-100"
+                            >
+                                Shared Flyer ({sharedCount})
+                            </button>
+                        )}
+                    </div>
+                );
+            }
+        },
+        {
             key: "channel",
             label: "Marketplace",
             className: "!items-start min-w-[180px] max-w-[180px]",
@@ -1139,6 +1208,7 @@ export default function OrdersPage() {
                                                 className="h-8 w-8"
                                                 thumbnailClassName="h-10 w-10 bg-white"
                                                 badgeContent={(Number(item.quantity) || 0) > 1 ? item.quantity : null}
+                                                badgeClassName="text-[10px] min-w-[18px] h-[18px] px-1.5 py-0.5 flex items-center justify-center"
                                             />
                                         </div>
                                         {/* Text */}
@@ -1192,6 +1262,7 @@ export default function OrdersPage() {
                                 className="h-8 w-8"
                                 thumbnailClassName="h-8 w-8 bg-white"
                                 badgeContent={(Number(row.quantity) || 0) > 1 ? row.quantity : null}
+                                badgeClassName="text-[10px] min-w-[18px] h-[18px] px-1.5 py-0.5 flex items-center justify-center"
                             />
                         </div>
                         <div className="flex-1 min-w-0 overflow-hidden flex flex-col gap-0.5">
@@ -1389,20 +1460,6 @@ export default function OrdersPage() {
             render: (row) => (
                 <div className="flex items-center min-h-[3rem] py-1 text-gray-800 text-[13px]">
                     {row.courierMedium?.shortName || row.courierMedium?.fullName || "—"}
-                </div>
-            )
-        },
-        {
-            key: "trackingId",
-            label: "Tracking ID",
-            className: "!items-start !min-w-[250px]",
-            headerClassName: "!min-w-[250px]",
-            render: (row) => (
-                <div className="flex items-center gap-1 min-h-[3rem] py-1">
-                    <span className="text-[11px] text-blue-600 truncate" title={row.trackingId}>
-                        {row.trackingId || "—"}
-                    </span>
-                    {row.trackingId && <CopyButton text={row.trackingId} />}
                 </div>
             )
         },
@@ -1646,11 +1703,16 @@ export default function OrdersPage() {
     const handleExport = async () => {
         try {
             setIsExporting(true);
-            if (isSummaryLoading) {
-                toast.error("Please wait, filters are still loading.");
-                return;
+            const firstPage = await listOrders({ ...filteredOrderParams, page: 1, perPage: 250 });
+            const totalPages = Number(firstPage?.meta?.totalPages || 1);
+            const dataToExport = Array.isArray(firstPage?.rows) ? [...firstPage.rows] : [];
+
+            for (let currentPage = 2; currentPage <= totalPages; currentPage += 1) {
+                const pageData = await listOrders({ ...filteredOrderParams, page: currentPage, perPage: 250 });
+                if (Array.isArray(pageData?.rows) && pageData.rows.length > 0) {
+                    dataToExport.push(...pageData.rows);
+                }
             }
-            const dataToExport = filteredOrdersForSummary || [];
 
             if (dataToExport.length === 0) {
                 toast.error("No orders to export.");
@@ -1753,7 +1815,7 @@ export default function OrdersPage() {
         const fromLabel = new Date(dateRange.from).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
         const toLabel = new Date(dateRange.to || dateRange.from).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
         return `${fromLabel} - ${toLabel}`;
-    }, [dateRange?.from, dateRange?.to]);
+    }, [dateRange?.from?.getTime(), dateRange?.to?.getTime()]);
 
     const toolbar = (
         <div className="flex items-center gap-3 w-full">
@@ -1789,7 +1851,7 @@ export default function OrdersPage() {
                 defaultDateRange={defaultDateRange}
             />
 
-            {(statusFilter.id !== "ALL" || channelFilter.id || courierFilter.id || remarkFilter.id || dateRange || settledFilter.id !== "all") && (
+            {(statusFilter.id !== "ALL" || channelFilter.id || courierFilter.id || remarkFilter.id || dateRange || settledFilter.id !== "all" || sharedFlyersOnly) && (
                 <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
                     <span className="text-xs font-medium text-gray-500">Applied:</span>
 
@@ -1834,6 +1896,12 @@ export default function OrdersPage() {
                             <button onClick={() => setRemarkFilter(remarkOptions[0])} className="hover:text-red-500"><X size={10} /></button>
                         </div>
                     )}
+                    {sharedFlyersOnly && (
+                        <div className="flex items-center gap-1 bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full text-[11px] font-medium border border-blue-200 whitespace-nowrap">
+                            Shared Flyers Only
+                            <button onClick={() => setSharedFlyersOnly(false)} className="hover:text-red-500"><X size={10} /></button>
+                        </div>
+                    )}
 
                     <div className="h-4 w-px bg-gray-300 mx-1" />
 
@@ -1841,15 +1909,18 @@ export default function OrdersPage() {
                         variant="ghost"
                         size="xs"
                         className="text-red-600 hover:bg-red-50 h-6 px-2"
-                        onClick={() => handleFilterApply({
-                            search: "",
-                            status: statusOptions[0],
-                            channel: channelOptions[0],
-                            courier: courierOptions[0],
-                            remark: remarkOptions[0],
-                            dateRange: defaultDateRange,
-                            settled: { id: "all", name: "All" }
-                        })}
+                        onClick={() => {
+                            setSharedFlyersOnly(false);
+                            handleFilterApply({
+                                search: "",
+                                status: statusOptions[0],
+                                channel: channelOptions[0],
+                                courier: courierOptions[0],
+                                remark: remarkOptions[0],
+                                dateRange: defaultDateRange,
+                                settled: { id: "all", name: "All" }
+                            });
+                        }}
                     >
                         <Trash2 size={12} className="mr-1" /> Clear all
                     </Button>
@@ -1857,6 +1928,20 @@ export default function OrdersPage() {
             )}
 
             <div className="flex-1" />
+
+            <Button
+                variant={sharedFlyersOnly ? "warning" : "secondary"}
+                onClick={() => setSharedFlyersOnly((prev) => !prev)}
+                title="Show only orders that share tracking IDs"
+            >
+                {sharedFlyersOnly ? "Shared Flyers: ON" : "Shared Flyers"}
+            </Button>
+
+            {canShowProductSummary && (
+                <Button variant="secondary" onClick={handleOpenProductSummary} isLoading={isProductSummaryLoading}>
+                    Summary
+                </Button>
+            )}
 
             <Button variant="secondary" onClick={handleExport} disabled={isExporting}>
                 <Download size={16} className="mr-2" />
@@ -1948,10 +2033,10 @@ export default function OrdersPage() {
 
             <DataTable
                 columns={columns}
-                rows={orders}
+                rows={tableRows}
                 isLoading={isLoading}
                 toolbar={toolbar}
-                gridCols="grid-cols-[40px_minmax(100px,0.7fr)_minmax(244px,1.69fr)_minmax(110px,0.7fr)_minmax(360px,2.1fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(100px,0.8fr)_minmax(250px,1fr)_minmax(203px,1.52fr)_minmax(196px,max-content)]"
+                gridCols="grid-cols-[40px_minmax(100px,0.7fr)_minmax(244px,1.69fr)_minmax(250px,1fr)_minmax(110px,0.7fr)_minmax(360px,2.1fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.6fr)_minmax(90px,0.5fr)_minmax(90px,0.6fr)_minmax(100px,0.8fr)_minmax(203px,1.52fr)_minmax(196px,max-content)]"
                 contentMinWidthClass="min-w-[2127px]"
                 rowClassName={(row) => row.id === highlightOrderId ? "bg-amber-100 transition-colors duration-1000" : ""}
             />
@@ -2154,6 +2239,114 @@ export default function OrdersPage() {
             />
 
             <Modal
+                open={productSummaryOpen}
+                onClose={() => setProductSummaryOpen(false)}
+                title="Product Summary"
+                widthClass="max-w-5xl"
+                footer={(
+                    <Button variant="ghost" onClick={() => setProductSummaryOpen(false)}>
+                        Close
+                    </Button>
+                )}
+            >
+                <div className="space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                        <p className="text-sm font-medium text-gray-700">Date Range: {activeRangeLabel}</p>
+                        <p className="text-xs text-gray-500">
+                            {isProductSummaryLoading ? "Loading..." : `Orders: ${productSummaryOrderCount} | Items: ${productSummaryRows.length}`}
+                        </p>
+                    </div>
+
+                    {isProductSummaryLoading ? (
+                        <div className="py-8 text-center text-sm text-gray-500">Loading summary...</div>
+                    ) : productSummaryRows.length === 0 ? (
+                        <div className="py-8 text-center text-sm text-gray-500">No products found for the selected range.</div>
+                    ) : (
+                        <div className="max-h-[60vh] overflow-auto rounded-lg border border-gray-200">
+                            <table className="min-w-full table-fixed text-sm">
+                                <thead className="sticky top-0 bg-gray-50">
+                                    <tr className="border-b border-gray-200">
+                                        <th className="w-[50%] px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Product Name</th>
+                                        <th className="w-[38%] px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Variant (Color + Size)</th>
+                                        <th className="w-[12%] pl-2 pr-6 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600">Qty</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {productSummaryRows.map((row, index) => (
+                                        <tr
+                                            key={`${row.groupKey}-${row.variant}-${index}`}
+                                            className="border-b border-gray-100 last:border-0"
+                                        >
+                                            <td className="px-3 py-2 text-gray-900">
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <div className="flex-shrink-0">
+                                                        <ImageGallery
+                                                            images={Array.isArray(row.images) ? row.images : []}
+                                                            absImg={absImg}
+                                                            placeholder={IMG_PLACEHOLDER}
+                                                            compact={true}
+                                                            className="h-8 w-8"
+                                                            thumbnailClassName="h-9 w-9 bg-white"
+                                                        />
+                                                    </div>
+                                                    <span className="block truncate" title={row.productName}>{row.productName}</span>
+                                                </div>
+                                            </td>
+                                            <td className="px-3 py-2 text-gray-700">{row.variant || "—"}</td>
+                                            <td className="pl-2 pr-6 py-2 text-right font-semibold tabular-nums text-gray-900">{formatSummaryQty(row.qty)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            </Modal>
+
+            <Modal
+                open={trackingGroupOpen}
+                onClose={() => setTrackingGroupOpen(false)}
+                title={`Shared Flyer Orders${trackingGroupId ? ` - ${trackingGroupId}` : ""}`}
+                widthClass="max-w-4xl"
+                footer={(
+                    <Button variant="ghost" onClick={() => setTrackingGroupOpen(false)}>
+                        Close
+                    </Button>
+                )}
+            >
+                {isTrackingGroupLoading ? (
+                    <div className="py-8 text-center text-sm text-gray-500">Loading shared flyer orders...</div>
+                ) : trackingGroupOrders.length === 0 ? (
+                    <div className="py-8 text-center text-sm text-gray-500">No orders found for this tracking ID.</div>
+                ) : (
+                    <div className="max-h-[60vh] overflow-auto rounded-lg border border-gray-200">
+                        <table className="min-w-full text-sm">
+                            <thead className="sticky top-0 bg-gray-50">
+                                <tr className="border-b border-gray-200">
+                                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Order ID</th>
+                                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Date</th>
+                                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Marketplace</th>
+                                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Courier</th>
+                                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {trackingGroupOrders.map((row) => (
+                                    <tr key={row.id} className="border-b border-gray-100 last:border-0">
+                                        <td className="px-3 py-2 text-gray-900">{row.orderId || "—"}</td>
+                                        <td className="px-3 py-2 text-gray-700">{formatDate(row.date)}</td>
+                                        <td className="px-3 py-2 text-gray-700">{row.tenantChannel?.marketplace || "—"}</td>
+                                        <td className="px-3 py-2 text-gray-700">{row.courierMedium?.shortName || row.courierMedium?.fullName || "—"}</td>
+                                        <td className="px-3 py-2 text-gray-700">{row.status?.replace(/_/g, " ") || "—"}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </Modal>
+
+            <Modal
                 open={labelPreviewOpen}
                 onClose={handleCloseLabelPreview}
                 title={`Label Preview${labelPreviewTarget?.orderId ? ` - ${labelPreviewTarget.orderId}` : ""}`}
@@ -2170,6 +2363,14 @@ export default function OrdersPage() {
                             disabled={!labelPreviewTarget?.label}
                         >
                             Download
+                        </Button>
+                        <Button
+                            variant="warning"
+                            onClick={handlePrintLabelFromPreview}
+                            isLoading={isLabelPrintProcessing}
+                            disabled={!labelPreviewTarget?.label}
+                        >
+                            Print
                         </Button>
                     </>
                 }
@@ -2190,6 +2391,9 @@ export default function OrdersPage() {
                 onClose={() => setModalOpen(false)}
                 editing={editing}
                 onSuccess={handleOrderSaved}
+                onRequestReturn={(order) => {
+                    openReturnModal(order);
+                }}
             />
 
             <ReturnOrderModal

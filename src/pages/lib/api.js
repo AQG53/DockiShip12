@@ -276,7 +276,7 @@ export async function listProducts({ page, perPage, search, status } = {}) {
   if (search) params.search = search;
   if (status) params.status = status;
 
-  const res = await axiosInstance.get("/products");
+  const res = await axiosInstance.get("/products", { params });
   const payload = res?.data ?? {};
   const inner = payload?.data ?? payload;
 
@@ -294,5 +294,3 @@ export async function listProducts({ page, perPage, search, status } = {}) {
 
   return { rows: Array.isArray(rows) ? rows : [], meta };
 }
-
-

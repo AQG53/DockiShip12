@@ -81,12 +81,21 @@ const parseReturnEventsFromRemarks = (remarksRaw) => {
         return {
             at: atMatch?.[1] || null,
             note: noteMatch?.[1] || "",
+            totalPurchaseCost: 0,
+            totalSellingAmount: 0,
+            shippingCharges: 0,
+            taxCharges: 0,
+            otherCharges: 0,
+            netProfit: 0,
             items: [
                 {
                     productDescription: productMatch?.[1] || "Order Item",
                     returnedQty,
                     unitsPerQty,
                     restockedUnits,
+                    returnPurchaseCost: 0,
+                    returnSellingAmount: 0,
+                    returnNetProfit: 0,
                 },
             ],
         };
@@ -105,6 +114,12 @@ const parseReturnEventsFromRemarks = (remarksRaw) => {
                 return {
                     at: parsed.at || parsed.createdAt || null,
                     note: parsed.note || parsed.returnNote || "",
+                    totalPurchaseCost: toNumber(parsed.totalPurchaseCost, 0),
+                    totalSellingAmount: toNumber(parsed.totalSellingAmount, 0),
+                    shippingCharges: toNumber(parsed.shippingCharges, 0),
+                    taxCharges: toNumber(parsed.taxCharges, 0),
+                    otherCharges: toNumber(parsed.otherCharges, 0),
+                    netProfit: toNumber(parsed.netProfit, 0),
                     items: Array.isArray(parsed.items) ? parsed.items : [],
                 };
             } catch {
@@ -123,12 +138,21 @@ const parseReturnEventsFromRecords = (recordsRaw) => {
             return {
                 at: record?.createdAt || record?.at || null,
                 note: record?.note || "",
+                totalPurchaseCost: toNumber(record?.totalPurchaseCost, 0),
+                totalSellingAmount: toNumber(record?.totalSellingAmount, 0),
+                shippingCharges: toNumber(record?.shippingCharges, 0),
+                taxCharges: toNumber(record?.taxCharges, 0),
+                otherCharges: toNumber(record?.otherCharges, 0),
+                netProfit: toNumber(record?.netProfit, 0),
                 items: items.map((item) => ({
                     orderItemId: item?.orderItemId || null,
                     productDescription: item?.productDescription || "Order Item",
                     returnedQty: toNumber(item?.returnedQty, 0),
                     unitsPerQty: toNumber(item?.unitsPerQty, 1),
                     restockedUnits: toNumber(item?.restockedUnits, 0),
+                    returnPurchaseCost: toNumber(item?.returnPurchaseCost, 0),
+                    returnSellingAmount: toNumber(item?.returnSellingAmount, 0),
+                    returnNetProfit: toNumber(item?.returnNetProfit, 0),
                 })),
             };
         })
@@ -328,6 +352,9 @@ export default function ViewOrderModal({ open, onClose, order }) {
                     returnedQtyEquivalent: returnedUnits / Math.max(1, unitsPerQty),
                     unitsPerQty,
                     returnedUnits,
+                    returnPurchaseCost: toNumber(item?.returnPurchaseCost, 0),
+                    returnSellingAmount: toNumber(item?.returnSellingAmount, 0),
+                    returnNetProfit: toNumber(item?.returnNetProfit, 0),
                     note: event.note || "",
                 });
             });
@@ -614,10 +641,11 @@ export default function ViewOrderModal({ open, onClose, order }) {
                         <table className="w-full text-left text-sm">
                             <thead className="bg-gray-50 border-b border-gray-100">
                                 <tr>
-                                    <th className="px-4 py-3 font-medium text-gray-500 w-[45%]">Product</th>
-                                    <th className="px-3 py-2 font-medium text-gray-500 text-center w-[10%]">Returned Units</th>
-                                    <th className="px-3 py-2 font-medium text-gray-500 text-center w-[12%]">Qty Equivalent</th>
-                                    <th className="px-3 py-2 font-medium text-gray-500 w-[33%]">Note</th>
+                                    <th className="px-4 py-3 font-medium text-gray-500 w-[30%]">Product</th>
+                                    <th className="px-3 py-2 font-medium text-gray-500 text-center w-[8%]">Returned Units</th>
+                                    <th className="px-3 py-2 font-medium text-gray-500 text-center w-[10%]">Qty Equivalent</th>
+                                    <th className="px-3 py-2 font-medium text-gray-500 text-right w-[14%]">Return Amount</th>
+                                    <th className="px-3 py-2 font-medium text-gray-500 w-[26%]">Note</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
@@ -645,12 +673,14 @@ export default function ViewOrderModal({ open, onClose, order }) {
                                         </td>
                                         <td className="px-3 py-2 text-center text-gray-900 font-medium">{row.returnedUnits}</td>
                                         <td className="px-3 py-2 text-center text-gray-900 font-medium">{row.returnedQtyEquivalent.toFixed(2)}</td>
+                                        <td className="px-3 py-2 text-right text-gray-900 font-medium">{formatPrice(row.returnSellingAmount)}</td>
                                         <td className="px-3 py-2 text-gray-600 break-words whitespace-normal">{row.note || "—"}</td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
                     </div>
+
                 </CardSection>
             )}
 

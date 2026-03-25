@@ -241,6 +241,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     const [mainPackagingQty, setMainPackagingQty] = useState("");
     const [mainStockOnHand, setMainStockOnHand] = useState("");
     const [mainThreshold, setMainThreshold] = useState("");
+    const [notes, setNotes] = useState("");
 
     // --- new: supplier & pricing ---
     const [supplier, setSupplier] = useState("Select");
@@ -465,6 +466,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         setMainPackagingQty("");
         setMainStockOnHand("");
         setMainThreshold("");
+        setNotes("");
 
         setWeightMain("");
         setWeightUnit("lb");
@@ -556,6 +558,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             autoSku: true,
             packagingType: parentPkgType,
             packagingQuantity: parentPkgQty,
+            notes: isNonEmpty(notes) ? String(notes).trim() : "",
         };
 
         setVariants([nextVariant]);
@@ -678,6 +681,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                 autoSku: true,
                 packagingType: "",
                 packagingQuantity: "",
+                notes: "",
             },
         ]);
     };
@@ -884,6 +888,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         setCondition(productDetail.condition || (enums?.ProductCondition?.[0] || "NEW"));
         setOrigin(productDetail.originCountry || "Select");
         setCategory(productDetail.category || "Select");
+        setNotes(productDetail.notes || "");
 
         // weight + dims (for simple) – backend simple uses parent fields; variant-style often stores in variant
         const wu = "lb";
@@ -959,6 +964,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                     colorText: v.colorText || "",
                     sku: v.sku || "",
                     barcode: v.barcode || "",
+                    notes: v.notes || "",
 
                     weight: decomposeWeight(v.weight, "lb").main,
                     weightSub: decomposeWeight(v.weight, "lb").sub,
@@ -1138,6 +1144,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             sku: isNonEmpty(finalSku) ? finalSku.trim() : undefined,
             name: name.trim(),
             brand: isNonEmpty(brand) ? brand.trim() : undefined,
+            notes: isNonEmpty(notes) ? notes.trim() : null,
             status: status,
             originCountry: origin !== "Select" ? origin : undefined, // ISO2
             category: category !== "Select" ? category : undefined,
@@ -1181,6 +1188,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                 sizeText: v.sizeText || v.sizeCode || "",
                 colorText: v.colorText || "",
                 barcode: isNonEmpty(v.barcode) ? v.barcode.trim() : undefined,
+                notes: isNonEmpty(v.notes) ? String(v.notes).trim() : null,
                 status,
                 condition,
                 weight: (() => {
@@ -1219,6 +1227,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             sku: isNonEmpty(finalSku) ? finalSku.trim() : undefined,
             name: name.trim(),
             brand: isNonEmpty(brand) ? brand.trim() : undefined,
+            notes: isNonEmpty(notes) ? notes.trim() : null,
             status,
             originCountry: origin !== "Select" ? origin : undefined,
             category: category !== "Select" ? category : undefined,
@@ -1293,6 +1302,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                     name: payload.name,
                     sku: payload.sku,
                     brand: payload.brand,
+                    notes: isNonEmpty(notes) ? notes.trim() : null,
                     status: payload.status,
                     isDraft: !!isDraft,
                     // optional: you can pass originCountry if backend supports in PATCH parent:
@@ -1369,6 +1379,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                             sizeText: v.sizeText || v.sizeCode || "",
                             colorText: v.colorText || "",
                             barcode: v.barcode || undefined,
+                            notes: isNonEmpty(v.notes) ? String(v.notes).trim() : null,
                             status: v.active ? "active" : "inactive",
                             isDraft: !!isDraft,
                             condition,
@@ -1504,6 +1515,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                 setBarcode("");
                 setName("");
                 setBrand("");
+                setNotes("");
 
                 // Preserve condition/status/origin/units and price/dimensions to speed up entry
                 // Keep variant toggle as-is, but reset its rows/prices for a clean start
@@ -1873,6 +1885,15 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                     </Field>
                                                 </div>
 
+                                                <Field className="col-span-12" label="Notes">
+                                                    <textarea
+                                                        className="min-h-[72px] w-full rounded-lg border border-gray-300 bg-white px-2 py-2 text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
+                                                        placeholder="Add product notes..."
+                                                        value={notes}
+                                                        onChange={(e) => setNotes(e.target.value)}
+                                                    />
+                                                </Field>
+
                                                 {!variantEnabled && (
                                                     <div className="col-span-12 grid grid-cols-5 gap-3">
                                                         <div className="col-span-2">
@@ -2158,6 +2179,14 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                                 value={v.threshold ?? ""}
                                                                                                 onChange={(e) => patchVariant(v.id, { threshold: sanitizeIntegerInput(e.target.value) })}
                                                                                                 inputMode="numeric"
+                                                                                            />
+                                                                                        </Field>
+                                                                                        <Field className="col-span-5" label="Variant Notes">
+                                                                                            <input
+                                                                                                className={input}
+                                                                                                placeholder="Optional note for this variant"
+                                                                                                value={v.notes || ""}
+                                                                                                onChange={(e) => patchVariant(v.id, { notes: e.target.value })}
                                                                                             />
                                                                                         </Field>
                                                                                     </div>

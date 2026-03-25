@@ -361,7 +361,7 @@ function RelatedProductsDialog({ open, onClose, supplier, onUnlinked, canManage 
   const loadProducts = async () => {
     try {
       setLoadingProducts(true);
-      const { rows } = await listProducts({ perPage: 200, search });
+      const { rows } = await listProducts({ perPage: 200, search, status: "active" });
       setAllProducts(Array.isArray(rows) ? rows : []);
     } catch (e) {
       console.error(e);

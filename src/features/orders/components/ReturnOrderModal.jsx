@@ -23,6 +23,25 @@ const toInt = (value) => {
   return Math.max(0, Math.floor(n));
 };
 
+const toAmount = (value, fallback = 0) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const sanitizeDecimal = (value) => {
+  const raw = String(value ?? "");
+  const normalized = raw.replace(/[^0-9.]/g, "");
+  const firstDot = normalized.indexOf(".");
+  if (firstDot === -1) return normalized;
+  return `${normalized.slice(0, firstDot + 1)}${normalized.slice(firstDot + 1).replace(/\./g, "")}`;
+};
+
+const parseNonNegativeMoney = (raw, fallback = 0) => {
+  const parsed = toAmount(raw, NaN);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, parsed);
+};
+
 export default function ReturnOrderModal({
   open,
   onClose,
@@ -34,6 +53,20 @@ export default function ReturnOrderModal({
 }) {
   const [qtyMap, setQtyMap] = useState({});
   const [note, setNote] = useState("");
+
+  const [lineSellingInputMap, setLineSellingInputMap] = useState({});
+  const [lineSellingManualMap, setLineSellingManualMap] = useState({});
+  const [shippingChargesInput, setShippingChargesInput] = useState("0.00");
+  const [taxChargesInput, setTaxChargesInput] = useState("0.00");
+  const [otherChargesInput, setOtherChargesInput] = useState("0.00");
+
+  const [isShippingManual, setIsShippingManual] = useState(false);
+  const [isTaxManual, setIsTaxManual] = useState(false);
+  const [isOtherManual, setIsOtherManual] = useState(false);
+  const prefilledShippingCharges = toAmount(order?.shippingCharges, 0);
+  const prefilledTaxCharges = toAmount(order?.tax, 0);
+  const prefilledOtherCharges = toAmount(order?.otherCharges, 0);
+
   const returnedUnitsByItem = useMemo(() => {
     const map = new Map();
     const records = Array.isArray(order?.returnRecords) ? order.returnRecords : [];
@@ -60,6 +93,13 @@ export default function ReturnOrderModal({
       const previouslyReturnedUnits = toInt(returnedUnitsByItem.get(item.id) || 0);
       const remainderUnits = previouslyReturnedUnits % units;
       const availableUnits = Math.max(0, (availableQty * units) - remainderUnits);
+      const currentLineCost = toAmount(item?.totalCost, 0);
+      const currentLineSelling = toAmount(item?.totalAmount, 0);
+      const unitSalePriceFromOrder = toAmount(
+        item?.unitPrice,
+        availableQty > 0 ? (currentLineSelling / availableQty) : 0,
+      );
+
       return {
         id: item.id,
         label: getItemLabel(item),
@@ -67,6 +107,9 @@ export default function ReturnOrderModal({
         availableQty,
         units,
         availableUnits,
+        unitPurchaseCost: availableUnits > 0 ? currentLineCost / availableUnits : 0,
+        unitSellingAmount: availableUnits > 0 ? currentLineSelling / availableUnits : 0,
+        unitSalePrice: unitSalePriceFromOrder,
       };
     });
   }, [order, returnedUnitsByItem]);
@@ -79,24 +122,89 @@ export default function ReturnOrderModal({
     });
     setQtyMap(next);
     setNote("");
+    setLineSellingInputMap({});
+    setLineSellingManualMap({});
+
+    setIsShippingManual(false);
+    setIsTaxManual(false);
+    setIsOtherManual(false);
+    setShippingChargesInput("0.00");
+    setTaxChargesInput("0.00");
+    setOtherChargesInput("0.00");
   }, [open, rows]);
 
-  const totals = useMemo(() => {
+  const financials = useMemo(() => {
     let selectedLines = 0;
     let totalUnits = 0;
     let totalQtyEquivalent = 0;
+    let totalPurchaseAuto = 0;
+    let totalSellingFinal = 0;
+    const lineDetails = new Map();
 
     rows.forEach((row) => {
       const units = Math.min(row.availableUnits, toInt(qtyMap[row.id]));
+      const qtyEquivalent = row.units > 0 ? (units / row.units) : 0;
+      const autoUnitSalePrice = row.unitSalePrice;
+      const autoSellingAmount = autoUnitSalePrice * qtyEquivalent;
+      const hasManualSelling = lineSellingManualMap[row.id] === true;
+      const finalUnitSalePrice = hasManualSelling
+        ? parseNonNegativeMoney(lineSellingInputMap[row.id], autoUnitSalePrice)
+        : autoUnitSalePrice;
+      const finalSellingAmount = units > 0
+        ? (finalUnitSalePrice * qtyEquivalent)
+        : 0;
+
+      lineDetails.set(row.id, {
+        units,
+        qtyEquivalent,
+        autoUnitSalePrice,
+        finalUnitSalePrice,
+        autoSellingAmount,
+        finalSellingAmount,
+        hasManualSelling,
+      });
+
       if (units > 0) {
         selectedLines += 1;
         totalUnits += units;
         totalQtyEquivalent += units / row.units;
+        totalPurchaseAuto += row.unitPurchaseCost * units;
+        totalSellingFinal += finalSellingAmount;
       }
     });
 
-    return { selectedLines, totalUnits, totalQtyEquivalent };
-  }, [rows, qtyMap]);
+    return {
+      selectedLines,
+      totalUnits,
+      totalQtyEquivalent,
+      totalPurchaseAuto,
+      totalSellingFinal,
+      lineDetails,
+    };
+  }, [
+    rows,
+    qtyMap,
+    lineSellingInputMap,
+    lineSellingManualMap,
+  ]);
+
+  useEffect(() => {
+    if (!isShippingManual) {
+      setShippingChargesInput(prefilledShippingCharges.toFixed(2));
+    }
+  }, [prefilledShippingCharges, isShippingManual]);
+
+  useEffect(() => {
+    if (!isTaxManual) {
+      setTaxChargesInput(prefilledTaxCharges.toFixed(2));
+    }
+  }, [prefilledTaxCharges, isTaxManual]);
+
+  useEffect(() => {
+    if (!isOtherManual) {
+      setOtherChargesInput(prefilledOtherCharges.toFixed(2));
+    }
+  }, [prefilledOtherCharges, isOtherManual]);
 
   const setQty = (rowId, rawValue, maxUnits) => {
     const clean = String(rawValue ?? "").replace(/[^0-9]/g, "");
@@ -121,6 +229,14 @@ export default function ReturnOrderModal({
     setQtyMap((prev) => ({ ...prev, [rowId]: maxUnits > 0 ? String(maxUnits) : "" }));
   };
 
+  const toggleRowSelected = (row) => {
+    const currentUnits = toInt(qtyMap[row.id]);
+    setQtyMap((prev) => ({
+      ...prev,
+      [row.id]: currentUnits > 0 ? "" : (row.availableUnits > 0 ? "1" : ""),
+    }));
+  };
+
   const handleReturnAll = () => {
     const next = {};
     rows.forEach((row) => {
@@ -137,14 +253,34 @@ export default function ReturnOrderModal({
     setQtyMap(next);
   };
 
+  const setLineSelling = (rowId, rawValue) => {
+    setLineSellingManualMap((prev) => ({ ...prev, [rowId]: true }));
+    setLineSellingInputMap((prev) => ({ ...prev, [rowId]: sanitizeDecimal(rawValue) }));
+  };
+
+  const resetLineSelling = (rowId) => {
+    setLineSellingManualMap((prev) => ({ ...prev, [rowId]: false }));
+    setLineSellingInputMap((prev) => {
+      const next = { ...prev };
+      delete next[rowId];
+      return next;
+    });
+  };
+
+  const finalSellingAmount = financials.totalSellingFinal;
+  const finalShippingCharges = parseNonNegativeMoney(shippingChargesInput, prefilledShippingCharges);
+  const finalTaxCharges = parseNonNegativeMoney(taxChargesInput, prefilledTaxCharges);
+  const finalOtherCharges = parseNonNegativeMoney(otherChargesInput, prefilledOtherCharges);
   const handleSubmit = async () => {
     const returns = rows
       .map((row) => {
         const units = Math.min(row.availableUnits, toInt(qtyMap[row.id]));
         if (units <= 0) return null;
+        const line = financials.lineDetails.get(row.id);
         return {
           orderItemId: row.id,
           returnUnits: units,
+          returnSellingAmount: line?.finalSellingAmount ?? (row.unitSalePrice * (units / row.units)),
         };
       })
       .filter(Boolean);
@@ -156,6 +292,10 @@ export default function ReturnOrderModal({
     await onSubmit?.({
       returns,
       returnNote: note.trim() || undefined,
+      returnSellingAmount: finalSellingAmount,
+      returnShippingCharges: finalShippingCharges,
+      returnTaxCharges: finalTaxCharges,
+      returnOtherCharges: finalOtherCharges,
     });
   };
 
@@ -164,11 +304,11 @@ export default function ReturnOrderModal({
       open={open}
       onClose={onClose}
       title={order?.orderId ? `${title} - ${order.orderId}` : title}
-      widthClass="max-w-3xl"
+      widthClass="max-w-6xl"
       footer={(
         <>
           <Button variant="ghost" onClick={onClose} disabled={isLoading}>Cancel</Button>
-          <Button variant="warning" onClick={handleSubmit} isLoading={isLoading} disabled={totals.selectedLines === 0}>
+          <Button variant="warning" onClick={handleSubmit} isLoading={isLoading} disabled={financials.selectedLines === 0}>
             {confirmLabel}
           </Button>
         </>
@@ -178,23 +318,23 @@ export default function ReturnOrderModal({
         <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-900 flex items-start gap-2">
           <Info size={14} className="mt-0.5 text-blue-700 flex-shrink-0" />
           <div>
-            <p className="font-medium">Select returned units received from customer for each item.</p>
-            <p className="mt-0.5 text-blue-800/90">Use <span className="font-semibold">Return All</span> to auto-fill all lines to available units.</p>
+            <p className="font-medium">Select order products and enter returned units.</p>
+            <p className="mt-0.5 text-blue-800/90">Selling is auto-calculated from returned units. You can override selling per product before saving.</p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
             <p className="text-[11px] uppercase tracking-wide text-gray-500">Selected Lines</p>
-            <p className="text-lg font-semibold text-gray-900">{totals.selectedLines}</p>
+            <p className="text-lg font-semibold text-gray-900">{financials.selectedLines}</p>
           </div>
           <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
             <p className="text-[11px] uppercase tracking-wide text-gray-500">Return Units</p>
-            <p className="text-lg font-semibold text-gray-900">{totals.totalUnits}</p>
+            <p className="text-lg font-semibold text-gray-900">{financials.totalUnits}</p>
           </div>
           <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
             <p className="text-[11px] uppercase tracking-wide text-gray-500">Qty Equivalent</p>
-            <p className="text-lg font-semibold text-gray-900">{totals.totalQtyEquivalent.toFixed(2)}</p>
+            <p className="text-lg font-semibold text-gray-900">{financials.totalQtyEquivalent.toFixed(2)}</p>
           </div>
         </div>
 
@@ -220,10 +360,11 @@ export default function ReturnOrderModal({
           </div>
         </div>
 
-        <div className="max-h-[50vh] overflow-auto rounded-lg border border-gray-200">
+        <div className="max-h-[46vh] overflow-auto rounded-lg border border-gray-200">
           <table className="min-w-full text-sm">
             <thead className="sticky top-0 bg-gray-50 text-gray-600">
               <tr>
+                <th className="px-3 py-2 text-center font-medium w-[72px]">Select</th>
                 <th className="px-3 py-2 text-left font-medium">Product</th>
                 <th className="px-3 py-2 text-center font-medium">Quantity</th>
                 <th className="px-3 py-2 text-center font-medium">Units</th>
@@ -235,71 +376,112 @@ export default function ReturnOrderModal({
                     <span aria-hidden="true" />
                   </div>
                 </th>
+                <th className="px-3 py-2 font-medium">
+                  <div className="mx-auto w-[208px] text-center">Unit Sale Price</div>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
-                <tr
-                  key={row.id}
-                  className={`border-t border-gray-100 ${toInt(qtyMap[row.id]) > 0 ? "bg-amber-50/50" : ""}`}
-                >
-                  <td className="px-3 py-2 text-gray-900">
-                    <div className="flex items-center gap-2">
-                      <div className="h-8 w-8 rounded border border-gray-200 bg-gray-50 overflow-hidden flex-shrink-0">
-                        <img
-                          src={absOrderImage(row.imageUrl)}
-                          alt={row.label}
-                          className="h-full w-full object-contain"
-                          onError={(e) => { e.currentTarget.src = ORDER_IMG_PLACEHOLDER; }}
-                        />
-                      </div>
-                      <span className="line-clamp-2">{row.label}</span>
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 text-center text-gray-700">{row.availableQty}</td>
-                  <td className="px-3 py-2 text-center text-gray-700">{row.units}</td>
-                  <td className="px-3 py-2">
-                    <div className="mx-auto grid w-max grid-cols-[28px_80px_28px_48px] items-center gap-1.5">
-                      <button
-                        type="button"
-                        className="h-7 w-7 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-40"
-                        onClick={() => nudgeQty(row.id, -1, row.availableUnits)}
-                        disabled={row.availableUnits <= 0 || toInt(qtyMap[row.id]) <= 0}
-                        title="Decrease"
-                      >
-                        <Minus size={12} className="mx-auto" />
-                      </button>
+              {rows.map((row) => {
+                const isSelected = toInt(qtyMap[row.id]) > 0;
+                const line = financials.lineDetails.get(row.id);
+                const selectedUnits = line?.units || 0;
+                const rowSellingValue = line?.hasManualSelling
+                  ? (lineSellingInputMap[row.id] ?? "")
+                  : toAmount(line?.autoUnitSalePrice, row.unitSalePrice).toFixed(2);
+                return (
+                  <tr
+                    key={row.id}
+                    className={`border-t border-gray-100 ${isSelected ? "bg-amber-50/50" : ""}`}
+                  >
+                    <td className="px-3 py-2 text-center">
                       <input
-                        className={inputClass}
-                        value={qtyMap[row.id] ?? ""}
-                        onChange={(e) => setQty(row.id, e.target.value, row.availableUnits)}
-                        inputMode="numeric"
-                        placeholder="0"
-                      />
-                      <button
-                        type="button"
-                        className="h-7 w-7 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-40"
-                        onClick={() => nudgeQty(row.id, 1, row.availableUnits)}
-                        disabled={row.availableUnits <= 0 || toInt(qtyMap[row.id]) >= row.availableUnits}
-                        title="Increase"
-                      >
-                        <Plus size={12} className="mx-auto" />
-                      </button>
-                      <button
-                        type="button"
-                        className="h-7 w-12 rounded border border-blue-200 bg-blue-50 px-2 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-40"
-                        onClick={() => setRowToMax(row.id, row.availableUnits)}
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        checked={isSelected}
+                        onChange={() => toggleRowSelected(row)}
                         disabled={row.availableUnits <= 0}
-                      >
-                        Max
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                      />
+                    </td>
+                    <td className="px-3 py-2 text-gray-900">
+                      <div className="flex items-center gap-2">
+                        <div className="h-8 w-8 rounded border border-gray-200 bg-gray-50 overflow-hidden flex-shrink-0">
+                          <img
+                            src={absOrderImage(row.imageUrl)}
+                            alt={row.label}
+                            className="h-full w-full object-contain"
+                            onError={(e) => { e.currentTarget.src = ORDER_IMG_PLACEHOLDER; }}
+                          />
+                        </div>
+                        <span className="line-clamp-2">{row.label}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-center text-gray-700">{row.availableQty}</td>
+                    <td className="px-3 py-2 text-center text-gray-700">{row.units}</td>
+                    <td className="px-3 py-2">
+                      <div className="mx-auto grid w-max grid-cols-[28px_80px_28px_48px] items-center gap-1.5">
+                        <button
+                          type="button"
+                          className="h-7 w-7 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+                          onClick={() => nudgeQty(row.id, -1, row.availableUnits)}
+                          disabled={row.availableUnits <= 0 || toInt(qtyMap[row.id]) <= 0}
+                          title="Decrease"
+                        >
+                          <Minus size={12} className="mx-auto" />
+                        </button>
+                        <input
+                          className={inputClass}
+                          value={qtyMap[row.id] ?? ""}
+                          onChange={(e) => setQty(row.id, e.target.value, row.availableUnits)}
+                          inputMode="numeric"
+                          placeholder="0"
+                        />
+                        <button
+                          type="button"
+                          className="h-7 w-7 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+                          onClick={() => nudgeQty(row.id, 1, row.availableUnits)}
+                          disabled={row.availableUnits <= 0 || toInt(qtyMap[row.id]) >= row.availableUnits}
+                          title="Increase"
+                        >
+                          <Plus size={12} className="mx-auto" />
+                        </button>
+                        <button
+                          type="button"
+                          className="h-7 w-12 rounded border border-blue-200 bg-blue-50 px-2 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-40"
+                          onClick={() => setRowToMax(row.id, row.availableUnits)}
+                          disabled={row.availableUnits <= 0}
+                        >
+                          Max
+                        </button>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="mx-auto flex w-[208px] items-center justify-end gap-1.5">
+                        <input
+                          className="h-8 min-w-0 flex-1 rounded-md border border-gray-300 px-2 text-right text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10 disabled:bg-gray-50 disabled:text-gray-400"
+                          value={rowSellingValue}
+                          onChange={(e) => setLineSelling(row.id, e.target.value)}
+                          inputMode="decimal"
+                          placeholder="0.00"
+                          disabled={selectedUnits <= 0}
+                        />
+                        <button
+                          type="button"
+                          className="h-8 w-[52px] flex-shrink-0 rounded border border-gray-300 px-2 text-[11px] font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+                          onClick={() => resetLineSelling(row.id)}
+                          disabled={selectedUnits <= 0 || !line?.hasManualSelling}
+                          title="Reset to auto"
+                        >
+                          Auto
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
               {rows.length === 0 && (
                 <tr>
-                  <td className="px-3 py-6 text-center text-gray-500" colSpan={4}>
+                  <td className="px-3 py-6 text-center text-gray-500" colSpan={6}>
                     No items found on this order.
                   </td>
                 </tr>
@@ -311,8 +493,7 @@ export default function ReturnOrderModal({
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Return Note (Optional)</label>
           <textarea
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
-            rows={3}
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10 h-[188px]"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="Reason or receiving notes"

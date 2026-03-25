@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { Plus, Search, Trash2 } from "lucide-react";
+import { Pencil, Plus, Search, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { Button } from "../../../components/ui/Button";
 import { Modal } from "../../../components/ui/Modal";
@@ -72,33 +72,55 @@ export default function MarketplaceChannelsList() {
     }, [rows, statusFilter.id]);
 
     const [modalOpen, setModalOpen] = useState(false);
+    const [editing, setEditing] = useState(null);
     const [name, setName] = useState("");
     const [storeUrl, setStoreUrl] = useState("");
 
-    const openModal = () => {
+    const closeModal = () => {
+        setModalOpen(false);
+        setEditing(null);
         setName("");
         setStoreUrl("");
+    };
+
+    const openModal = (row = null) => {
+        setEditing(row);
+        setName(row?.marketplace || row?.name || "");
+        setStoreUrl(row?.storeUrl || "");
         setModalOpen(true);
     };
 
     const handleSave = async () => {
-        if (!name.trim()) {
+        const normalizedName = name.trim();
+        if (!normalizedName) {
             toast.error("Name is required");
             return;
         }
+        const normalizedStoreUrl = storeUrl.trim();
         try {
-            await createMut.mutateAsync({
-                marketplace: name,
-                storeUrl: storeUrl.trim() || undefined,
-            });
-            toast.success("Created successfully");
-            setModalOpen(false);
+            if (editing) {
+                await updateMut.mutateAsync({
+                    id: editing.id,
+                    payload: {
+                        marketplace: normalizedName,
+                        storeUrl: normalizedStoreUrl || null,
+                    },
+                });
+                toast.success("Updated successfully");
+            } else {
+                await createMut.mutateAsync({
+                    marketplace: normalizedName,
+                    storeUrl: normalizedStoreUrl || undefined,
+                });
+                toast.success("Created successfully");
+            }
+            closeModal();
         } catch (err) {
             toast.error(err?.message || "Failed to save");
         }
     };
 
-    const saving = createMut.isPending;
+    const saving = createMut.isPending || updateMut.isPending;
 
     const columns = [
         {
@@ -149,7 +171,14 @@ export default function MarketplaceChannelsList() {
             className: "text-center w-[100px]",
             align: "center",
             render: (row) => (
-                <div className="flex justify-center">
+                <div className="flex justify-center gap-1">
+                    <button
+                        onClick={() => openModal(row)}
+                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                        title="Edit Channel"
+                    >
+                        <Pencil size={16} />
+                    </button>
                     <button
                         onClick={() => setDeleteTarget(row)}
                         className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
@@ -199,11 +228,11 @@ export default function MarketplaceChannelsList() {
 
             <Modal
                 open={modalOpen}
-                onClose={() => setModalOpen(false)}
-                title="Add Marketplace Channel"
+                onClose={closeModal}
+                title={editing ? "Edit Marketplace Channel" : "Add Marketplace Channel"}
                 footer={
                     <>
-                        <Button variant="ghost" onClick={() => setModalOpen(false)}>
+                        <Button variant="ghost" onClick={closeModal}>
                             Cancel
                         </Button>
                         <Button variant="warning" onClick={handleSave} isLoading={saving}>

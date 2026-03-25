@@ -254,6 +254,11 @@ export default function ViewProductModal({ open, onClose, product }) {
     // For parent product in a variant scenario, cost price might be ambiguous or a range, 
     // but here we are rendering specific data passed in 'productData'.
     const costPrice = productData?.avgCostPerUnit ?? productData?.lastPurchasePrice ?? productData?.originalPrice;
+    const parentThreshold = !isVariant && hasVariants
+      ? variantList.reduce((sum, v) => sum + (Number(v?.threshold) || 0), 0)
+      : undefined;
+    const thresholdValue = productData?.threshold ?? parentThreshold;
+    const notesText = String(productData?.notes || "").trim();
 
     return (
       <div className={card}>
@@ -335,6 +340,13 @@ export default function ViewProductModal({ open, onClose, product }) {
               </p>
             </div>
 
+            <div>
+              <p className={label}>Threshold</p>
+              <p className={value}>
+                {thresholdValue != null ? thresholdValue : "—"}
+              </p>
+            </div>
+
             {productData?.weight != null && (
               <div>
                 <p className={label}>Weight</p>
@@ -364,6 +376,13 @@ export default function ViewProductModal({ open, onClose, product }) {
               <p className={label}>Last Updated</p>
               <p className={value}>
                 {formatDate(productData.updatedAt)}
+              </p>
+            </div>
+
+            <div className="col-span-2">
+              <p className={label}>Notes</p>
+              <p className={`${value} whitespace-pre-wrap break-words`}>
+                {notesText || "—"}
               </p>
             </div>
           </div>
@@ -495,6 +514,11 @@ export default function ViewProductModal({ open, onClose, product }) {
                                   <p className={value}>{variant.stockOnHand ?? "—"}</p>
                                 </div>
 
+                                <div>
+                                  <p className={label}>Threshold</p>
+                                  <p className={value}>{variant.threshold ?? "—"}</p>
+                                </div>
+
                                 {variant.weight != null && (
                                   <div>
                                     <p className={label}>Weight</p>
@@ -520,6 +544,13 @@ export default function ViewProductModal({ open, onClose, product }) {
                                     <p className={value}>{variant.barcode}</p>
                                   </div>
                                 )}
+
+                                <div className="col-span-3">
+                                  <p className={label}>Notes</p>
+                                  <p className={`${value} whitespace-pre-wrap break-words`}>
+                                    {String(variant.notes || "").trim() || "—"}
+                                  </p>
+                                </div>
                               </div>
 
                               {/* Images */}

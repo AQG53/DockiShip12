@@ -12,6 +12,7 @@ import SignupPage from './features/auth/pages/SignupPage.jsx'
 import TenantSetupPage from './pages/TenantSetup.jsx'
 //import ShopSettings from './pages/settings/ShopSettings.jsx'
 import OrderSettings from './features/settings/pages/OrderSettings.jsx'
+import GeneralSettings from './features/settings/pages/GeneralSettings.jsx'
 //import GeneralSettings from './pages/settings/GeneralSettings.jsx'
 //import ListingSettings from './pages/settings/ListingSettings.jsx'
 //import InventorySettings from './pages/settings/InventorySettings.jsx'
@@ -37,15 +38,6 @@ import OrdersPage from './features/orders/pages/OrdersPage.jsx'
 import TemuCallbackPage from './pages/TemuCallbackPage.jsx'
 import TermsOfServicePage from './features/auth/pages/TermsOfServicePage.jsx'
 import PrivacyPolicyPage from './features/auth/pages/PrivacyPolicyPage.jsx'
-
-function OwnerOnly({ children }) {
-  const { claims, ready } = useUserPermissions();
-  if (!ready) return <PageLoader />;
-
-  const firstRole = String(claims?.roles?.[0] ?? '').toLowerCase();
-  const isOwner = firstRole === 'owner';
-  return isOwner ? children : <Navigate to="/" replace />;
-}
 
 const App = () => {
   const { isLoading, isAuthenticated } = useAuthUser();
@@ -194,14 +186,33 @@ const App = () => {
           <Route
             path="shop"
             element={
-              <OwnerOnly>
+              <ProtectedSettingsRoute permsAny={["settings.shop.read", "settings.shop.manage", "settings.manage"]}>
                 <ShopManage />
-              </OwnerOnly>
+              </ProtectedSettingsRoute>
             }
           />
-          <Route path="orders" element={<OrderSettings />} />
-          {/* <Route path="general" element={<GeneralSettings />} />
-          <Route path="listings" element={<ListingSettings />} />
+          <Route
+            path="orders"
+            element={
+              <ProtectedSettingsRoute
+                permsAny={[
+                  "order_settings.read",
+                  "order_settings.manage",
+                  "settings.orders.read",
+                  "settings.orders.manage",
+                  "settings.manage",
+                ]}
+              >
+                <OrderSettings />
+              </ProtectedSettingsRoute>
+            }
+          />
+          <Route path="general" element={
+            <ProtectedSettingsRoute permsAny={["settings.general.read", "settings.general.manage", "settings.manage"]}>
+              <GeneralSettings />
+            </ProtectedSettingsRoute>
+          } />
+          {/* <Route path="listings" element={<ListingSettings />} />
           <Route path="inventory" element={<InventorySettings />} /> */}
           <Route path="staff" element={
             <ProtectedSettingsRoute perm={"user.manage"}>

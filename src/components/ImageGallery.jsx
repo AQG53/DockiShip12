@@ -3,7 +3,17 @@ import { Dialog, Transition } from "@headlessui/react";
 import { ChevronLeft, ChevronRight, X, Maximize2 } from "lucide-react";
 import { Fragment } from "react";
 
-export default function ImageGallery({ images = [], absImg, placeholder, className, thumbnailClassName, compact = false, showName = false, badgeContent = null }) {
+export default function ImageGallery({
+    images = [],
+    absImg,
+    placeholder,
+    className,
+    thumbnailClassName,
+    compact = false,
+    showName = false,
+    badgeContent = null,
+    badgeClassName,
+}) {
     const [lightboxOpen, setLightboxOpen] = useState(false);
     const [currentIndex, setCurrentIndex] = useState(0);
 
@@ -110,7 +120,9 @@ export default function ImageGallery({ images = [], absImg, placeholder, classNa
 
                     {/* Compact Badge - shows quantity if provided, otherwise image count */}
                     {compact && (badgeContent !== null || images.length > 1) && (
-                        <div className="absolute top-0 left-0 bg-orange-500 text-white text-[8px] font-bold px-1 py-0 leading-tight rounded-tl-sm rounded-br overflow-hidden z-10 shadow-sm opacity-90">
+                        <div
+                            className={`absolute top-0 left-0 bg-orange-500 text-white text-[8px] font-bold px-1 py-0 leading-tight rounded-tl-sm rounded-br overflow-hidden z-10 shadow-sm opacity-90 ${badgeClassName || ""}`}
+                        >
                             {badgeContent !== null ? badgeContent : `+${images.length - 1}`}
                         </div>
                     )}

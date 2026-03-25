@@ -46,6 +46,10 @@ const sanitizeDecimal = (value) => {
     if (firstDot === -1) return normalized;
     return `${normalized.slice(0, firstDot + 1)}${normalized.slice(firstDot + 1).replace(/\./g, "")}`;
 };
+const toAmount = (value, fallback = 0) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+};
 const getLocalDateInputValue = (value = new Date()) => {
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return "";
@@ -67,7 +71,7 @@ function OrderTextField({ inputRef, className = inputClass, value, onValueChange
     );
 }
 
-export default function OrderModal({ open, onClose, editing, onSuccess }) {
+export default function OrderModal({ open, onClose, editing, onSuccess, onRequestReturn }) {
     const createMut = useCreateOrder();
     const updateMut = useUpdateOrder();
     const uploadLabelMut = useUploadOrderLabel();
@@ -271,6 +275,30 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
         };
     }, [items, shippingCharges, tax, otherCharges]);
 
+    const returnSummary = useMemo(() => {
+        const records = Array.isArray(editing?.returnRecords) ? editing.returnRecords : [];
+        return records.reduce((acc, record) => {
+            const lines = Array.isArray(record?.items) ? record.items : [];
+            acc.totalEvents += 1;
+            acc.totalLineItems += lines.length;
+            acc.totalReturnedUnits += lines.reduce((sum, line) => sum + toAmount(line?.restockedUnits, 0), 0);
+            acc.totalReturnAmount += toAmount(record?.totalSellingAmount, 0);
+            acc.totalCharges +=
+                toAmount(record?.shippingCharges, 0) +
+                toAmount(record?.taxCharges, 0) +
+                toAmount(record?.otherCharges, 0);
+            acc.totalNetAmount += toAmount(record?.netProfit, 0);
+            return acc;
+        }, {
+            totalEvents: 0,
+            totalLineItems: 0,
+            totalReturnedUnits: 0,
+            totalReturnAmount: 0,
+            totalCharges: 0,
+            totalNetAmount: 0,
+        });
+    }, [editing?.returnRecords]);
+
     // Load editing data
     useEffect(() => {
         if (editing) {
@@ -451,6 +479,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
 
     // Handlers
     const handleSave = async (mode = 'single', skipTrackingIdCheck = false) => {
+        const editingOrderId = String(editing?.id || "").trim();
         if (!orderId?.trim()) {
             alert.error("Required Field", "Order ID is required");
             return;
@@ -517,11 +546,18 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
         }
 
         const normalizedTrackingId = String(trackingId ?? "").trim();
-        if (!skipTrackingIdCheck && normalizedTrackingId) {
+        const normalizedExistingTrackingId = String(editing?.trackingId || "").trim();
+        const shouldCheckTrackingId = Boolean(
+            !skipTrackingIdCheck
+            && normalizedTrackingId
+            && (!editingOrderId || normalizedTrackingId !== normalizedExistingTrackingId),
+        );
+
+        if (shouldCheckTrackingId) {
             try {
                 const trackingCheck = await checkOrderTrackingIdExists({
                     trackingId: normalizedTrackingId,
-                    excludeOrderId: editing?.id || undefined,
+                    excludeOrderId: editingOrderId || undefined,
                 });
 
                 if (trackingCheck?.exists) {
@@ -569,10 +605,10 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
 
         try {
             let savedOrderId = orderId;
-            if (editing) {
-                await updateMut.mutateAsync({ id: editing.id, payload });
+            if (editingOrderId) {
+                await updateMut.mutateAsync({ id: editingOrderId, payload });
                 // savedOrderId is already orderId (from editing)
-                savedOrderId = editing.id;
+                savedOrderId = editingOrderId;
                 alert.success("Order Updated", "Your order has been successfully updated.");
             } else {
                 const res = await createMut.mutateAsync(payload);
@@ -741,6 +777,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
         "PENDING", "LABEL_UPLOADED", "LABEL_PRINTED", "PACKED", "SHIPPED",
         "DELIVERED", "CANCEL", "REFUND"
     ].map(s => ({ value: s, label: s.replace(/_/g, " ") }));
+    const isReturnEligible = Boolean(editing && (editing.status === "SHIPPED" || editing.status === "DELIVERED"));
 
     const productSelectOpts = useMemo(() => {
         // Filter by option/listing ID so the same variant can still appear
@@ -1198,6 +1235,61 @@ export default function OrderModal({ open, onClose, editing, onSuccess }) {
                 </div>
 
                 {/* 3. Footer Summary */}
+                {editing && (
+                    <div className="bg-amber-50/60 p-4 rounded-xl border border-amber-100">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <h3 className="text-xs font-semibold text-amber-900 uppercase tracking-wider">Return Management</h3>
+                                <p className="text-xs text-amber-800 mt-1">
+                                    Process returns from this order using order items only.
+                                </p>
+                            </div>
+                            <Button
+                                type="button"
+                                variant="warning"
+                                onClick={() => {
+                                    if (!isReturnEligible) return;
+                                    onRequestReturn?.(editing);
+                                }}
+                                disabled={!isReturnEligible}
+                            >
+                                Process Return
+                            </Button>
+                        </div>
+                        {returnSummary.totalEvents > 0 && (
+                            <div className="mt-3 grid grid-cols-2 md:grid-cols-5 gap-2">
+                                <div className="rounded-lg border border-amber-200 bg-white/70 px-3 py-2">
+                                    <p className="text-[10px] uppercase tracking-wide text-amber-800">Return Events</p>
+                                    <p className="text-sm font-semibold text-amber-900">{returnSummary.totalEvents}</p>
+                                </div>
+                                <div className="rounded-lg border border-amber-200 bg-white/70 px-3 py-2">
+                                    <p className="text-[10px] uppercase tracking-wide text-amber-800">Line Items</p>
+                                    <p className="text-sm font-semibold text-amber-900">{returnSummary.totalLineItems}</p>
+                                </div>
+                                <div className="rounded-lg border border-amber-200 bg-white/70 px-3 py-2">
+                                    <p className="text-[10px] uppercase tracking-wide text-amber-800">Returned Units</p>
+                                    <p className="text-sm font-semibold text-amber-900">{returnSummary.totalReturnedUnits}</p>
+                                </div>
+                                <div className="rounded-lg border border-amber-200 bg-white/70 px-3 py-2">
+                                    <p className="text-[10px] uppercase tracking-wide text-amber-800">Return Amount</p>
+                                    <p className="text-sm font-semibold text-amber-900">${returnSummary.totalReturnAmount.toFixed(2)}</p>
+                                </div>
+                                <div className="rounded-lg border border-amber-200 bg-white/70 px-3 py-2">
+                                    <p className="text-[10px] uppercase tracking-wide text-amber-800">Net Return</p>
+                                    <p className={`text-sm font-semibold ${returnSummary.totalNetAmount >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                                        ${returnSummary.totalNetAmount.toFixed(2)}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                        {!isReturnEligible && (
+                            <p className="text-[11px] text-amber-700 mt-2">
+                                Return is available only when status is SHIPPED or DELIVERED.
+                            </p>
+                        )}
+                    </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
                     <div>
                         <label className="block text-xs font-medium text-gray-700 mb-1">Remark Type</label>

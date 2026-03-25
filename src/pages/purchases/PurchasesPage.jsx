@@ -589,7 +589,7 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
   const { mutate: fetchProducts, data: productData, isPending: loadingProducts } = productQuery;
   useEffect(() => {
     if (open) {
-      fetchProducts({ page: 1, perPage: 200, supplierId: form.supplierId || undefined });
+      fetchProducts({ page: 1, perPage: 200, supplierId: form.supplierId || undefined, status: "active" });
     }
   }, [open, fetchProducts, form.supplierId]);
 

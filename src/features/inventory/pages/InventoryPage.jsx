@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Search, Package, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Search, Package, Trash2, Columns3, X, Copy } from "lucide-react";
 import { Button } from "../../../components/ui/Button";
 import { DataTable } from "../../../components/ui/DataTable";
 import { Modal } from "../../../components/ui/Modal";
@@ -24,6 +24,41 @@ const IMG_PLACEHOLDER = "data:image/svg+xml;utf8," + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><rect width="100%" height="100%" fill="#f3f4f6"/><g fill="#9ca3af"><circle cx="26" cy="30" r="8"/><path d="M8 60l15-15 10 10 12-12 27 27H8z"/></g></svg>'
 );
 const NO_SUPPLIER_FILTER_VALUE = "__NO_SUPPLIER__";
+const INVENTORY_MANDATORY_COLUMN_KEYS = ["expand", "productName"];
+const INVENTORY_COLUMN_TRACKS = {
+  expand: "40px",
+  productName: "minmax(299px,2.015fr)",
+  warehouse: "minmax(150px,0.5fr)",
+  stockOnHand: "minmax(90px,0.5fr)",
+  reservedQty: "minmax(90px,0.5fr)",
+  inTransit: "minmax(90px,0.5fr)",
+  returns: "minmax(90px,0.5fr)",
+  threshold: "minmax(90px,0.5fr)",
+  reorderLevel: "minmax(90px,0.5fr)",
+  totalOrders: "minmax(80px,0.5fr)",
+  costPrice: "minmax(110px,0.6fr)",
+  totalValue: "minmax(120px,0.8fr)",
+  actions: "130px",
+};
+const INVENTORY_COLUMN_PICKER_OPTIONS = [
+  { key: "warehouse", label: "Warehouse" },
+  { key: "stockOnHand", label: "Available" },
+  { key: "reservedQty", label: "Reserved" },
+  { key: "inTransit", label: "In Transit" },
+  { key: "returns", label: "Returns" },
+  { key: "threshold", label: "Threshold" },
+  { key: "reorderLevel", label: "Reorder" },
+  { key: "totalOrders", label: "Orders" },
+  { key: "costPrice", label: "Unit Cost" },
+  { key: "totalValue", label: "Total Value" },
+  ...(SHOW_INVENTORY_ACTIONS_COLUMN ? [{ key: "actions", label: "Actions" }] : []),
+];
+
+const getDefaultInventoryVisibleColumns = () =>
+  INVENTORY_COLUMN_PICKER_OPTIONS.reduce((acc, column) => {
+    acc[column.key] = true;
+    return acc;
+  }, {});
 
 const absImg = (path) => {
   if (!path) return IMG_PLACEHOLDER;
@@ -91,14 +126,8 @@ function calculateReorderLevel(availableQty, thresholdQty, inTransitQty) {
   const available = Number(availableQty) || 0;
   const threshold = Number(thresholdQty) || 0;
   const inTransit = Number(inTransitQty) || 0;
-  if (threshold <= 0) return 0;
-
-  if (available < threshold) {
-    const shortage = threshold - available;
-    return inTransit >= shortage ? 0 : shortage;
-  }
-
-  return threshold - available;
+  const netAvailable = available + inTransit;
+  return Math.max(0, threshold - netAvailable);
 }
 
 export default function InventoryPage() {
@@ -112,6 +141,8 @@ export default function InventoryPage() {
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(25);
   const [expandedRowId, setExpandedRowId] = useState(null);
+  const [columnPickerOpen, setColumnPickerOpen] = useState(false);
+  const [visibleInventoryColumns, setVisibleInventoryColumns] = useState(() => getDefaultInventoryVisibleColumns());
 
   // Data Hooks
   const { mutate: fetchInventory, data, isPending } = useInventory();
@@ -1043,29 +1074,28 @@ export default function InventoryPage() {
       // For parent rows, aggregate threshold and stock from all variants (if variant product)
       // or use parent-level values (if simple product with single variant)
       const variants = row.variants || [];
-      const isVariantProduct = variants.length > 1;
+      const hasVariantChildren = variants.length > 0;
 
       // Calculate aggregated values for parent row
       const totalThreshold = variants.reduce((sum, v) => sum + (v.threshold || 0), 0);
-      const parentReorderLevel = isVariantProduct
+      const parentReorderLevel = hasVariantChildren
         ? variants.reduce((sum, v) => {
           const variantReorderLevel = calculateReorderLevel(v?.stockOnHand, v?.threshold, v?.inTransit);
           return sum + Math.max(0, variantReorderLevel);
         }, 0)
-        : calculateReorderLevel(variants[0]?.stockOnHand, variants[0]?.threshold, variants[0]?.inTransit);
+        : 0;
 
-      // For simple product (1 variant), use that variant's threshold
-      const parentThreshold = isVariantProduct ? totalThreshold : (variants[0]?.threshold || 0);
+      const parentThreshold = hasVariantChildren ? totalThreshold : 0;
 
       result.push({
         ...row,
         isParent: true,
-        hasVariants: !!(variants.length > 1),
+        hasVariants: hasVariantChildren,
         threshold: parentThreshold,
         reorderLevel: parentReorderLevel,
       });
 
-      if (String(expandedRowId) === String(row.id) && variants.length > 1) {
+      if (String(expandedRowId) === String(row.id) && hasVariantChildren) {
         for (const variant of variants) {
           const variantThreshold = variant.threshold || 0;
           const variantReorderLevel = calculateReorderLevel(
@@ -1130,11 +1160,13 @@ export default function InventoryPage() {
         key: "productName",
         label: "Product",
         headerClassName: "sticky left-[40px] z-30 !bg-gray-50 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]",
-        className: "sticky left-[40px] z-20 !bg-white group-hover:!bg-gray-50 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)] min-w-[286px] !items-start",
+        className: "sticky left-[40px] z-20 group-hover:!z-40 !bg-white group-hover:!bg-gray-50 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)] min-w-[286px] !items-start",
+        allowOverflow: true,
         render: (row) => {
           const displayImages = selectInventoryImages(row);
           const isVariant = !row.isParent;
           const name = row.productName || "—";
+          const noteText = String(row?.notes || "").trim();
           const sku = row.sku || "";
           const details = [row.size, row.color].filter(Boolean).join(" · ");
           const normalizedName = normalizeText(name);
@@ -1173,9 +1205,40 @@ export default function InventoryPage() {
               </div>
 
               <div className="flex flex-col gap-0.5 min-w-0">
-                <span className={`text-[13px] font-medium truncate ${row.isParent ? "text-gray-900" : "text-gray-700"}`} title={name}>
-                  {name}
-                </span>
+                {noteText ? (
+                  <div className="relative inline-flex max-w-full group/inv-note pb-1">
+                    <span className={`text-[13px] font-medium truncate cursor-default ${row.isParent ? "text-gray-900" : "text-gray-700"}`} title={name}>
+                      {name}
+                    </span>
+                    <div className="pointer-events-none invisible absolute left-0 top-full z-50 w-[340px] rounded-xl border border-gray-200 bg-white p-3 shadow-xl opacity-0 transition-opacity duration-150 group-hover/inv-note:pointer-events-auto group-hover/inv-note:visible group-hover/inv-note:opacity-100">
+                      <div className="absolute -top-1.5 left-4 h-3 w-3 rotate-45 border-l border-t border-gray-200 bg-white" />
+                      <div className="relative">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Product Notes</p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(noteText);
+                              toast.success("Notes copied");
+                            }}
+                            className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-[10px] font-medium text-gray-600 hover:bg-gray-50"
+                            title="Copy notes"
+                          >
+                            <Copy className="h-3 w-3" />
+                            Copy
+                          </button>
+                        </div>
+                        <p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-[12px] leading-relaxed text-gray-700">
+                          {noteText}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <span className={`text-[13px] font-medium truncate ${row.isParent ? "text-gray-900" : "text-gray-700"}`} title={name}>
+                    {name}
+                  </span>
+                )}
                 {showSku && (
                   <div className="text-[12px] text-gray-500">
                     <span>{sku}</span>
@@ -1388,6 +1451,40 @@ export default function InventoryPage() {
     [expandedRowId, toggleRow, openWarehouseBreakdown, openRowTransferModal]
   );
 
+  const effectiveColumns = useMemo(
+    () =>
+      columns.filter((column) =>
+        INVENTORY_MANDATORY_COLUMN_KEYS.includes(column.key)
+          ? true
+          : visibleInventoryColumns[column.key] !== false,
+      ),
+    [columns, visibleInventoryColumns],
+  );
+
+  const inventoryGridCols = useMemo(() => {
+    const tracks = effectiveColumns
+      .map((column) => INVENTORY_COLUMN_TRACKS[column.key])
+      .filter(Boolean);
+    if (tracks.length === 0) return "grid-cols-1";
+    return `grid-cols-[${tracks.join("_")}]`;
+  }, [effectiveColumns]);
+
+  const allOptionalColumnsSelected = useMemo(
+    () => INVENTORY_COLUMN_PICKER_OPTIONS.every((column) => visibleInventoryColumns[column.key] !== false),
+    [visibleInventoryColumns],
+  );
+
+  const handleInventoryColumnToggle = useCallback((key, checked) => {
+    setVisibleInventoryColumns((prev) => ({
+      ...prev,
+      [key]: Boolean(checked),
+    }));
+  }, []);
+
+  const handleSelectAllInventoryColumns = useCallback(() => {
+    setVisibleInventoryColumns(getDefaultInventoryVisibleColumns());
+  }, []);
+
   // Filter Handlers
   const handleFilterApply = (newFilters) => {
     setSearch(newFilters.search);
@@ -1474,6 +1571,14 @@ export default function InventoryPage() {
       <Button
         variant="secondary"
         size="sm"
+        onClick={() => setColumnPickerOpen(true)}
+      >
+        <Columns3 size={14} className="mr-1" />
+        Columns
+      </Button>
+      <Button
+        variant="secondary"
+        size="sm"
         onClick={openReconcileModal}
       >
         Reconcile Stock
@@ -1511,19 +1616,56 @@ export default function InventoryPage() {
       </div>
 
       <DataTable
-        columns={columns}
+        columns={effectiveColumns}
         rows={flattenedRows}
         isLoading={isPending}
         rowKey={(row) => row.id}
-        gridCols={SHOW_INVENTORY_ACTIONS_COLUMN
-          ? "grid-cols-[40px_minmax(299px,2.015fr)_minmax(150px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(80px,0.5fr)_minmax(110px,0.6fr)_minmax(120px,0.8fr)_130px]"
-          : "grid-cols-[40px_minmax(299px,2.015fr)_minmax(150px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(90px,0.5fr)_minmax(80px,0.5fr)_minmax(110px,0.6fr)_minmax(120px,0.8fr)]"}
+        gridCols={inventoryGridCols}
         emptyMessage="No inventory items found"
         toolbar={toolbar}
         rowClassName={(row) =>
           !row.isParent ? "bg-gray-50/50" : "hover:bg-gray-50"
         }
       />
+
+      <Modal
+        open={columnPickerOpen}
+        onClose={() => setColumnPickerOpen(false)}
+        title="Inventory Columns"
+        widthClass="max-w-md"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setColumnPickerOpen(false)}>
+              Close
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={handleSelectAllInventoryColumns}
+              disabled={allOptionalColumnsSelected}
+            >
+              Select All
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-xs text-gray-500">
+            Uncheck columns to hide them from the inventory listing.
+          </p>
+          <div className="rounded-lg border border-gray-200 divide-y divide-gray-100">
+            {INVENTORY_COLUMN_PICKER_OPTIONS.map((column) => (
+              <label key={column.key} className="flex items-center justify-between px-3 py-2">
+                <span className="text-[13px] text-gray-800">{column.label}</span>
+                <input
+                  type="checkbox"
+                  checked={visibleInventoryColumns[column.key] !== false}
+                  onChange={(e) => handleInventoryColumnToggle(column.key, e.target.checked)}
+                />
+              </label>
+            ))}
+          </div>
+        </div>
+      </Modal>
 
       {!isPending && meta && meta.total > 0 && (
         <div className="flex items-center justify-between px-4 py-3 border border-gray-200 bg-white rounded-xl mt-4">

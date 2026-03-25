@@ -45,7 +45,9 @@ export function useOrders(params = {}, options = {}) {
     return useQuery({
         queryKey,
         queryFn: () => listOrders(params),
-        staleTime: 0,
+        staleTime: 15 * 1000,
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: false,
         ...options,
     });
 }

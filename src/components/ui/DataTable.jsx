@@ -18,13 +18,27 @@ export function DataTable({
     rows = [],
     isLoading = false,
     gridCols,
+    gridTemplateColumns,
     contentMinWidthClass = "min-w-max",
     rowKey = (row) => row.id,
     emptyMessage,
     toolbar,
     rowClassName = "",
 }) {
-    const gridClass = gridCols || `grid-cols-${columns.length}`;
+    const getGridTemplateFromClass = (value) => {
+        const text = String(value || "");
+        const match = text.match(/(?:^|\s)(?:[\w-]+:)*grid-cols-\[([^\]]+)\]/);
+        if (!match?.[1]) return null;
+        return match[1].replace(/_/g, " ");
+    };
+
+    const resolvedGridTemplateColumns =
+        gridTemplateColumns || getGridTemplateFromClass(gridCols) || null;
+
+    const gridClass = gridCols || (!resolvedGridTemplateColumns ? `grid-cols-${columns.length}` : "");
+    const gridStyle = resolvedGridTemplateColumns
+        ? { gridTemplateColumns: resolvedGridTemplateColumns }
+        : undefined;
 
     return (
         <div className="rounded-xl border border-gray-200 bg-white">
@@ -40,6 +54,7 @@ export function DataTable({
                 {/* Header row */}
                 <div
                     className={`grid ${gridClass} bg-gray-50 text-[12px] font-semibold text-gray-700 ${contentMinWidthClass} [&>*:first-child]:pl-4 [&>*:last-child]:pr-4`}
+                    style={gridStyle}
                 >
                     {columns.map((col) => (
                         <div key={col.key} className={`${col.headerClassName || col.className || ""} py-3 flex items-center min-w-0`}>
@@ -60,10 +75,14 @@ export function DataTable({
                         {rows.map((row) => (
                             <li
                                 key={rowKey(row)}
-                                className={`grid ${gridClass} text-[13px] text-gray-800 hover:bg-gray-50/50 transition-colors ${contentMinWidthClass} group [&>*:first-child]:pl-4 [&>*:last-child]:pr-4 ${typeof rowClassName === 'function' ? rowClassName(row) : rowClassName}`}
+                                className={`relative grid ${gridClass} text-[13px] text-gray-800 hover:bg-gray-50/50 transition-colors ${contentMinWidthClass} group [&>*:first-child]:pl-4 [&>*:last-child]:pr-4 ${typeof rowClassName === 'function' ? rowClassName(row) : rowClassName}`}
+                                style={gridStyle}
                             >
                                 {columns.map((col) => (
-                                    <div key={col.key} className={`${col.className || ""} py-3 flex items-center min-w-0 overflow-hidden`}>
+                                    <div
+                                        key={col.key}
+                                        className={`${col.className || ""} py-3 flex items-center min-w-0 ${col.allowOverflow ? "overflow-visible" : "overflow-hidden"}`}
+                                    >
                                         {col.render ? col.render(row) : row[col.key] ?? "—"}
                                     </div>
                                 ))}

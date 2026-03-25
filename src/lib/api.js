@@ -239,17 +239,57 @@ export async function updateMyProfile({ fullName, phone, country }) {
   return res.data;
 }
 
-export async function updateTenant({ name, description, currency, timezone }) {
+export async function updateTenant(payload = {}) {
   const tenantId = getTenantId();
   if (!tenantId) throw new Error("No active tenantId");
 
-  const res = await axiosInstance.patch(`/tenants/${tenantId}`, {
+  const {
     name,
     description,
     currency,
     timezone,
+    labelPaperSizeMode,
+    labelPaperSizePreset,
+    labelPaperCustomWidthIn,
+    labelPaperCustomHeightIn,
+  } = payload || {};
+
+  const body = {};
+  if (name !== undefined) body.name = name;
+  if (description !== undefined) body.description = description;
+  if (currency !== undefined) body.currency = currency;
+  if (timezone !== undefined) body.timezone = timezone;
+  if (labelPaperSizeMode !== undefined) body.labelPaperSizeMode = labelPaperSizeMode;
+  if (labelPaperSizePreset !== undefined) body.labelPaperSizePreset = labelPaperSizePreset;
+  if (labelPaperCustomWidthIn !== undefined) body.labelPaperCustomWidthIn = labelPaperCustomWidthIn;
+  if (labelPaperCustomHeightIn !== undefined) body.labelPaperCustomHeightIn = labelPaperCustomHeightIn;
+
+  const res = await axiosInstance.patch(`/tenants/${tenantId}`, {
+    ...body,
   });
-  return res.data?.data ?? res.data ?? {};
+  return res.data?.tenant ?? res.data?.data ?? res.data ?? {};
+}
+
+export async function uploadTenantInvoiceLogo(file) {
+  const tenantId = getTenantId();
+  if (!tenantId) throw new Error("No active tenantId");
+  if (!file) throw new Error("Missing logo file");
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await axiosInstance.post(`/tenants/${tenantId}/invoice-logo`, formData, {
+    headers: { "Content-Type": undefined },
+  });
+  return res.data?.tenant ?? res.data ?? {};
+}
+
+export async function deleteTenantInvoiceLogo() {
+  const tenantId = getTenantId();
+  if (!tenantId) throw new Error("No active tenantId");
+
+  const res = await axiosInstance.delete(`/tenants/${tenantId}/invoice-logo`);
+  return res.data?.tenant ?? res.data ?? {};
 }
 
 export async function deleteCurrentTenant() {
@@ -937,7 +977,7 @@ export async function deleteRemarkType(id) {
 // =====================
 // Order Management (Manual)
 // =====================
-export async function listOrders({ search, status, startDate, endDate, mediumId, courierId, remarkTypeId, isSettled, dateType, sortBy, sortOrder, page, perPage } = {}) {
+export async function listOrders({ search, status, startDate, endDate, mediumId, courierId, remarkTypeId, isSettled, sharedFlyersOnly, dateType, sortBy, sortOrder, page, perPage } = {}) {
   const params = {};
   if (search) params.search = search;
   if (status && status !== 'ALL') params.status = status;
@@ -947,6 +987,7 @@ export async function listOrders({ search, status, startDate, endDate, mediumId,
   if (courierId) params.courierId = courierId;
   if (remarkTypeId) params.remarkTypeId = remarkTypeId;
   if (isSettled) params.isSettled = isSettled;
+  if (sharedFlyersOnly) params.sharedFlyersOnly = sharedFlyersOnly;
   if (dateType) params.dateType = dateType;
   if (sortBy) params.sortBy = sortBy;
   if (sortOrder) params.sortOrder = sortOrder;
@@ -986,6 +1027,14 @@ export async function downloadBulkLabels(ids) {
   return res.data;
 }
 
+export async function getPrintableOrderLabel(orderId) {
+  if (!orderId) throw new Error("Missing orderId");
+  const res = await axiosInstance.get(`/orders/${orderId}/label/printable`, {
+    responseType: 'blob',
+  });
+  return res.data;
+}
+
 export async function deleteOrder(id) {
   const res = await axiosInstance.delete(`/orders/${id}`);
   return res.data;
@@ -1002,12 +1051,29 @@ export async function getOrderCounts() {
   return res.data;
 }
 
+export async function getOrderSummary({ startDate, endDate } = {}) {
+  const params = {};
+  if (startDate) params.startDate = startDate;
+  if (endDate) params.endDate = endDate;
+  const res = await axiosInstance.get("/orders/meta/summary", { params });
+  return res?.data ?? {};
+}
+
 export async function checkOrderTrackingIdExists({ trackingId, excludeOrderId } = {}) {
   const params = {};
   if (trackingId) params.trackingId = trackingId;
   if (excludeOrderId) params.excludeOrderId = excludeOrderId;
   const res = await axiosInstance.get("/orders/check-tracking", { params });
   return res?.data ?? { exists: false, order: null };
+}
+
+export async function listOrdersByTracking({ trackingId } = {}) {
+  const params = {};
+  if (trackingId) params.trackingId = trackingId;
+  const res = await axiosInstance.get("/orders/by-tracking", { params });
+  const payload = res?.data ?? [];
+  if (Array.isArray(payload)) return payload;
+  return payload?.rows || payload?.data || [];
 }
 
 export async function checkOrderLabelNameExists({ fileName, excludeOrderId } = {}) {

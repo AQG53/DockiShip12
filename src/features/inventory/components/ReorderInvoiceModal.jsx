@@ -1,5 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { PackageSearch, RefreshCcw, Mail, Download, CheckSquare, Square, X } from "lucide-react";
+import {
+  PackageSearch,
+  RefreshCcw,
+  Mail,
+  Download,
+  CheckSquare,
+  Square,
+  MinusSquare,
+  ChevronDown,
+  ChevronRight,
+  X,
+} from "lucide-react";
 import toast from "react-hot-toast";
 import { Modal } from "../../../components/ui/Modal";
 import { Button } from "../../../components/ui/Button";
@@ -42,10 +53,69 @@ const defaultVisibleColumns = COLUMN_OPTIONS.reduce((acc, column) => {
 }, {});
 const ALL_SUPPLIER_FILTER_VALUE = "__ALL_SUPPLIERS__";
 
+const getProductGroupKey = (item) => {
+  const productId = String(item?.productId || "").trim();
+  if (productId) return `product:${productId}`;
+  const productName = String(item?.productName || "").trim().toLowerCase();
+  return `name:${productName}`;
+};
+
+const normalizeSearchText = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+const tokenizeSearch = (value) => normalizeSearchText(value).split(/\s+/).filter(Boolean);
+
+const scoreFieldTokenMatch = (field, token) => {
+  if (!field || !token) return 0;
+  if (field === token) return 120;
+  if (field.startsWith(token)) return 84;
+  const idx = field.indexOf(token);
+  if (idx === -1) return 0;
+  return Math.max(24, 62 - Math.min(idx, 24));
+};
+
+const scoreVariantByTokens = (item, tokens) => {
+  if (!Array.isArray(tokens) || tokens.length === 0) return 0;
+  const fields = [
+    normalizeSearchText(item?.productName),
+    normalizeSearchText(item?.sku),
+    normalizeSearchText(item?.sizeText),
+    normalizeSearchText(item?.colorText),
+  ];
+  const merged = fields.join(" ").trim();
+
+  let total = 0;
+  for (const token of tokens) {
+    let tokenScore = 0;
+    fields.forEach((field, idx) => {
+      const base = scoreFieldTokenMatch(field, token);
+      if (!base) return;
+      const weight = idx === 0 ? 1.45 : (idx === 1 ? 1.2 : 1);
+      tokenScore = Math.max(tokenScore, base * weight);
+    });
+    if (!tokenScore && merged.includes(token)) tokenScore = 20;
+    if (!tokenScore) return -1; // Require every keyword to match.
+    total += tokenScore;
+  }
+
+  return total + (tokens.length > 1 ? tokens.length * 6 : 0);
+};
+
 const toWholeNumber = (value) => {
   const parsed = String(value ?? "").replace(/[^0-9]/g, "");
   if (!parsed) return 0;
   return Number(parsed);
+};
+
+const calculateReorderLevel = (availableQty, thresholdQty, inTransitQty) => {
+  const available = Number(availableQty) || 0;
+  const threshold = Number(thresholdQty) || 0;
+  const inTransit = Number(inTransitQty) || 0;
+  const netAvailable = available + inTransit;
+  return Math.max(0, threshold - netAvailable);
 };
 
 const toMoney = (value, currency = "USD") => {
@@ -158,7 +228,10 @@ const mapVariantsFromInventory = (inventoryRows = []) => {
       const sku = variant?.sku || row?.sku || "—";
       const sizeText = variant?.size || variant?.sizeText || "";
       const colorText = variant?.color || variant?.colorText || "";
-      const reorderLevel = Math.max(0, Number(variant?.reorderLevel || 0));
+      const availableQty = Number(variant?.stockOnHand || 0);
+      const inTransitQty = Number(variant?.inTransit || 0);
+      const thresholdQty = Number(variant?.threshold ?? row?.threshold ?? 0);
+      const reorderLevel = calculateReorderLevel(availableQty, thresholdQty, inTransitQty);
       const variantSupplierMetaKnown = Array.isArray(variant?.supplierLinks);
       const variantSupplierOptions = normalizeSupplierLinks(variant?.supplierLinks);
       const supplierOptions = variantSupplierOptions.length > 0 ? variantSupplierOptions : rowSupplierOptions;
@@ -170,8 +243,8 @@ const mapVariantsFromInventory = (inventoryRows = []) => {
         sku,
         sizeText,
         colorText,
-        availableQty: Number(variant?.stockOnHand || 0),
-        inTransitQty: Number(variant?.inTransit || 0),
+        availableQty,
+        inTransitQty,
         reorderLevel,
         reorderQuantity: reorderLevel,
         supplierOptions,
@@ -188,12 +261,7 @@ const mapVariantsFromInventory = (inventoryRows = []) => {
     }
   }
 
-  const hasSupplierMetadata = result.some((item) => item.supplierMetaKnown);
   return result
-    .filter((item) => {
-      if (!hasSupplierMetadata) return true;
-      return Array.isArray(item.supplierOptions) && item.supplierOptions.length > 0;
-    })
     .sort((a, b) => a.productName.localeCompare(b.productName) || a.sku.localeCompare(b.sku));
 };
 
@@ -213,20 +281,75 @@ export default function ReorderInvoiceModal({
   const [emailMessage, setEmailMessage] = useState("");
   const [supplierFilterIds, setSupplierFilterIds] = useState([]);
   const [fallbackAllowedVariantIds, setFallbackAllowedVariantIds] = useState(null);
+  const [expandedProductKeys, setExpandedProductKeys] = useState({});
+  const [catalogRows, setCatalogRows] = useState([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogLoaded, setCatalogLoaded] = useState(false);
   const suppliers = useMemo(
     () => (Array.isArray(supplierData) ? supplierData : (Array.isArray(supplierData?.rows) ? supplierData.rows : [])),
     [supplierData],
   );
 
-  const variantCatalog = useMemo(() => mapVariantsFromInventory(inventoryRows), [inventoryRows]);
+  useEffect(() => {
+    if (!open) {
+      setCatalogRows([]);
+      setCatalogLoading(false);
+      setCatalogLoaded(false);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      setCatalogLoading(true);
+      setCatalogLoaded(false);
+      try {
+        const perPage = 250;
+        const maxPages = 80;
+        let page = 1;
+        let totalPages = 1;
+        const allRows = [];
+
+        while (page <= totalPages && page <= maxPages) {
+          const payload = await listInventory({ page, perPage });
+          const pageRows = Array.isArray(payload?.rows) ? payload.rows : [];
+          allRows.push(...pageRows);
+          totalPages = Math.max(1, Number(payload?.meta?.totalPages || 1));
+          if (pageRows.length === 0 && page >= totalPages) break;
+          page += 1;
+        }
+
+        if (!cancelled) {
+          setCatalogRows(allRows);
+          setCatalogLoaded(true);
+        }
+      } catch {
+        if (!cancelled) {
+          setCatalogRows(Array.isArray(inventoryRows) ? inventoryRows : []);
+          setCatalogLoaded(true);
+        }
+      } finally {
+        if (!cancelled) setCatalogLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, inventoryRows]);
+
+  const inventoryRowsForModal = useMemo(
+    () => (catalogLoaded ? catalogRows : (open ? [] : inventoryRows)),
+    [catalogLoaded, catalogRows, open, inventoryRows],
+  );
+  const variantCatalog = useMemo(() => mapVariantsFromInventory(inventoryRowsForModal), [inventoryRowsForModal]);
   const supplierFilterStrict = useMemo(
-    () => variantCatalog.some((item) => item?.supplierMetaKnown),
+    () => variantCatalog.length > 0 && variantCatalog.every((item) => item?.supplierMetaKnown),
     [variantCatalog],
   );
 
   const filteredCatalog = useMemo(() => {
-    const q = String(search || "").trim().toLowerCase();
-    return variantCatalog.filter((item) => {
+    const keywords = tokenizeSearch(search);
+    const base = variantCatalog.filter((item) => {
       if (supplierFilterStrict) {
         if (supplierFilterIds.length > 0) {
           const matchesSupplier = (item?.supplierIds || []).some((supplierId) =>
@@ -234,18 +357,48 @@ export default function ReorderInvoiceModal({
           );
           if (!matchesSupplier) return false;
         }
-      } else if (fallbackAllowedVariantIds instanceof Set) {
+      } else if (supplierFilterIds.length > 0 && fallbackAllowedVariantIds instanceof Set) {
         if (!fallbackAllowedVariantIds.has(String(item.productVariantId))) return false;
       } else if (supplierFilterIds.length > 0) {
         // While fallback filter is resolving, avoid showing incorrect rows.
         return false;
       }
-
-      if (!q) return true;
-      const hay = [item.productName, item.sku, item.sizeText, item.colorText].join(" ").toLowerCase();
-      return hay.includes(q);
+      return true;
     });
+
+    if (keywords.length === 0) {
+      return [...base].sort((a, b) => a.productName.localeCompare(b.productName) || a.sku.localeCompare(b.sku));
+    }
+
+    return base
+      .map((item) => ({ item, score: scoreVariantByTokens(item, keywords) }))
+      .filter((entry) => entry.score >= 0)
+      .sort((a, b) =>
+        b.score - a.score
+        || b.item.reorderLevel - a.item.reorderLevel
+        || a.item.productName.localeCompare(b.item.productName)
+        || a.item.sku.localeCompare(b.item.sku),
+      )
+      .map((entry) => entry.item);
   }, [variantCatalog, search, supplierFilterIds, supplierFilterStrict, fallbackAllowedVariantIds]);
+
+  const groupedCatalog = useMemo(() => {
+    const groups = new Map();
+    for (const variant of filteredCatalog) {
+      const groupKey = getProductGroupKey(variant);
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, {
+          groupKey,
+          productId: variant?.productId || null,
+          productName: variant?.productName || "Product",
+          images: variant?.images?.slice(0, 1) || [],
+          variants: [],
+        });
+      }
+      groups.get(groupKey).variants.push(variant);
+    }
+    return Array.from(groups.values());
+  }, [filteredCatalog]);
 
   const supplierFilterOptions = useMemo(() => {
     const map = new Map();
@@ -292,7 +445,12 @@ export default function ReorderInvoiceModal({
       return;
     }
 
-    const querySupplierIds = supplierFilterIds.length > 0 ? supplierFilterIds : allSupplierFilterIds;
+    if (supplierFilterIds.length === 0) {
+      setFallbackAllowedVariantIds(null);
+      return;
+    }
+
+    const querySupplierIds = supplierFilterIds;
     if (querySupplierIds.length === 0) {
       setFallbackAllowedVariantIds(null);
       return;
@@ -302,7 +460,7 @@ export default function ReorderInvoiceModal({
     (async () => {
       try {
         const perPage = 250;
-        const maxPages = 20;
+        const maxPages = 80;
         let page = 1;
         let totalPages = 1;
         const allRows = [];
@@ -339,7 +497,7 @@ export default function ReorderInvoiceModal({
     return () => {
       cancelled = true;
     };
-  }, [open, supplierFilterStrict, supplierFilterIds, allSupplierFilterIds]);
+  }, [open, supplierFilterStrict, supplierFilterIds]);
 
   const selectedCount = Object.keys(selectedLines).length;
   const hasUnresolvedSuppliers = Boolean(previewData?.requiresSupplierSelection && (previewData?.unresolvedVariants || []).length > 0);
@@ -362,6 +520,7 @@ export default function ReorderInvoiceModal({
     setSearch("");
     setSupplierFilterIds([]);
     setSelectedLines({});
+    setExpandedProductKeys({});
     setPreviewData(null);
     setPreviewLoading(false);
     setDownloadingPdf(false);
@@ -395,6 +554,22 @@ export default function ReorderInvoiceModal({
     });
   }, [variantCatalog]);
 
+  useEffect(() => {
+    const validGroupKeys = new Set(groupedCatalog.map((group) => String(group.groupKey)));
+    setExpandedProductKeys((prev) => {
+      let changed = false;
+      const next = {};
+      for (const [groupKey, isExpanded] of Object.entries(prev || {})) {
+        if (!validGroupKeys.has(String(groupKey))) {
+          changed = true;
+          continue;
+        }
+        next[groupKey] = isExpanded;
+      }
+      return changed ? next : prev;
+    });
+  }, [groupedCatalog]);
+
   const handleSupplierFilterChange = useCallback((nextValues) => {
     const incoming = Array.isArray(nextValues) ? nextValues.map((id) => String(id)) : [];
     if (incoming.includes(ALL_SUPPLIER_FILTER_VALUE)) {
@@ -419,6 +594,39 @@ export default function ReorderInvoiceModal({
           supplierId: "",
         },
       };
+    });
+  }, []);
+
+  const toggleGroupExpand = useCallback((groupKey) => {
+    setExpandedProductKeys((prev) => ({
+      ...prev,
+      [groupKey]: !prev?.[groupKey],
+    }));
+  }, []);
+
+  const handleGroupToggle = useCallback((group) => {
+    const variants = Array.isArray(group?.variants) ? group.variants : [];
+    if (variants.length === 0) return;
+
+    setSelectedLines((prev) => {
+      const variantIds = variants.map((variant) => String(variant.productVariantId));
+      const allSelected = variantIds.every((variantId) => !!prev[variantId]);
+      const next = { ...prev };
+
+      if (allSelected) {
+        for (const variantId of variantIds) delete next[variantId];
+        return next;
+      }
+
+      for (const variant of variants) {
+        const variantId = String(variant.productVariantId);
+        if (next[variantId]) continue;
+        next[variantId] = {
+          reorderQuantity: Math.max(0, Number(variant.reorderQuantity || 0)),
+          supplierId: "",
+        };
+      }
+      return next;
     });
   }, []);
 
@@ -692,69 +900,132 @@ export default function ReorderInvoiceModal({
               )}
             </div>
             <div className="text-xs text-gray-500 flex items-center justify-end">
-              {filteredCatalog.length} shown • {selectedCount} selected variant{selectedCount === 1 ? "" : "s"}
+              {groupedCatalog.length} product{groupedCatalog.length === 1 ? "" : "s"} • {filteredCatalog.length} variant{filteredCatalog.length === 1 ? "" : "s"} shown • {selectedCount} selected
             </div>
           </div>
 
           <div className="mt-3 max-h-[220px] overflow-auto rounded-lg border border-gray-200 bg-white">
-            {filteredCatalog.length === 0 ? (
+            {catalogLoading && !catalogLoaded ? (
+              <p className="px-3 py-4 text-xs text-gray-500">
+                Loading products...
+              </p>
+            ) : filteredCatalog.length === 0 ? (
               <p className="px-3 py-4 text-xs text-gray-500">
                 No variants found.
                 {!supplierFilterStrict ? " Supplier links are not available in inventory payload yet." : ""}
               </p>
             ) : (
               <div className="divide-y divide-gray-100">
-                {filteredCatalog.map((variant) => {
-                  const selected = !!selectedLines[variant.productVariantId];
-                  const details = [variant.sizeText, variant.colorText].filter(Boolean).join(" · ");
+                {groupedCatalog.map((group) => {
+                  const variants = Array.isArray(group?.variants) ? group.variants : [];
+                  const variantCount = variants.length;
+                  const selectedVariantCount = variants.reduce(
+                    (sum, variant) => sum + (selectedLines[String(variant.productVariantId)] ? 1 : 0),
+                    0,
+                  );
+                  const isFullySelected = variantCount > 0 && selectedVariantCount === variantCount;
+                  const isPartiallySelected = selectedVariantCount > 0 && selectedVariantCount < variantCount;
+                  const canExpand = variantCount > 0;
+                  const isExpanded = canExpand ? Boolean(expandedProductKeys[group.groupKey]) : false;
+
                   return (
-                    <label
-                      key={variant.productVariantId}
-                      className={`flex cursor-pointer items-center gap-3 px-3 py-2 text-[12px] ${selected ? "bg-amber-50/60" : "hover:bg-gray-50"}`}
-                    >
-                      <button
-                        type="button"
-                        className="text-gray-600"
-                        onClick={() => handleVariantToggle(variant)}
-                        title={selected ? "Deselect" : "Select"}
-                      >
-                        {selected ? <CheckSquare size={14} /> : <Square size={14} />}
-                      </button>
+                    <div key={group.groupKey} className="bg-white">
+                      <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
+                        <button
+                          type="button"
+                          className="flex h-6 w-6 items-center justify-center rounded text-gray-500 hover:bg-gray-100 disabled:cursor-default disabled:opacity-40"
+                          disabled={!canExpand}
+                          onClick={() => canExpand && toggleGroupExpand(group.groupKey)}
+                          title={isExpanded ? "Collapse variants" : "Expand variants"}
+                        >
+                          {canExpand ? (isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : <span className="h-3 w-3" />}
+                        </button>
 
-                      <ImageGallery
-                        images={variant.images?.slice(0, 1) || []}
-                        absImg={absImg}
-                        placeholder={IMG_PLACEHOLDER}
-                        className="h-8 w-8"
-                        thumbnailClassName="h-8 w-8 bg-white object-contain border border-gray-200 rounded"
-                        compact={true}
-                      />
+                        <button
+                          type="button"
+                          className="text-gray-600"
+                          onClick={() => handleGroupToggle(group)}
+                          title={isFullySelected ? "Deselect all variants" : "Select all variants"}
+                        >
+                          {isFullySelected ? <CheckSquare size={15} /> : (isPartiallySelected ? <MinusSquare size={15} /> : <Square size={15} />)}
+                        </button>
 
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-gray-900 font-medium">{variant.productName}</p>
-                        <p className="truncate text-[11px] text-gray-500">
-                          SKU: {variant.sku}
-                          {details ? ` • ${details}` : ""}
-                          {` • Available: ${variant.availableQty}`}
-                          {` • In Transit: ${variant.inTransitQty}`}
-                          {` • Reorder Level: ${variant.reorderLevel}`}
-                        </p>
+                        <ImageGallery
+                          images={group.images || []}
+                          absImg={absImg}
+                          placeholder={IMG_PLACEHOLDER}
+                          className="h-8 w-8"
+                          thumbnailClassName="h-8 w-8 bg-white object-contain border border-gray-200 rounded"
+                          compact={true}
+                        />
+
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[12px] font-semibold text-gray-900">{group.productName}</p>
+                          <p className="truncate text-[11px] text-gray-500">
+                            {variantCount} variant{variantCount === 1 ? "" : "s"}
+                            {` • ${selectedVariantCount} selected`}
+                          </p>
+                        </div>
                       </div>
 
-                      {selected && (
-                        <div className="w-[95px]">
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            className="h-8 w-full rounded-md border border-gray-300 px-2 text-center text-[12px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
-                            value={Number(selectedLines[variant.productVariantId]?.reorderQuantity || 0)}
-                            onChange={(e) => handleQtyChange(variant.productVariantId, e.target.value)}
-                            onClick={(e) => e.stopPropagation()}
-                            onKeyDown={handleQtyInputKeyDown}
-                          />
+                      {isExpanded && (
+                        <div className="divide-y divide-gray-100 bg-gray-50/40">
+                          {variants.map((variant) => {
+                            const selected = !!selectedLines[variant.productVariantId];
+                            const details = [variant.sizeText, variant.colorText].filter(Boolean).join(" · ");
+                            return (
+                              <div
+                                key={variant.productVariantId}
+                                className={`flex items-center gap-3 px-3 py-2 text-[12px] ${selected ? "bg-amber-50/60" : "hover:bg-gray-50"}`}
+                              >
+                                <div className="w-6" />
+                                <button
+                                  type="button"
+                                  className="text-gray-600"
+                                  onClick={() => handleVariantToggle(variant)}
+                                  title={selected ? "Deselect" : "Select"}
+                                >
+                                  {selected ? <CheckSquare size={14} /> : <Square size={14} />}
+                                </button>
+
+                                <ImageGallery
+                                  images={variant.images?.slice(0, 1) || []}
+                                  absImg={absImg}
+                                  placeholder={IMG_PLACEHOLDER}
+                                  className="h-8 w-8"
+                                  thumbnailClassName="h-8 w-8 bg-white object-contain border border-gray-200 rounded"
+                                  compact={true}
+                                />
+
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-gray-900 font-medium">{variant.sku || "Variant"}</p>
+                                  <p className="truncate text-[11px] text-gray-500">
+                                    {details || "Base variant"}
+                                    {` • Available: ${variant.availableQty}`}
+                                    {` • In Transit: ${variant.inTransitQty}`}
+                                    {` • Reorder Level: ${variant.reorderLevel}`}
+                                  </p>
+                                </div>
+
+                                {selected && (
+                                  <div className="w-[95px]">
+                                    <input
+                                      type="text"
+                                      inputMode="numeric"
+                                      className="h-8 w-full rounded-md border border-gray-300 px-2 text-center text-[12px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
+                                      value={Number(selectedLines[variant.productVariantId]?.reorderQuantity || 0)}
+                                      onChange={(e) => handleQtyChange(variant.productVariantId, e.target.value)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      onKeyDown={handleQtyInputKeyDown}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
-                    </label>
+                    </div>
                   );
                 })}
               </div>

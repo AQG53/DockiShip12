@@ -3,9 +3,16 @@ import { Building2, DollarSign, Clock, Trash2, Save, Edit2, X } from 'lucide-rea
 import toast from 'react-hot-toast';
 import { useAuthCheck } from '../../auth/hooks/useAuthCheck';
 import useUpdateTenant from '../../../hooks/useTenant';
+import useUserPermissions from '../../../hooks/useUserPermissions';
 import { deleteCurrentTenant, logout } from '../../../lib/api';
 
 export default function ShopManage() {
+  const { perms, claims } = useUserPermissions();
+  const isOwner = Array.isArray(claims?.roles)
+    && claims.roles.some((role) => String(role).toLowerCase() === 'owner');
+  const canManageShop = isOwner || perms?.has('settings.shop.manage') || perms?.has('settings.manage');
+  const canDeleteCompany = isOwner;
+
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -74,6 +81,7 @@ export default function ShopManage() {
   const onChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
   const handleEdit = () => {
+    if (!canManageShop) return;
     setOriginalData({ ...formData });
     setIsEditing(true);
   };
@@ -84,6 +92,7 @@ export default function ShopManage() {
   };
 
   const handleSave = async () => {
+    if (!canManageShop) return;
     try {
       setIsSaving(true);
       await updateTenantMutation.mutateAsync({
@@ -100,6 +109,7 @@ export default function ShopManage() {
   };
 
   const openDelete = () => {
+    if (!canDeleteCompany) return;
     setConfirmText('');
     setShowDeleteConfirm(true);
   };
@@ -154,7 +164,7 @@ export default function ShopManage() {
       {/* Page header (aligned with RoleManage) */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Shop Manage</h1>
-        {!isEditing ? (
+        {!isEditing && canManageShop ? (
           <button onClick={handleEdit} className={primaryBtn}>
             <Edit2 size={16} />
             Edit
@@ -167,7 +177,7 @@ export default function ShopManage() {
             </button>
             <button
               onClick={handleSave}
-              disabled={isSaving}
+              disabled={isSaving || !canManageShop}
               className={`${primaryBtn} disabled:opacity-50`}
             >
               {isSaving ? (
@@ -292,30 +302,32 @@ export default function ShopManage() {
       </section>
 
       {/* Danger Zone → Delete Company */}
-      <section className="rounded-2xl border border-red-200 bg-white shadow-sm">
-        <header className="px-6 py-4 border-b border-red-200">
-          <h2 className="text-base font-semibold text-red-700 flex items-center gap-2">
-            <Trash2 size={18} />
-            Danger Zone
-          </h2>
-          <p className="mt-1 text-sm text-red-600">Irreversible and destructive actions</p>
-        </header>
+      {canDeleteCompany && (
+        <section className="rounded-2xl border border-red-200 bg-white shadow-sm">
+          <header className="px-6 py-4 border-b border-red-200">
+            <h2 className="text-base font-semibold text-red-700 flex items-center gap-2">
+              <Trash2 size={18} />
+              Danger Zone
+            </h2>
+            <p className="mt-1 text-sm text-red-600">Irreversible and destructive actions</p>
+          </header>
 
-        <div className="px-6 py-5">
-          <div className="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h3 className="font-semibold text-red-800">Delete Company</h3>
-              <p className="mt-0.5 text-sm text-red-700">
-                Permanently delete your company and all associated data
-              </p>
+          <div className="px-6 py-5">
+            <div className="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="font-semibold text-red-800">Delete Company</h3>
+                <p className="mt-0.5 text-sm text-red-700">
+                  Permanently delete your company and all associated data
+                </p>
+              </div>
+              <button onClick={openDelete} className={dangerBtn}>
+                <Trash2 size={16} />
+                Delete Company
+              </button>
             </div>
-            <button onClick={openDelete} className={dangerBtn}>
-              <Trash2 size={16} />
-              Delete Company
-            </button>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (

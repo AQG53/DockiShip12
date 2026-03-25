@@ -9,9 +9,10 @@ export function useAuthCheck(options = {}) {
   const query = useQuery({
     queryKey: ["auth", "check"],
     queryFn: authCheck,
-    staleTime: 0,
-    refetchOnMount: "always",
-    refetchOnWindowFocus: true,
+    staleTime: 30 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     retry: 1,
     ...options,
   });
@@ -19,19 +20,19 @@ export function useAuthCheck(options = {}) {
   useEffect(() => {
     const refetchAuth = () => {
       qc.invalidateQueries({ queryKey: ["auth", "check"], exact: false });
-      query.refetch();
+    };
+    const onStorage = (e) => {
+      if (e.key === TOKEN_KEY) refetchAuth();
     };
 
     window.addEventListener("auth-changed", refetchAuth);
-    window.addEventListener("storage", (e) => {
-      if (e.key === TOKEN_KEY) refetchAuth();
-    });
+    window.addEventListener("storage", onStorage);
 
     return () => {
       window.removeEventListener("auth-changed", refetchAuth);
-      window.removeEventListener("storage", refetchAuth);
+      window.removeEventListener("storage", onStorage);
     };
-  }, [qc, query]);
+  }, [qc]);
 
   return query;
 }
