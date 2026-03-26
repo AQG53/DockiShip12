@@ -4,8 +4,9 @@ import { useState, useEffect } from "react";
 import ViewModal from "../../../components/ViewModal";
 import ImageGallery from "../../../components/ImageGallery";
 import { useAuthCheck } from "../../auth/hooks/useAuthCheck";
-import { uploadOrderAttachment, deleteOrderAttachment } from "../../../lib/api";
+import { uploadOrderAttachment, deleteOrderAttachment, getPrintableOrderLabel } from "../../../lib/api";
 import { useQueryClient } from "@tanstack/react-query";
+import toast from "react-hot-toast";
 import { absOrderImage, ORDER_IMG_PLACEHOLDER, resolveOrderItemImage } from "../utils/orderItemImage";
 
 const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif", "heic", "heif"]);
@@ -146,6 +147,8 @@ const parseReturnEventsFromRecords = (recordsRaw) => {
                 netProfit: toNumber(record?.netProfit, 0),
                 items: items.map((item) => ({
                     orderItemId: item?.orderItemId || null,
+                    productVariantId: item?.productVariantId || null,
+                    productId: item?.productId || null,
                     productDescription: item?.productDescription || "Order Item",
                     returnedQty: toNumber(item?.returnedQty, 0),
                     unitsPerQty: toNumber(item?.unitsPerQty, 1),
@@ -304,8 +307,33 @@ export default function ViewOrderModal({ open, onClose, order }) {
         return parseReturnEventsFromRemarks(order?.remarks ?? order?.remark);
     }, [order?.returnRecords, order?.remarks, order?.remark]);
 
+    const isPartiallyReturned = order?.status !== "RETURN"
+        && Array.isArray(order?.returnRecords)
+        && order.returnRecords.length > 0;
+
     const returnedProductRows = useMemo(() => {
-        const orderItemsById = new Map((Array.isArray(order?.items) ? order.items : []).map((row) => [row.id, row]));
+        const orderItems = Array.isArray(order?.items) ? order.items : [];
+        const orderItemsById = new Map(orderItems.map((row) => [row.id, row]));
+        const orderItemsByVariantId = new Map();
+        const orderItemsByProductId = new Map();
+        orderItems.forEach((row) => {
+            const listing = row?.channelListing;
+            const variantId = listing?.productVariant?.id || row?.productVariant?.id || listing?.productVariantId || row?.productVariantId;
+            const productId =
+                listing?.product?.id
+                || row?.product?.id
+                || listing?.productVariant?.product?.id
+                || row?.productVariant?.product?.id
+                || listing?.productId
+                || row?.productId;
+
+            if (variantId && !orderItemsByVariantId.has(variantId)) {
+                orderItemsByVariantId.set(variantId, row);
+            }
+            if (productId && !orderItemsByProductId.has(productId)) {
+                orderItemsByProductId.set(productId, row);
+            }
+        });
         const rows = [];
         returnEvents.forEach((event) => {
             (Array.isArray(event.items) ? event.items : []).forEach((item) => {
@@ -327,13 +355,19 @@ export default function ViewOrderModal({ open, onClose, order }) {
                         ? returnedQty * unitsPerQty
                         : 0;
                 if (returnedUnits <= 0) return;
-                const linkedOrderItem = item?.orderItemId ? orderItemsById.get(item.orderItemId) : null;
+                const linkedOrderItem = item?.orderItemId
+                    ? orderItemsById.get(item.orderItemId)
+                    : (item?.productVariantId
+                        ? orderItemsByVariantId.get(item.productVariantId)
+                        : (item?.productId ? orderItemsByProductId.get(item.productId) : null));
                 const linkedListing = linkedOrderItem?.channelListing;
                 const linkedVariant = linkedListing?.productVariant || linkedOrderItem?.productVariant || null;
                 const linkedProduct = linkedListing?.product || linkedVariant?.product || linkedOrderItem?.product || null;
                 rows.push({
                     at: event.at,
                     orderItemId: item?.orderItemId || null,
+                    productVariantId: item?.productVariantId || null,
+                    productId: item?.productId || null,
                     imageUrl: linkedOrderItem ? resolveOrderItemImage(linkedOrderItem) : null,
                     productDescription:
                         linkedListing?.productName
@@ -432,6 +466,20 @@ export default function ViewOrderModal({ open, onClose, order }) {
 
     const [imageAttachmentPreview, setImageAttachmentPreview] = useState(null);
     const [documentAttachmentPreview, setDocumentAttachmentPreview] = useState(null);
+    const documentPreviewObjectUrlRef = useRef("");
+
+    const clearDocumentPreviewObjectUrl = () => {
+        if (documentPreviewObjectUrlRef.current) {
+            window.URL.revokeObjectURL(documentPreviewObjectUrlRef.current);
+            documentPreviewObjectUrlRef.current = "";
+        }
+    };
+
+    useEffect(() => {
+        return () => {
+            clearDocumentPreviewObjectUrl();
+        };
+    }, []);
 
     const attachmentUrl = (filePath) => {
         if (!filePath) return "";
@@ -456,6 +504,7 @@ export default function ViewOrderModal({ open, onClose, order }) {
 
             if (imagePreviewItems.length === 0) return;
 
+            clearDocumentPreviewObjectUrl();
             setDocumentAttachmentPreview(null);
             setImageAttachmentPreview({
                 orderLabel: order?.orderId || order?.id,
@@ -466,6 +515,7 @@ export default function ViewOrderModal({ open, onClose, order }) {
 
         if (isPdfAttachment(attachment)) {
             setImageAttachmentPreview(null);
+            clearDocumentPreviewObjectUrl();
             setDocumentAttachmentPreview({
                 kind: "pdf",
                 orderLabel: order?.orderId || order?.id,
@@ -477,6 +527,7 @@ export default function ViewOrderModal({ open, onClose, order }) {
 
         if (isOfficeAttachment(attachment)) {
             setImageAttachmentPreview(null);
+            clearDocumentPreviewObjectUrl();
             setDocumentAttachmentPreview({
                 kind: "office",
                 orderLabel: order?.orderId || order?.id,
@@ -490,15 +541,45 @@ export default function ViewOrderModal({ open, onClose, order }) {
         window.open(url, "_blank", "noopener,noreferrer");
     };
 
-    const handleOpenLabelPreview = () => {
+    const handleOpenLabelPreview = async () => {
         if (!order?.label) return;
         setImageAttachmentPreview(null);
+        clearDocumentPreviewObjectUrl();
         setDocumentAttachmentPreview({
             kind: "pdf",
             orderLabel: order?.orderId || order?.id,
             fileName: order.label.split("/").pop() || "label.pdf",
-            url: absImg(order.label),
+            url: "",
+            isLoading: true,
         });
+
+        try {
+            const blob = await getPrintableOrderLabel(order.id);
+            const objectUrl = window.URL.createObjectURL(blob);
+            documentPreviewObjectUrlRef.current = objectUrl;
+            setDocumentAttachmentPreview({
+                kind: "pdf",
+                orderLabel: order?.orderId || order?.id,
+                fileName: order.label.split("/").pop() || "label.pdf",
+                url: objectUrl,
+                isLoading: false,
+            });
+        } catch (error) {
+            console.error("Label preview failed", error);
+            toast.error("Failed to load printable label preview");
+            setDocumentAttachmentPreview({
+                kind: "pdf",
+                orderLabel: order?.orderId || order?.id,
+                fileName: order.label.split("/").pop() || "label.pdf",
+                url: "",
+                isLoading: false,
+            });
+        }
+    };
+
+    const closeDocumentAttachmentPreview = () => {
+        clearDocumentPreviewObjectUrl();
+        setDocumentAttachmentPreview(null);
     };
 
     return (
@@ -525,7 +606,19 @@ export default function ViewOrderModal({ open, onClose, order }) {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <DetailRow label="Order ID" value={order.orderId} copyable />
                     <DetailRow label="Order Date" value={formatDate(order.date)} />
-                    <DetailRow label="Status" value={<StatusBadge status={order.status} />} />
+                    <DetailRow
+                        label="Status"
+                        value={(
+                            <span className="inline-flex flex-wrap items-center gap-2">
+                                <StatusBadge status={order.status} />
+                                {isPartiallyReturned && (
+                                    <span className="inline-flex items-center rounded-md bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                                        Partially Returned
+                                    </span>
+                                )}
+                            </span>
+                        )}
+                    />
                     <DetailRow label="Channel" value={order.tenantChannel?.marketplace} />
                 </div>
             </CardSection>
@@ -644,7 +737,7 @@ export default function ViewOrderModal({ open, onClose, order }) {
                                     <th className="px-4 py-3 font-medium text-gray-500 w-[30%]">Product</th>
                                     <th className="px-3 py-2 font-medium text-gray-500 text-center w-[8%]">Returned Units</th>
                                     <th className="px-3 py-2 font-medium text-gray-500 text-center w-[10%]">Qty Equivalent</th>
-                                    <th className="px-3 py-2 font-medium text-gray-500 text-right w-[14%]">Return Amount</th>
+                                    <th className="px-3 py-2 font-medium text-gray-500 text-center w-[14%]">Return Amount</th>
                                     <th className="px-3 py-2 font-medium text-gray-500 w-[26%]">Note</th>
                                 </tr>
                             </thead>
@@ -673,7 +766,7 @@ export default function ViewOrderModal({ open, onClose, order }) {
                                         </td>
                                         <td className="px-3 py-2 text-center text-gray-900 font-medium">{row.returnedUnits}</td>
                                         <td className="px-3 py-2 text-center text-gray-900 font-medium">{row.returnedQtyEquivalent.toFixed(2)}</td>
-                                        <td className="px-3 py-2 text-right text-gray-900 font-medium">{formatPrice(row.returnSellingAmount)}</td>
+                                        <td className="px-3 py-2 text-center text-gray-900 font-medium">{formatPrice(row.returnSellingAmount)}</td>
                                         <td className="px-3 py-2 text-gray-600 break-words whitespace-normal">{row.note || "—"}</td>
                                     </tr>
                                 ))}
@@ -831,7 +924,7 @@ export default function ViewOrderModal({ open, onClose, order }) {
 
             <ViewModal
                 open={Boolean(documentAttachmentPreview)}
-                onClose={() => setDocumentAttachmentPreview(null)}
+                onClose={closeDocumentAttachmentPreview}
                 title={`${documentAttachmentPreview?.kind === "office" ? "Document Preview" : "PDF Preview"}${documentAttachmentPreview?.orderLabel ? ` • ${documentAttachmentPreview.orderLabel}` : ""}`}
                 subtitle={documentAttachmentPreview?.fileName || "Attachment"}
                 widthClass="max-w-5xl"
@@ -839,13 +932,20 @@ export default function ViewOrderModal({ open, onClose, order }) {
                 footer={(
                     <button
                         className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
-                        onClick={() => setDocumentAttachmentPreview(null)}
+                        onClick={closeDocumentAttachmentPreview}
                     >
                         Close
                     </button>
                 )}
             >
-                {documentAttachmentPreview?.kind === "office" ? (
+                {documentAttachmentPreview?.isLoading ? (
+                    <div className="flex h-[66vh] items-center justify-center rounded-lg border border-gray-200 bg-white">
+                        <div className="flex items-center gap-2 text-sm text-gray-500">
+                            <Loader2 size={16} className="animate-spin" />
+                            Preparing printable label preview...
+                        </div>
+                    </div>
+                ) : documentAttachmentPreview?.kind === "office" ? (
                     documentAttachmentPreview?.viewerUrl ? (
                         <iframe
                             src={documentAttachmentPreview.viewerUrl}

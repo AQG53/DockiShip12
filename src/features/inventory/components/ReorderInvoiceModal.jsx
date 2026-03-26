@@ -1122,8 +1122,12 @@ export default function ReorderInvoiceModal({
                       Lines: <span className="font-semibold text-gray-900">{invoice?.lineCount || 0}</span>
                       {" • "}
                       Reorder Qty: <span className="font-semibold text-gray-900">{invoice?.totals?.totalReorderQty || 0}</span>
-                      {" • "}
-                      Total Value: <span className="font-semibold text-gray-900">{toMoney(invoice?.totals?.totalValue || 0, invoice?.supplier?.currency || "USD")}</span>
+                      {visibleColumns.totalValue && (
+                        <>
+                          {" • "}
+                          Total Value: <span className="font-semibold text-gray-900">{toMoney(invoice?.totals?.totalValue || 0, invoice?.supplier?.currency || "USD")}</span>
+                        </>
+                      )}
                     </div>
                   </div>
 

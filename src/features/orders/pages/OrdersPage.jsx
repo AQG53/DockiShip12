@@ -533,6 +533,25 @@ export default function OrdersPage() {
     const [labelPreviewOpen, setLabelPreviewOpen] = useState(false);
     const [labelPreviewTarget, setLabelPreviewTarget] = useState(null);
     const [isLabelPrintProcessing, setIsLabelPrintProcessing] = useState(false);
+    const [isLabelPreviewLoading, setIsLabelPreviewLoading] = useState(false);
+    const [labelPreviewPrintableUrl, setLabelPreviewPrintableUrl] = useState("");
+    const labelPreviewPrintableUrlRef = useRef("");
+
+    const replaceLabelPreviewPrintableUrl = (nextUrl = "") => {
+        if (labelPreviewPrintableUrlRef.current) {
+            window.URL.revokeObjectURL(labelPreviewPrintableUrlRef.current);
+        }
+        labelPreviewPrintableUrlRef.current = nextUrl;
+        setLabelPreviewPrintableUrl(nextUrl);
+    };
+
+    useEffect(() => {
+        return () => {
+            if (labelPreviewPrintableUrlRef.current) {
+                window.URL.revokeObjectURL(labelPreviewPrintableUrlRef.current);
+            }
+        };
+    }, []);
 
     useEffect(() => {
         if (!viewOrder?.id || !Array.isArray(orders) || orders.length === 0) return;
@@ -543,6 +562,40 @@ export default function OrdersPage() {
             return prev === freshOrder ? prev : freshOrder;
         });
     }, [orders, viewOrder?.id]);
+
+    useEffect(() => {
+        if (!labelPreviewOpen || !labelPreviewTarget?.id) {
+            setIsLabelPreviewLoading(false);
+            replaceLabelPreviewPrintableUrl("");
+            return;
+        }
+
+        let active = true;
+        setIsLabelPreviewLoading(true);
+        replaceLabelPreviewPrintableUrl("");
+
+        getPrintableOrderLabel(labelPreviewTarget.id)
+            .then((blob) => {
+                const nextUrl = window.URL.createObjectURL(blob);
+                if (!active) {
+                    window.URL.revokeObjectURL(nextUrl);
+                    return;
+                }
+                replaceLabelPreviewPrintableUrl(nextUrl);
+            })
+            .catch((err) => {
+                if (!active) return;
+                console.error("Printable label preview failed", err);
+                toast.error("Failed to load printable label preview");
+            })
+            .finally(() => {
+                if (active) setIsLabelPreviewLoading(false);
+            });
+
+        return () => {
+            active = false;
+        };
+    }, [labelPreviewOpen, labelPreviewTarget?.id]);
 
     // Expandable Rows State
     const [expandedOrderIds, setExpandedOrderIds] = useState(new Set());
@@ -727,7 +780,7 @@ export default function OrdersPage() {
             setTrackingGroupOrders(Array.isArray(rows) ? rows : []);
         } catch (error) {
             console.error("Failed to load tracking group orders", error);
-            toast.error("Failed to load shared flyer orders.");
+            toast.error("Failed to load combined orders.");
         } finally {
             setIsTrackingGroupLoading(false);
         }
@@ -970,26 +1023,21 @@ export default function OrdersPage() {
             toast.error("Label not available for this order");
             return;
         }
+        if (!labelPreviewPrintableUrl) {
+            toast.error(isLabelPreviewLoading ? "Printable label is still loading" : "Printable label not available");
+            return;
+        }
 
         setIsLabelPrintProcessing(true);
-        const fileUrl = absImg(labelPreviewTarget.label);
 
         try {
-            const response = await fetch(fileUrl);
-            if (!response.ok) {
-                throw new Error(`Failed to fetch label (${response.status})`);
-            }
-
-            const blob = await response.blob();
-            const downloadUrl = window.URL.createObjectURL(blob);
             const link = document.createElement("a");
             const fileName = labelPreviewTarget.label.split("/").pop() || "label.pdf";
-            link.href = downloadUrl;
+            link.href = labelPreviewPrintableUrl;
             link.download = fileName;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-            window.URL.revokeObjectURL(downloadUrl);
         } catch (err) {
             console.error("Label download failed", err);
             toast.error("Failed to download label");
@@ -1005,10 +1053,13 @@ export default function OrdersPage() {
             toast.error("Label not available for this order");
             return;
         }
+        if (!labelPreviewPrintableUrl) {
+            toast.error(isLabelPreviewLoading ? "Printable label is still loading" : "Printable label not available");
+            return;
+        }
 
         setIsLabelPrintProcessing(true);
         let printWindow = null;
-        let objectUrl = null;
 
         try {
             printWindow = window.open("", "_blank");
@@ -1016,8 +1067,6 @@ export default function OrdersPage() {
                 throw new Error("Popup blocked");
             }
 
-            const blob = await getPrintableOrderLabel(labelPreviewTarget.id);
-            objectUrl = window.URL.createObjectURL(blob);
             const escapedTitle = String(labelPreviewTarget.orderId || "Order Label").replace(/"/g, "&quot;");
 
             printWindow.document.write(`
@@ -1030,18 +1079,17 @@ export default function OrdersPage() {
                   </style>
                 </head>
                 <body>
-                  <iframe src="${objectUrl}" onload="window.focus(); window.print();"></iframe>
+                  <iframe
+                    src="${labelPreviewPrintableUrl}"
+                    onload="try { this.contentWindow.focus(); this.contentWindow.print(); } catch (error) { window.focus(); }"
+                  ></iframe>
                 </body>
               </html>
             `);
             printWindow.document.close();
-            if (objectUrl) {
-                setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60_000);
-            }
         } catch (err) {
             console.error("Label print failed", err);
             if (printWindow && !printWindow.closed) printWindow.close();
-            if (objectUrl) window.URL.revokeObjectURL(objectUrl);
             toast.error("Failed to open print dialog");
             setIsLabelPrintProcessing(false);
             return;
@@ -1145,7 +1193,7 @@ export default function OrdersPage() {
                                 }}
                                 className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-100"
                             >
-                                Shared Flyer ({sharedCount})
+                                Combined Order ({sharedCount})
                             </button>
                         )}
                     </div>
@@ -1467,47 +1515,58 @@ export default function OrdersPage() {
             key: "status",
             label: "Status",
             className: "!items-start",
-            render: (row) => (
-                <div className="flex flex-col items-start justify-center gap-1 min-h-[3rem] py-1">
-                    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${row.status === 'DELIVERED'
-                        ? "bg-emerald-100 text-emerald-700"
-                        : row.status === 'CANCEL' || row.status === 'RETURN' || row.status === 'REFUND'
-                            ? "bg-rose-100 text-rose-700"
-                            : "bg-amber-100 text-amber-700"
-                        }`}>
-                        {row.status?.replace(/_/g, " ")}
-                    </span>
-                    {/* Settled Chip */}
-                    {row.is_settled ? (
-                        <button
-                            disabled={!canUpdate}
-                            onClick={(e) => {
-                                if (!canUpdate) return;
-                                e.stopPropagation();
-                                setSettleTarget(row);
-                                setConfirmSettleOpen(true);
-                            }}
-                            className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border transition-colors ${canUpdate ? "cursor-pointer hover:bg-emerald-200" : ""} bg-emerald-100 text-emerald-700 border-emerald-200`}
-                        >
-                            Settled
-                        </button>
-                    ) : (
-                        canUpdate && (
-                            <button
-                                onClick={(e) => { e.stopPropagation(); setSettleTarget(row); setConfirmSettleOpen(true); }}
-                                className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200 transition-colors"
-                            >
-                                Unsettled
-                            </button>
-                        )
-                    )}
-                    {row.remarkType && (
-                        <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-700">
-                            {row.remarkType.name}
+            render: (row) => {
+                const isPartiallyReturned = row.status !== 'RETURN'
+                    && Array.isArray(row.returnRecords)
+                    && row.returnRecords.length > 0;
+
+                return (
+                    <div className="flex flex-col items-start justify-center gap-1 min-h-[3rem] py-1">
+                        <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${row.status === 'DELIVERED'
+                            ? "bg-emerald-100 text-emerald-700"
+                            : row.status === 'CANCEL' || row.status === 'RETURN' || row.status === 'REFUND'
+                                ? "bg-rose-100 text-rose-700"
+                                : "bg-amber-100 text-amber-700"
+                            }`}>
+                            {row.status?.replace(/_/g, " ")}
                         </span>
-                    )}
-                </div>
-            )
+                        {isPartiallyReturned && (
+                            <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-700">
+                                Partially Returned
+                            </span>
+                        )}
+                        {/* Settled Chip */}
+                        {row.is_settled ? (
+                            <button
+                                disabled={!canUpdate}
+                                onClick={(e) => {
+                                    if (!canUpdate) return;
+                                    e.stopPropagation();
+                                    setSettleTarget(row);
+                                    setConfirmSettleOpen(true);
+                                }}
+                                className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border transition-colors ${canUpdate ? "cursor-pointer hover:bg-emerald-200" : ""} bg-emerald-100 text-emerald-700 border-emerald-200`}
+                            >
+                                Settled
+                            </button>
+                        ) : (
+                            canUpdate && (
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); setSettleTarget(row); setConfirmSettleOpen(true); }}
+                                    className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200 transition-colors"
+                                >
+                                    Unsettled
+                                </button>
+                            )
+                        )}
+                        {row.remarkType && (
+                            <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-700">
+                                {row.remarkType.name}
+                            </span>
+                        )}
+                    </div>
+                );
+            }
         },
         {
             key: "actions",
@@ -1898,7 +1957,7 @@ export default function OrdersPage() {
                     )}
                     {sharedFlyersOnly && (
                         <div className="flex items-center gap-1 bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full text-[11px] font-medium border border-blue-200 whitespace-nowrap">
-                            Shared Flyers Only
+                            Combined Orders Only
                             <button onClick={() => setSharedFlyersOnly(false)} className="hover:text-red-500"><X size={10} /></button>
                         </div>
                     )}
@@ -1934,7 +1993,7 @@ export default function OrdersPage() {
                 onClick={() => setSharedFlyersOnly((prev) => !prev)}
                 title="Show only orders that share tracking IDs"
             >
-                {sharedFlyersOnly ? "Shared Flyers: ON" : "Shared Flyers"}
+                {sharedFlyersOnly ? "Combined Orders: ON" : "Combined Orders"}
             </Button>
 
             {canShowProductSummary && (
@@ -2306,7 +2365,7 @@ export default function OrdersPage() {
             <Modal
                 open={trackingGroupOpen}
                 onClose={() => setTrackingGroupOpen(false)}
-                title={`Shared Flyer Orders${trackingGroupId ? ` - ${trackingGroupId}` : ""}`}
+                title={`Combined Orders${trackingGroupId ? ` - ${trackingGroupId}` : ""}`}
                 widthClass="max-w-4xl"
                 footer={(
                     <Button variant="ghost" onClick={() => setTrackingGroupOpen(false)}>
@@ -2315,7 +2374,7 @@ export default function OrdersPage() {
                 )}
             >
                 {isTrackingGroupLoading ? (
-                    <div className="py-8 text-center text-sm text-gray-500">Loading shared flyer orders...</div>
+                    <div className="py-8 text-center text-sm text-gray-500">Loading combined orders...</div>
                 ) : trackingGroupOrders.length === 0 ? (
                     <div className="py-8 text-center text-sm text-gray-500">No orders found for this tracking ID.</div>
                 ) : (
@@ -2360,7 +2419,7 @@ export default function OrdersPage() {
                             variant="warning"
                             onClick={handleDownloadLabelFromPreview}
                             isLoading={isLabelPrintProcessing}
-                            disabled={!labelPreviewTarget?.label}
+                            disabled={!labelPreviewTarget?.label || isLabelPreviewLoading || !labelPreviewPrintableUrl}
                         >
                             Download
                         </Button>
@@ -2368,7 +2427,7 @@ export default function OrdersPage() {
                             variant="warning"
                             onClick={handlePrintLabelFromPreview}
                             isLoading={isLabelPrintProcessing}
-                            disabled={!labelPreviewTarget?.label}
+                            disabled={!labelPreviewTarget?.label || isLabelPreviewLoading || !labelPreviewPrintableUrl}
                         >
                             Print
                         </Button>
@@ -2376,11 +2435,21 @@ export default function OrdersPage() {
                 }
             >
                 {labelPreviewTarget?.label ? (
+                    isLabelPreviewLoading ? (
+                        <div className="flex h-[70vh] items-center justify-center rounded-md border border-gray-200 bg-white">
+                            <p className="text-sm text-gray-500">Preparing printable label preview...</p>
+                        </div>
+                    ) : labelPreviewPrintableUrl ? (
                     <iframe
-                        src={absImg(labelPreviewTarget.label)}
+                        src={labelPreviewPrintableUrl}
                         title="Order Label Preview"
                         className="w-full h-[70vh] rounded-md border border-gray-200 bg-white"
                     />
+                    ) : (
+                        <div className="flex h-[70vh] items-center justify-center rounded-md border border-gray-200 bg-white">
+                            <p className="text-sm text-gray-500">Printable label preview is unavailable.</p>
+                        </div>
+                    )
                 ) : (
                     <p className="text-sm text-gray-500">No label available for preview.</p>
                 )}

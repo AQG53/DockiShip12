@@ -31,6 +31,7 @@ const INVENTORY_COLUMN_TRACKS = {
   warehouse: "minmax(150px,0.5fr)",
   stockOnHand: "minmax(90px,0.5fr)",
   reservedQty: "minmax(90px,0.5fr)",
+  balanceQty: "minmax(90px,0.5fr)",
   inTransit: "minmax(90px,0.5fr)",
   returns: "minmax(90px,0.5fr)",
   threshold: "minmax(90px,0.5fr)",
@@ -44,6 +45,7 @@ const INVENTORY_COLUMN_PICKER_OPTIONS = [
   { key: "warehouse", label: "Warehouse" },
   { key: "stockOnHand", label: "Available" },
   { key: "reservedQty", label: "Reserved" },
+  { key: "balanceQty", label: "Balance" },
   { key: "inTransit", label: "In Transit" },
   { key: "returns", label: "Returns" },
   { key: "threshold", label: "Threshold" },
@@ -1330,6 +1332,23 @@ export default function InventoryPage() {
             {row.reservedQty ?? 0}
           </div>
         ),
+      },
+      // Balance
+      {
+        key: "balanceQty",
+        label: "Balance",
+        className: "min-w-[80px] !items-start text-center justify-center",
+        headerClassName: "justify-center",
+        render: (row) => {
+          const balance = (Number(row.stockOnHand) || 0) - (Number(row.reservedQty) || 0);
+          return (
+            <div className="flex items-center justify-center min-h-[3rem] py-1">
+              <span className={`text-[13px] font-semibold ${balance < 0 ? "text-rose-500" : "text-gray-700"}`}>
+                {balance}
+              </span>
+            </div>
+          );
+        },
       },
       // In Transit
       {

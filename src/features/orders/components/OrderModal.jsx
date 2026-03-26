@@ -664,6 +664,11 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
                     // Update local state to show immediately
                     if (updatedOrder?.label) {
                         setExistingLabel(updatedOrder.label);
+                        if (updatedOrder?.status) {
+                            setStatus(updatedOrder.status);
+                        } else if (status === 'PENDING') {
+                            setStatus('LABEL_UPLOADED');
+                        }
                         setNewLabel(null);
                     }
 

@@ -138,6 +138,38 @@ export default function PurchaseOrderViewModal({ po, loading, onClose, currency 
 
   const attachments = Array.isArray(po?.attachments) ? po.attachments : [];
   const statusLabel = (po?.status || "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const itemTotals = useMemo(() => {
+    return orderedItems.reduce((acc, item) => {
+      const qty = Number(item.quantity) || 0;
+      const receivedQty = Number(item.receivedQty) || 0;
+      const remainingQty = Math.max(0, qty - receivedQty);
+      const price = Number(item.unitPrice) || 0;
+      const landedCost = item.landedCostPerUnit != null ? Number(item.landedCostPerUnit) : null;
+      const taxRate = Number(item.taxRate) || 0;
+      const subtotal = qty * price;
+      const tax = subtotal * (taxRate / 100);
+      const lineTotal = subtotal + tax;
+
+      acc.ordered += qty;
+      acc.received += receivedQty;
+      acc.remaining += remainingQty;
+      acc.lineTotal += lineTotal;
+
+      if (landedCost != null && Number.isFinite(landedCost)) {
+        acc.landedCost += landedCost * qty;
+        acc.landedCostQty += qty;
+      }
+
+      return acc;
+    }, {
+      ordered: 0,
+      received: 0,
+      remaining: 0,
+      lineTotal: 0,
+      landedCost: 0,
+      landedCostQty: 0,
+    });
+  }, [orderedItems]);
 
   const [imageAttachmentPreview, setImageAttachmentPreview] = useState(null);
   const [documentAttachmentPreview, setDocumentAttachmentPreview] = useState(null);
@@ -480,6 +512,27 @@ export default function PurchaseOrderViewModal({ po, loading, onClose, currency 
                       );
                     })}
                   </tbody>
+                  {orderedItems.length > 0 && (
+                    <tfoot>
+                      <tr className="border-t-2 border-gray-200 bg-gray-50 text-[13px] font-semibold text-gray-800">
+                        <td className="px-3 py-3 text-center align-middle">Total</td>
+                        <td className="px-3 py-3 align-middle text-left">Summary</td>
+                        <td className="px-3 py-3 text-center align-middle">{itemTotals.ordered}</td>
+                        <td className="px-3 py-3 text-center align-middle">{itemTotals.received}</td>
+                        <td className="px-3 py-3 text-center align-middle">{itemTotals.remaining}</td>
+                        <td className="px-3 py-3 text-center align-middle">—</td>
+                        {showLandedCost && (
+                          <td className="px-3 py-3 text-center align-middle">
+                            {itemTotals.landedCostQty > 0
+                              ? formatCurrency(itemTotals.landedCost / itemTotals.landedCostQty, currency)
+                              : "—"}
+                          </td>
+                        )}
+                        <td className="px-3 py-3 text-center align-middle">—</td>
+                        <td className="px-3 py-3 text-right align-middle">{formatCurrency(itemTotals.lineTotal, currency)}</td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
                 {orderedItems.length === 0 && <div className="p-4 text-center text-sm text-gray-500">No items</div>}
               </div>
