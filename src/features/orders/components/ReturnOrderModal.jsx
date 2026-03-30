@@ -50,6 +50,13 @@ const sanitizeDecimal3 = (value) => {
   return `${sanitized.slice(0, dotIndex + 1)}${sanitized.slice(dotIndex + 1, dotIndex + 4)}`;
 };
 
+const sanitizeDecimal2 = (value) => {
+  const sanitized = sanitizeDecimal(value);
+  const dotIndex = sanitized.indexOf(".");
+  if (dotIndex === -1) return sanitized;
+  return `${sanitized.slice(0, dotIndex + 1)}${sanitized.slice(dotIndex + 1, dotIndex + 3)}`;
+};
+
 const parseNonNegativeMoney = (raw, fallback = 0) => {
   const parsed = toAmount(raw, NaN);
   if (!Number.isFinite(parsed)) return fallback;
@@ -145,7 +152,8 @@ export default function ReturnOrderModal({
   const [qtyMap, setQtyMap] = useState({});
   const [note, setNote] = useState("");
   const [linePriceInputMap, setLinePriceInputMap] = useState({});
-  const [linePriceManualMap, setLinePriceManualMap] = useState({});
+  const [lineSubtotalInputMap, setLineSubtotalInputMap] = useState({});
+  const [lineManualModeMap, setLineManualModeMap] = useState({});
   const [shippingChargesInput, setShippingChargesInput] = useState("0.00");
   const [taxChargesInput, setTaxChargesInput] = useState("0.00");
   const [otherChargesInput, setOtherChargesInput] = useState("0.00");
@@ -200,13 +208,16 @@ export default function ReturnOrderModal({
     if (!open) return;
     const nextQtyMap = {};
     const nextPriceMap = {};
+    const nextSubtotalMap = {};
     rows.forEach((row) => {
       nextQtyMap[row.id] = "";
       nextPriceMap[row.id] = row.packSalePrice > 0 ? row.packSalePrice.toFixed(2) : "";
+      nextSubtotalMap[row.id] = row.currentLineSelling > 0 ? row.currentLineSelling.toFixed(2) : "";
     });
     setQtyMap(nextQtyMap);
     setLinePriceInputMap(nextPriceMap);
-    setLinePriceManualMap({});
+    setLineSubtotalInputMap(nextSubtotalMap);
+    setLineManualModeMap({});
     setNote("");
     setIsShippingManual(false);
     setIsTaxManual(false);
@@ -229,15 +240,30 @@ export default function ReturnOrderModal({
       const autoRemainingSubtotal = row.totalUnits > 0
         ? ((row.currentLineSelling * remainingUnits) / row.totalUnits)
         : 0;
-      const hasManualPrice = linePriceManualMap[row.id] === true;
-      const finalPackSalePrice = hasManualPrice
-        ? parseNonNegativeMoney(linePriceInputMap[row.id], row.packSalePrice)
-        : row.packSalePrice;
+      const manualMode = lineManualModeMap[row.id];
+      let finalPackSalePrice = row.packSalePrice;
+      let finalRemainingSubtotal = remainingUnits > 0
+        ? clampMoney(autoRemainingSubtotal, row.currentLineSelling)
+        : 0;
+
+      if (remainingUnits > 0 && manualMode === "price") {
+        finalPackSalePrice = parseNonNegativeMoney(linePriceInputMap[row.id], row.packSalePrice);
+        const finalSalePricePerUnit = row.unitsPerPack > 0
+          ? (finalPackSalePrice / row.unitsPerPack)
+          : 0;
+        finalRemainingSubtotal = clampMoney(finalSalePricePerUnit * remainingUnits, row.currentLineSelling);
+      } else if (remainingUnits > 0 && manualMode === "subtotal") {
+        finalRemainingSubtotal = clampMoney(lineSubtotalInputMap[row.id], row.currentLineSelling);
+        finalPackSalePrice = row.unitsPerPack > 0
+          ? ((finalRemainingSubtotal / remainingUnits) * row.unitsPerPack)
+          : 0;
+      } else if (remainingUnits <= 0) {
+        finalPackSalePrice = 0;
+        finalRemainingSubtotal = 0;
+      }
+
       const finalSalePricePerUnit = row.unitsPerPack > 0
         ? (finalPackSalePrice / row.unitsPerPack)
-        : 0;
-      const finalRemainingSubtotal = remainingUnits > 0
-        ? clampMoney(finalSalePricePerUnit * remainingUnits, row.currentLineSelling)
         : 0;
       const finalReturnSellingAmount = clampMoney(
         row.currentLineSelling - finalRemainingSubtotal,
@@ -253,7 +279,7 @@ export default function ReturnOrderModal({
         finalSalePricePerUnit,
         finalRemainingSubtotal,
         finalReturnSellingAmount,
-        hasManualPrice,
+        manualMode,
       });
 
       if (returnUnits > 0) {
@@ -271,7 +297,7 @@ export default function ReturnOrderModal({
       totalReturnSellingAmount,
       lineDetails,
     };
-  }, [rows, qtyMap, linePriceInputMap, linePriceManualMap]);
+  }, [rows, qtyMap, linePriceInputMap, lineSubtotalInputMap, lineManualModeMap]);
 
   useEffect(() => {
     if (!isShippingManual) setShippingChargesInput(prefilledShippingCharges.toFixed(2));
@@ -329,13 +355,20 @@ export default function ReturnOrderModal({
 
   const setLinePrice = (rowId, rawValue) => {
     const sanitized = sanitizeDecimal3(rawValue);
-    setLinePriceManualMap((prev) => ({ ...prev, [rowId]: true }));
+    setLineManualModeMap((prev) => ({ ...prev, [rowId]: "price" }));
     setLinePriceInputMap((prev) => ({ ...prev, [rowId]: sanitized }));
   };
 
-  const resetLinePrice = (rowId, fallbackPrice) => {
-    setLinePriceManualMap((prev) => ({ ...prev, [rowId]: false }));
+  const setLineSubtotal = (rowId, rawValue) => {
+    const sanitized = sanitizeDecimal2(rawValue);
+    setLineManualModeMap((prev) => ({ ...prev, [rowId]: "subtotal" }));
+    setLineSubtotalInputMap((prev) => ({ ...prev, [rowId]: sanitized }));
+  };
+
+  const resetLinePricing = (rowId, fallbackPrice, fallbackSubtotal) => {
+    setLineManualModeMap((prev) => ({ ...prev, [rowId]: undefined }));
     setLinePriceInputMap((prev) => ({ ...prev, [rowId]: fallbackPrice > 0 ? fallbackPrice.toFixed(2) : "" }));
+    setLineSubtotalInputMap((prev) => ({ ...prev, [rowId]: fallbackSubtotal > 0 ? fallbackSubtotal.toFixed(2) : "" }));
   };
 
   const finalReturnSellingAmount = financials.totalReturnSellingAmount;
@@ -424,13 +457,13 @@ export default function ReturnOrderModal({
             <thead className="sticky top-0 bg-gray-50 text-gray-600">
               <tr>
                 <th className="w-[72px] px-3 py-2 text-center align-middle font-medium">Select</th>
-                <th className="w-[26%] px-3 py-2 text-left align-middle font-medium">Product</th>
+                <th className="w-[25%] px-3 py-2 text-left align-middle font-medium">Product</th>
                 <th className="w-[9%] px-3 py-2 text-center align-middle font-medium">Units/Pack</th>
                 <th className="w-[12%] px-3 py-2 text-center align-middle font-medium">Current</th>
-                <th className="w-[16%] px-3 py-2 text-center align-middle font-medium">Return Units</th>
+                <th className="w-[15%] px-3 py-2 text-center align-middle font-medium">Return Units</th>
                 <th className="w-[12%] px-3 py-2 text-center align-middle font-medium">Remaining</th>
-                <th className="w-[15%] px-3 py-2 text-center align-middle font-medium">Pack Sale Price</th>
-                <th className="w-[10%] px-3 py-2 text-center align-middle font-medium">Remaining Subtotal</th>
+                <th className="w-[13%] px-3 py-2 text-center align-middle font-medium">Pack Sale Price</th>
+                <th className="w-[14%] px-3 py-2 text-center align-middle font-medium">Remaining Subtotal</th>
               </tr>
             </thead>
             <tbody>
@@ -439,9 +472,12 @@ export default function ReturnOrderModal({
                 const line = financials.lineDetails.get(row.id);
                 const returnUnits = line?.returnUnits || 0;
                 const remainingState = line?.remainingPackState ?? normalizePackState(row.totalUnits, row.unitsPerPack);
-                const priceInputValue = line?.hasManualPrice
+                const priceInputValue = line?.manualMode === "price"
                   ? (linePriceInputMap[row.id] ?? "")
-                  : row.packSalePrice.toFixed(2);
+                  : toAmount(line?.finalPackSalePrice, row.packSalePrice).toFixed(2);
+                const subtotalInputValue = line?.manualMode === "subtotal"
+                  ? (lineSubtotalInputMap[row.id] ?? "")
+                  : toAmount(line?.finalRemainingSubtotal, row.currentLineSelling).toFixed(2);
 
                 return (
                   <tr key={row.id} className={`border-t border-gray-100 ${isSelected ? "bg-amber-50/50" : ""}`}>
@@ -504,7 +540,7 @@ export default function ReturnOrderModal({
                       {renderPackSummary(remainingState)}
                     </td>
                     <td className="px-3 py-2 align-middle">
-                      <div className="mx-auto flex w-full max-w-[188px] items-center justify-center gap-1.5">
+                      <div className="mx-auto flex w-full max-w-[180px] items-center justify-center gap-1.5">
                         <input
                           className={`${moneyInputClass} min-w-[88px] flex-1`}
                           value={priceInputValue}
@@ -516,16 +552,25 @@ export default function ReturnOrderModal({
                         <button
                           type="button"
                           className="h-8 w-[46px] flex-shrink-0 rounded border border-gray-300 px-1.5 text-[11px] font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
-                          onClick={() => resetLinePrice(row.id, row.packSalePrice)}
-                          disabled={returnUnits <= 0 || remainingState.totalUnits <= 0 || !line?.hasManualPrice}
+                          onClick={() => resetLinePricing(row.id, row.packSalePrice, line?.autoRemainingSubtotal ?? row.currentLineSelling)}
+                          disabled={returnUnits <= 0 || remainingState.totalUnits <= 0 || !line?.manualMode}
                           title="Reset to auto"
                         >
                           Auto
                         </button>
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-center align-middle font-medium tabular-nums text-gray-900">
-                      {toAmount(line?.finalRemainingSubtotal, row.currentLineSelling).toFixed(2)}
+                    <td className="px-3 py-2 align-middle">
+                      <div className="mx-auto w-full max-w-[132px]">
+                        <input
+                          className={`${moneyInputClass} w-full text-center`}
+                          value={subtotalInputValue}
+                          onChange={(e) => setLineSubtotal(row.id, e.target.value)}
+                          inputMode="decimal"
+                          placeholder="0.00"
+                          disabled={returnUnits <= 0 || remainingState.totalUnits <= 0}
+                        />
+                      </div>
                     </td>
                   </tr>
                 );

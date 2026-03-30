@@ -568,33 +568,32 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
         if (!editing) return null;
 
         const originalItems = Array.isArray(editing.items) ? editing.items : [];
-        const nextItems = items
-            .filter((item) => item.orderItemId)
-            .map((item) => {
-                const original = originalItems.find((orig) => orig.id === item.orderItemId);
-                if (!original) return null;
+        const nextItems = originalItems.map((original) => {
+            const listing = original.channelListing;
+            const unitsPerPack = toInt(original.unitsPerPack ?? listing?.units ?? 1, 1);
+            const totalUnits = getExistingItemTotalUnits(original, unitsPerPack);
+            const packState = normalizePackState(original.quantity, original.looseUnits, unitsPerPack);
+            const salePricePerUnit = resolveSalePricePerUnit(original, { ...packState, totalUnits, unitsPerPack });
+            const unitPrice = resolvePackSalePrice(original, { ...packState, totalUnits, unitsPerPack });
 
-                return {
-                    ...original,
-                    id: item.orderItemId,
-                    productDescription: item.displayName || original.productDescription,
-                    quantity: toInt(item.quantity, 0),
-                    looseUnits: toInt(item.looseUnits, 0),
-                    totalUnits: toInt(item.totalUnits, 0),
-                    unitsPerPack: toInt(item.units, 1),
-                    salePricePerUnit: parseFloat(item.salePricePerUnit) || 0,
-                    unitPrice: parseFloat(item.unitPrice) || 0,
-                    totalAmount: parseFloat(item.totalAmount) || 0,
-                    channelListingId: original.channelListingId ?? item.listingId ?? null,
-                };
-            })
-            .filter(Boolean);
+            return {
+                ...original,
+                id: original.id,
+                quantity: packState.quantity,
+                looseUnits: packState.looseUnits,
+                totalUnits,
+                unitsPerPack,
+                salePricePerUnit,
+                unitPrice,
+                totalAmount: toAmount(original.totalAmount, salePricePerUnit * totalUnits),
+            };
+        });
 
         return {
             ...editing,
             items: nextItems,
         };
-    }, [editing, items]);
+    }, [editing]);
 
     // Handlers
     const handleSave = async (mode = 'single', skipTrackingIdCheck = false) => {
