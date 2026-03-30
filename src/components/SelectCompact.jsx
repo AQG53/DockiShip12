@@ -25,6 +25,7 @@ export default function SelectCompact({
   loadingText = "Loading...",
 }) {
   const list = Array.isArray(options) ? options : [];
+  const selectedValues = multiple && Array.isArray(value) ? value : [];
 
   const getOptValue = (opt) => (typeof opt === "string" ? opt : opt?.value ?? "");
   const getOptLabel = (opt) =>
@@ -73,6 +74,13 @@ export default function SelectCompact({
   const ADD_NEW_SENTINEL = "__ADD_NEW_SENTINEL__";
 
   const isPlaceholder = (!value || (multiple && value.length === 0)) && !!placeholder;
+  const clearAll = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onChange([]);
+    setQuery("");
+    if (onSearch) onSearch("");
+  };
 
   return (
     <Listbox
@@ -109,17 +117,41 @@ export default function SelectCompact({
           transition
           className="w-[var(--button-width)] [--anchor-gap:4px] z-[5000] max-h-56 overflow-auto rounded-xl border border-gray-200 bg-white py-1 text-[12px] shadow-lg focus:outline-none transition duration-100 ease-in data-[leave]:data-[closed]:opacity-0"
         >
-          {filterable && (
-            <div className="px-2 pb-1 sticky top-0 bg-white z-10">
-              <input
-                type="text"
-                placeholder="Search..."
-                className="w-full h-7 rounded-md border border-gray-300 px-2 text-[12px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-              />
+          {(multiple || filterable) && (
+            <div className="sticky top-0 bg-white z-10">
+              {multiple && (
+                <div className="flex items-center justify-between px-2 pb-1 pt-1">
+                  <span className="text-[11px] text-gray-500">
+                    {selectedValues.length > 0 ? `${selectedValues.length} selected` : "No selection"}
+                  </span>
+                  {selectedValues.length > 0 && (
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onClick={clearAll}
+                      className="text-[11px] font-medium text-amber-700 hover:text-amber-800"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              )}
+              {filterable && (
+                <div className="px-2 pb-1">
+                  <input
+                    type="text"
+                    placeholder="Search..."
+                    className="w-full h-7 rounded-md border border-gray-300 px-2 text-[12px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </div>
+              )}
             </div>
           )}
           {loading && (
@@ -140,7 +172,7 @@ export default function SelectCompact({
                 <ListboxOption
                   key={String(val || lab)}
                   value={val}
-                  className="group cursor-pointer select-none px-2 py-1 data-[focus]:bg-gray-100 data-[focus]:text-gray-900 text-gray-800"
+                  className="group cursor-pointer select-none rounded-md mx-1 px-2 py-1 text-gray-800 data-[selected]:bg-amber-50 data-[selected]:text-amber-900 data-[focus]:bg-gray-100 data-[focus]:text-gray-900 data-[focus]:outline-none"
                 >
                   <div className="flex items-center gap-2">
                     {!hideCheck && (

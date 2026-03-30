@@ -2,12 +2,22 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createPurchaseOrder, listPurchaseOrders, updatePurchaseOrderStatus, updatePurchaseOrder, deletePurchaseOrder, receivePurchaseOrderItems } from "../lib/api";
 import { getPurchaseOrder } from "../lib/api"; // Assuming getPurchaseOrder is also from ../lib/api
 
-export function usePurchaseOrders({ status, supplierId, ...options } = {}) {
+export function usePurchaseOrders({
+  page,
+  perPage,
+  search,
+  status,
+  supplierId,
+  supplierIds,
+  sortBy,
+  sortOrder,
+  ...queryOptions
+} = {}) {
   return useQuery({
-    queryKey: ["purchase-orders", { status, supplierId }],
-    queryFn: () => listPurchaseOrders({ status, supplierId }),
+    queryKey: ["purchase-orders", { page, perPage, search, status, supplierId, supplierIds, sortBy, sortOrder }],
+    queryFn: () => listPurchaseOrders({ page, perPage, search, status, supplierId, supplierIds, sortBy, sortOrder }),
     staleTime: 0,
-    ...options,
+    ...queryOptions,
   });
 }
 

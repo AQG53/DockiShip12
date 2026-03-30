@@ -21,6 +21,7 @@ export default function MarketplaceListingRow({
     // Mode state
     const [isEditing, setIsEditing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [isTogglingStatus, setIsTogglingStatus] = useState(false);
 
     // Form state
     const [productName, setProductName] = useState(listing.productName || "");
@@ -85,6 +86,7 @@ export default function MarketplaceListingRow({
     // Derived display values for read-only mode
     const channel = (allChannels || []).find(c => c.id === listing.channelId || c.id === listing.channel?.id);
     const displayChannel = channel ? (channel.marketplace + (channel.provider ? ` (${channel.provider})` : '')) : (listing.channel?.marketplace || "—");
+    const isListingActive = String(listing?.status ?? "active").toLowerCase() !== "inactive";
 
     const handleSave = async () => {
         setIsSaving(true);
@@ -146,6 +148,20 @@ export default function MarketplaceListingRow({
         // State will auto-reset via useEffect
     };
 
+    const handleToggleStatus = async () => {
+        if (isSaving || isTogglingStatus || isEditing) return;
+        setIsTogglingStatus(true);
+        try {
+            await onUpdate(listing.id, { status: isListingActive ? "inactive" : "active" });
+            toast.success(`Listing marked ${isListingActive ? "inactive" : "active"}`);
+        } catch (e) {
+            console.error(e);
+            toast.error(e?.response?.data?.message || "Failed to update listing status");
+        } finally {
+            setIsTogglingStatus(false);
+        }
+    };
+
     const effectiveExistingImage = removeExistingImage ? "" : listingImage;
     const effectiveImageSrc = pendingImagePreview || (absImg ? absImg(effectiveExistingImage) : effectiveExistingImage);
     const hasImage = Boolean(effectiveImageSrc);
@@ -160,7 +176,7 @@ export default function MarketplaceListingRow({
     };
 
     return (
-        <div className={`grid ${variantEnabled ? 'grid-cols-[72px_minmax(290px,2.35fr)_minmax(115px,0.9fr)_minmax(90px,0.8fr)_minmax(70px,0.6fr)_minmax(70px,0.6fr)_minmax(70px,0.6fr)_minmax(110px,0.9fr)_70px]' : 'grid-cols-[72px_minmax(320px,2.6fr)_minmax(120px,1fr)_minmax(100px,0.9fr)_minmax(80px,0.7fr)_minmax(80px,0.7fr)_minmax(80px,0.7fr)_70px]'} bg-white text-[13px] text-gray-700 items-center hover:bg-gray-50 transition-colors py-1`}>
+        <div className={`grid ${variantEnabled ? 'grid-cols-[72px_minmax(290px,2.25fr)_minmax(115px,0.9fr)_minmax(90px,0.8fr)_minmax(70px,0.6fr)_minmax(70px,0.6fr)_minmax(70px,0.6fr)_84px_minmax(110px,0.9fr)_70px]' : 'grid-cols-[72px_minmax(320px,2.45fr)_minmax(120px,1fr)_minmax(100px,0.9fr)_minmax(80px,0.7fr)_minmax(80px,0.7fr)_minmax(80px,0.7fr)_84px_70px]'} bg-white text-[13px] text-gray-700 items-center hover:bg-gray-50 transition-colors py-1 ${isListingActive ? "" : "bg-gray-50/60 text-gray-500"}`}>
 
             {/* Listing Image */}
             <div className="px-3 py-2 flex items-center justify-center">
@@ -288,6 +304,29 @@ export default function MarketplaceListingRow({
 
             {/* Stock (Read-only) */}
             <div className="px-3 py-2 text-center text-gray-500">{stock}</div>
+
+            {/* Active */}
+            <div className="px-2 py-2 flex items-center justify-center">
+                <button
+                    type="button"
+                    role="switch"
+                    aria-checked={isListingActive}
+                    aria-label={isListingActive ? "Mark listing inactive" : "Mark listing active"}
+                    onClick={handleToggleStatus}
+                    disabled={isSaving || isTogglingStatus || isEditing}
+                    className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${isListingActive ? "bg-emerald-500" : "bg-gray-300"}`}
+                    title={isListingActive ? "Mark inactive" : "Mark active"}
+                >
+                    <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${isListingActive ? "translate-x-5" : "translate-x-1"}`}
+                    />
+                    {isTogglingStatus && (
+                        <span className="absolute inset-0 flex items-center justify-center">
+                            <Loader2 size={10} className="animate-spin text-gray-700" />
+                        </span>
+                    )}
+                </button>
+            </div>
 
             {/* Variant */}
             {variantEnabled && <div className="px-3 py-2 text-gray-500 text-xs truncate">{findVariantLabel(variantId)}</div>}

@@ -46,9 +46,19 @@ const sanitizeDecimal = (value) => {
     if (firstDot === -1) return normalized;
     return `${normalized.slice(0, firstDot + 1)}${normalized.slice(firstDot + 1).replace(/\./g, "")}`;
 };
+const sanitizeDecimal3 = (value) => {
+    const sanitized = sanitizeDecimal(value);
+    const dotIndex = sanitized.indexOf(".");
+    if (dotIndex === -1) return sanitized;
+    return `${sanitized.slice(0, dotIndex + 1)}${sanitized.slice(dotIndex + 1, dotIndex + 4)}`;
+};
 const toAmount = (value, fallback = 0) => {
     const n = Number(value);
     return Number.isFinite(n) ? n : fallback;
+};
+const toInt = (value, fallback = 0) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : fallback;
 };
 const getLocalDateInputValue = (value = new Date()) => {
     const d = new Date(value);
@@ -57,6 +67,87 @@ const getLocalDateInputValue = (value = new Date()) => {
     const month = String(d.getMonth() + 1).padStart(2, "0");
     const day = String(d.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
+};
+
+const normalizePackState = (quantityRaw, looseUnitsRaw, unitsPerPackRaw) => {
+    const unitsPerPack = Math.max(1, toInt(unitsPerPackRaw, 1));
+    const quantity = toInt(quantityRaw, 0);
+    const normalizedLooseUnits = toInt(looseUnitsRaw, 0);
+    const carryPacks = Math.floor(normalizedLooseUnits / unitsPerPack);
+    const looseUnits = normalizedLooseUnits % unitsPerPack;
+    const fullPacks = quantity + carryPacks;
+    const totalUnits = (fullPacks * unitsPerPack) + looseUnits;
+
+    return {
+        quantity: fullPacks,
+        looseUnits,
+        totalUnits,
+        unitsPerPack,
+    };
+};
+
+const getExistingItemTotalUnits = (item, fallbackUnitsPerPack = 1) => {
+    const unitsPerPack = Math.max(1, toInt(item?.unitsPerPack ?? item?.channelListing?.units ?? fallbackUnitsPerPack, 1));
+    const totalUnits = toInt(item?.totalUnits, 0);
+    if (totalUnits > 0) return totalUnits;
+    return (toInt(item?.quantity, 0) * unitsPerPack) + toInt(item?.looseUnits, 0);
+};
+
+const resolveSalePricePerUnit = (item, packState) => {
+    const explicitPerUnit = toAmount(item.salePricePerUnit, NaN);
+    if (Number.isFinite(explicitPerUnit) && explicitPerUnit > 0) {
+        return explicitPerUnit;
+    }
+
+    const totalAmount = toAmount(item.totalAmount, NaN);
+    if (Number.isFinite(totalAmount) && totalAmount > 0 && packState.totalUnits > 0) {
+        return totalAmount / packState.totalUnits;
+    }
+
+    const packPrice = toAmount(item.unitPrice, NaN);
+    if (Number.isFinite(packPrice) && packPrice > 0 && packState.unitsPerPack > 0) {
+        return packPrice / packState.unitsPerPack;
+    }
+
+    return 0;
+};
+
+const resolvePackSalePrice = (item, packState) => {
+    const explicitPackPrice = toAmount(item.unitPrice, NaN);
+    if (Number.isFinite(explicitPackPrice) && explicitPackPrice > 0) {
+        return explicitPackPrice;
+    }
+
+    const perUnit = resolveSalePricePerUnit(item, packState);
+    if (perUnit > 0 && packState.unitsPerPack > 0) {
+        return perUnit * packState.unitsPerPack;
+    }
+
+    return 0;
+};
+
+const recalculateItem = (item) => {
+    const packState = normalizePackState(item.quantity, item.looseUnits, item.units);
+    const unitCost = toAmount(item.unitCost, 0);
+    const unitPrice = resolvePackSalePrice(item, packState);
+    const salePricePerUnit = packState.unitsPerPack > 0 ? (unitPrice / packState.unitsPerPack) : 0;
+    const otherFee = toAmount(item.otherFee, 0);
+    const totalCost = unitCost * packState.totalUnits;
+    const totalAmount = salePricePerUnit * packState.totalUnits;
+
+    return {
+        ...item,
+        quantity: String(packState.quantity),
+        looseUnits: String(packState.looseUnits),
+        totalUnits: packState.totalUnits,
+        units: packState.unitsPerPack,
+        unitCost: String(unitCost),
+        salePricePerUnit: String(salePricePerUnit),
+        unitPrice: String(unitPrice),
+        otherFee: String(otherFee),
+        totalCost: totalCost.toFixed(2),
+        totalAmount: totalAmount.toFixed(2),
+    };
 };
 
 function OrderTextField({ inputRef, className = inputClass, value, onValueChange, sanitize, ...props }) {
@@ -118,6 +209,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
 
     // Items State
     const [items, setItems] = useState([]);
+    const showLooseUnitsColumn = useMemo(() => items.some((item) => toInt(item.looseUnits, 0) > 0), [items]);
 
     // Attachment State
     const [existingAttachments, setExistingAttachments] = useState([]);
@@ -247,15 +339,14 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
             await deleteOrderAttachment(orderId, id);
             setExistingAttachments(prev => prev.filter(att => att.id !== id));
             toast.success("Attachment deleted");
-        } catch (err) {
+        } catch {
             toast.error("Failed to delete attachment");
         }
     };
 
-    const { itemsTotalRevenue, totalCost: itemsTotalCost, grandTotal, totalEarning } = useMemo(() => {
-        let tc = 0, tr = 0;
+    const { itemsTotalRevenue, totalEarning } = useMemo(() => {
+        let tr = 0;
         items.forEach(item => {
-            tc += (parseFloat(item.totalCost) || 0);
             tr += (parseFloat(item.totalAmount) || 0);
         });
 
@@ -263,14 +354,11 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
         const taxVal = parseFloat(tax) || 0;
         const other = parseFloat(otherCharges) || 0;
 
-        const grandTotal = tr + shipping + taxVal + other;
         // Total Earning = Sale Subtotal - (Shipping + Tax + Other charges)
         const totalEarning = tr - (shipping + taxVal + other);
 
         return {
             itemsTotalRevenue: tr, // Sale Subtotal
-            totalCost: tc,
-            grandTotal,
             totalEarning
         };
     }, [items, shippingCharges, tax, otherCharges]);
@@ -349,6 +437,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
 
                     return {
                         id: Math.random().toString(36).substr(2, 9), // temp UI ID
+                        orderItemId: i.id,
                         channelListingId: i.channelListingId,
                         listingId: i.channelListingId, // consistency
                         productId: product?.id,
@@ -359,8 +448,15 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
                         marketplaceSku: variant?.sku || product?.sku || null, // Marketplace SKU
                         sku: variant?.sku || product?.sku || "",
                         imageUrl: listing?.url || listing?.imageUrl || product?.images?.[0]?.url || null,
-                        quantity: i.quantity,
+                        quantity: String(toInt(i.quantity, 0)),
+                        looseUnits: String(toInt(i.looseUnits, 0)),
+                        totalUnits: getExistingItemTotalUnits(i, listing?.units ?? 1),
                         unitCost: i.unitCost, // backend decimal
+                        salePricePerUnit: i.salePricePerUnit ?? (
+                            getExistingItemTotalUnits(i, listing?.units ?? 1) > 0
+                                ? (toAmount(i.totalAmount, 0) / getExistingItemTotalUnits(i, listing?.units ?? 1))
+                                : 0
+                        ),
                         unitPrice: i.unitPrice, // backend decimal
                         otherFee: i.otherFee,
                         totalCost: i.totalCost,
@@ -368,7 +464,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
                         stockOnHand: variant?.stockOnHand ?? product?.ProductVariant?.[0]?.stockOnHand ?? 0,
                         units: listing?.units ?? 1,
                     };
-                }));
+                }).map(recalculateItem));
             } else {
                 setItems([]);
             }
@@ -415,14 +511,10 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
         }
 
         const units = product.channelUnits || 1;
-
-        // Single Unit Cost (e.g. 15)
         const unitCost = baseUnitCost.toFixed(2);
+        const salePricePerUnit = toAmount(product.channelPrice ?? product.retailPrice ?? 0, 0) / Math.max(units, 1);
 
-        // Pack Cost (e.g. 30) for Total Calculation
-        const packCost = baseUnitCost * units;
-
-        const newItem = {
+        const newItem = recalculateItem({
             id: Math.random().toString(36).substr(2, 9),
             listingId: product.id,
             productId: product.productId,
@@ -433,41 +525,36 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
             marketplaceSku: product.marketplaceSku || null,
             sku: product.sku,
             imageUrl: product.imageUrl,
-            quantity: 1,
+            quantity: "1",
+            looseUnits: "0",
             unitCost: unitCost, // Display Single Unit Cost
             costSource,
-            unitPrice: product.channelPrice ?? product.retailPrice ?? 0,
+            salePricePerUnit: String(salePricePerUnit),
+            unitPrice: String(salePricePerUnit * units),
             otherFee: 0,
-            totalCost: packCost.toFixed(2), // qty(1) * packCost
-            totalAmount: product.channelPrice ?? product.retailPrice ?? 0,
             stockOnHand: product.stockOnHand ?? 0,
             units: units,
-        };
+        });
 
         setItems(prev => [...prev, newItem]);
     };
 
     const updateItem = (index, field, value) => {
         const newItems = [...items];
-        const item = newItems[index];
-
-        if (['unitCost', 'unitPrice'].includes(field)) {
-            item[field] = value;
-        } else {
-            item[field] = value;
+        const item = { ...newItems[index], [field]: value };
+        const recalculated = recalculateItem(item);
+        if (field === 'unitPrice') {
+            const packState = normalizePackState(item.quantity, item.looseUnits, item.units);
+            const packPrice = Math.max(0, toAmount(value, 0));
+            const salePricePerUnit = packState.unitsPerPack > 0 ? (packPrice / packState.unitsPerPack) : 0;
+            recalculated.unitPrice = value;
+            recalculated.salePricePerUnit = String(salePricePerUnit);
+            recalculated.totalAmount = (salePricePerUnit * packState.totalUnits).toFixed(2);
         }
-
-        const qty = parseFloat(item.quantity) || 0;
-        const cost = parseFloat(item.unitCost) || 0; // Single Unit Cost
-        const price = parseFloat(item.unitPrice) || 0;
-        const units = item.units || 1;
-
-        // Total Cost = Single Cost * Units * Qty
-        item.totalCost = (cost * units * qty).toFixed(2);
-
-        // Total Amount = Sale Price * Qty (Sale Price is per pack/listing)
-        item.totalAmount = (qty * price).toFixed(2);
-
+        if (field === 'salePricePerUnit') {
+            recalculated.salePricePerUnit = value;
+        }
+        newItems[index] = recalculated;
         setItems(newItems);
     };
 
@@ -476,6 +563,38 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
         newItems.splice(index, 1);
         setItems(newItems);
     };
+
+    const returnOrderDraft = useMemo(() => {
+        if (!editing) return null;
+
+        const originalItems = Array.isArray(editing.items) ? editing.items : [];
+        const nextItems = items
+            .filter((item) => item.orderItemId)
+            .map((item) => {
+                const original = originalItems.find((orig) => orig.id === item.orderItemId);
+                if (!original) return null;
+
+                return {
+                    ...original,
+                    id: item.orderItemId,
+                    productDescription: item.displayName || original.productDescription,
+                    quantity: toInt(item.quantity, 0),
+                    looseUnits: toInt(item.looseUnits, 0),
+                    totalUnits: toInt(item.totalUnits, 0),
+                    unitsPerPack: toInt(item.units, 1),
+                    salePricePerUnit: parseFloat(item.salePricePerUnit) || 0,
+                    unitPrice: parseFloat(item.unitPrice) || 0,
+                    totalAmount: parseFloat(item.totalAmount) || 0,
+                    channelListingId: original.channelListingId ?? item.listingId ?? null,
+                };
+            })
+            .filter(Boolean);
+
+        return {
+            ...editing,
+            items: nextItems,
+        };
+    }, [editing, items]);
 
     // Handlers
     const handleSave = async (mode = 'single', skipTrackingIdCheck = false) => {
@@ -496,21 +615,18 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
 
         if (!isReturning) {
             const overStockItems = items.filter(item => {
-                const qty = parseFloat(item.quantity) || 0;
-                const units = item.units || 1;
-                const required = qty * units;
+                const required = toInt(item.totalUnits, 0);
                 const available = Number(item.stockOnHand) || 0;
 
                 let originalRequired = 0;
                 if (editing && editing.items && !['CANCEL', 'RETURN', 'REFUND'].includes(editing.status)) {
                     const original = editing.items.find(orig =>
                         (item.listingId && orig.channelListingId === item.listingId) ||
-                        (item.variantId && orig.productVariantId === item.variantId) ||
-                        (!item.variantId && item.productId && orig.productId === item.productId && !orig.productVariantId)
-                    );
+                            (item.variantId && orig.productVariantId === item.variantId) ||
+                            (!item.variantId && item.productId && orig.productId === item.productId && !orig.productVariantId)
+                        );
                     if (original) {
-                        const origUnits = original.channelListing?.units || 1;
-                        originalRequired = (Number(original.quantity) || 0) * origUnits;
+                        originalRequired = getExistingItemTotalUnits(original, original.channelListing?.units || 1);
                     }
                 }
 
@@ -520,7 +636,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
 
             if (overStockItems.length > 0) {
                 const names = overStockItems.map(i => {
-                    const req = (parseFloat(i.quantity) || 0) * (i.units || 1);
+                    const req = toInt(i.totalUnits, 0);
                     let originalReq = 0;
                     if (editing && editing.items && !['CANCEL', 'RETURN', 'REFUND'].includes(editing.status)) {
                         const original = editing.items.find(orig =>
@@ -529,8 +645,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
                             (!i.variantId && i.productId && orig.productId === i.productId && !orig.productVariantId)
                         );
                         if (original) {
-                            const origUnits = original.channelListing?.units || 1;
-                            originalReq = (Number(original.quantity) || 0) * origUnits;
+                            originalReq = getExistingItemTotalUnits(original, original.channelListing?.units || 1);
                         }
                     }
                     const increaseReq = Math.max(0, req - originalReq);
@@ -594,9 +709,11 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
             items: items.map(item => ({
                 productId: item.productId,
                 productDescription: item.displayName, // Snapshot name
-                quantity: parseFloat(item.quantity) || 1,
+                quantity: toInt(item.quantity, 0),
+                looseUnits: toInt(item.looseUnits, 0),
                 // Send Single Unit Cost (Backend will handle total calc)
                 unitCost: parseFloat(item.unitCost) || 0,
+                salePricePerUnit: parseFloat(item.salePricePerUnit) || 0,
                 unitPrice: parseFloat(item.unitPrice) || 0,
                 otherFee: parseFloat(item.otherFee) || 0,
                 channelListingId: item.listingId || null  // Direct reference for units lookup
@@ -687,11 +804,9 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
                     const nextCourier = bulkPersist.courier ? courierMediumId : "";
                     const nextRemarkType = bulkPersist.remarks ? remarkTypeId : "";
                     const nextRemarks = bulkPersist.remarks ? remarks : "";
-                    const nextItems = bulkPersist.products
-                        ? items.map((item) => {
-                            const qty = parseFloat(item.quantity) || 0;
-                            const units = item.units || 1;
-                            const movement = qty * units;
+                        const nextItems = bulkPersist.products
+                            ? items.map((item) => {
+                            const movement = toInt(item.totalUnits, 0);
                             const currentStock = Number(item.stockOnHand) || 0;
                             const nextStock = isReturning
                                 ? currentStock + movement
@@ -1029,7 +1144,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
                                                     setStatus('PENDING'); // Always revert to PENDING
                                                     toast.success("Label deleted");
                                                     if (onSuccess) onSuccess(editing.id); // Refresh parent
-                                                } catch (e) {
+                                                } catch {
                                                     toast.error("Failed to delete label");
                                                 }
                                             });
@@ -1127,10 +1242,13 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
                             <thead className="bg-gray-50 border-b border-gray-100">
                                 <tr>
                                     <th className="px-4 py-3 font-medium text-gray-500">Product</th>
-                                    <th className="px-2 py-3 font-medium text-gray-500 w-[96px] text-center">Units</th>
-                                    <th className="px-2 py-3 font-medium text-gray-500 w-[160px] text-center">Qty</th>
-                                    {/* <th className="px-2 py-3 font-medium text-gray-500 w-[15%] text-center">Unit Cost</th> */}
-                                    <th className="px-2 py-3 font-medium text-gray-500 w-[160px] text-center">Unit Sale Price</th>
+                                    <th className="px-2 py-3 font-medium text-gray-500 w-[96px] text-center">Units/Pack</th>
+                                    <th className="px-2 py-3 font-medium text-gray-500 w-[120px] text-center">Qty</th>
+                                    {showLooseUnitsColumn && (
+                                        <th className="px-2 py-3 font-medium text-gray-500 w-[120px] text-center">Loose Units</th>
+                                    )}
+                                    <th className="px-2 py-3 font-medium text-gray-500 w-[120px] text-center">Total Units</th>
+                                    <th className="px-2 py-3 font-medium text-gray-500 w-[160px] text-center">Pack Sale Price</th>
                                     <th className="px-4 py-3 font-medium text-gray-500 w-[160px] text-center">Sale Subtotal</th>
                                     <th className="px-2 py-3 w-[48px]"></th>
                                 </tr>
@@ -1138,7 +1256,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
                             <tbody className="divide-y divide-gray-50">
                                 {items.length === 0 ? (
                                     <tr>
-                                        <td colSpan={7} className="px-4 py-12 text-center text-gray-400 italic bg-gray-50/30">
+                                        <td colSpan={showLooseUnitsColumn ? 8 : 7} className="px-4 py-12 text-center text-gray-400 italic bg-gray-50/30">
                                             No items added. <br />Use the search bar above to add products.
                                         </td>
                                     </tr>
@@ -1152,23 +1270,20 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
                                                         className="h-10 w-10 rounded border border-gray-200 bg-white object-contain"
                                                         alt=""
                                                     />
-                                                    <div className="flex flex-col gap-0.5">
+                                                    <div className="flex flex-col gap-1">
                                                         <div className="font-medium text-gray-900 line-clamp-1">{item.variantName || item.displayName}</div>
-                                                        {(item.marketplaceName || item.marketplaceSku) && (
-                                                            <div className="flex items-center gap-2 text-[11px] text-gray-500">
-                                                                {item.marketplaceName && (
-                                                                    <span><span className="text-gray-400">Listing:</span> {item.marketplaceName}</span>
-                                                                )}
-                                                                {item.sku && (
-                                                                    <span><span className="text-gray-400">Internal SKU:</span> {item.sku}</span>
-                                                                )}
-                                                                {/* {item.marketplaceSku && (
-                                                                    <span><span className="text-gray-400">Marketplace SKU:</span> {item.marketplaceSku}</span>
-                                                                )} */}
+                                                        {item.marketplaceName && (
+                                                            <div className="text-[11px] text-gray-500">
+                                                                <span className="text-gray-400">Listing:</span> {item.marketplaceName}
                                                             </div>
                                                         )}
-                                                        <div className="flex items-center gap-2 text-xs text-gray-400">
-                                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${((parseFloat(item.quantity) || 0) * (item.units || 1)) > (item.stockOnHand || 0)
+                                                        {item.sku && (
+                                                            <div className="text-[11px] text-gray-500">
+                                                                <span className="text-gray-400">Internal SKU:</span> {item.sku}
+                                                            </div>
+                                                        )}
+                                                        <div className="text-xs text-gray-400">
+                                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${(toInt(item.totalUnits, 0)) > (item.stockOnHand || 0)
                                                                 ? 'bg-red-100 text-red-600'
                                                                 : 'bg-emerald-100 text-emerald-600'
                                                                 }`}>
@@ -1189,22 +1304,27 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
                                                         type="text"
                                                         inputMode="numeric"
                                                         pattern="[0-9]*"
-                                                        className="w-32 h-8 px-1 text-center border border-gray-200 rounded bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+                                                        className="w-24 h-8 px-1 text-center border border-gray-200 rounded bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all"
                                                         value={item.quantity}
                                                         sanitize={sanitizeDigitsOnly}
                                                         onValueChange={(val) => updateItem(idx, 'quantity', val)}
                                                     />
                                                 </div>
                                             </td>
-                                            {/* <td className="px-2 py-3 align-top">
-                                                <input
-                                                    type="number"
-                                                    className="w-full h-8 px-2 text-right border border-gray-200 rounded bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all"
-                                                    value={item.unitCost}
-                                                    onChange={e => updateItem(idx, 'unitCost', e.target.value)}
-                                                    step="0.01"
-                                                />
-                                            </td> */}
+                                            {showLooseUnitsColumn && (
+                                                <td className="px-2 py-3 align-middle text-center">
+                                                    {toInt(item.looseUnits, 0) > 0 ? (
+                                                        <span className="inline-flex items-center justify-center h-8 min-w-16 px-2 text-sm font-medium text-gray-600 bg-gray-100 rounded">
+                                                            {item.looseUnits}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-gray-300"> </span>
+                                                    )}
+                                                </td>
+                                            )}
+                                            <td className="px-2 py-3 align-middle text-center font-medium text-gray-900">
+                                                {item.totalUnits}
+                                            </td>
                                             <td className="px-2 py-3 align-middle">
                                                 <div className="flex justify-center">
                                                     <OrderTextField
@@ -1213,7 +1333,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
                                                         pattern="[0-9]*\\.?[0-9]*"
                                                         className="w-32 h-8 px-1 text-center border border-gray-200 rounded bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all"
                                                         value={item.unitPrice}
-                                                        sanitize={sanitizeDecimal}
+                                                        sanitize={sanitizeDecimal3}
                                                         onValueChange={(val) => updateItem(idx, 'unitPrice', val)}
                                                     />
                                                 </div>
@@ -1254,7 +1374,7 @@ export default function OrderModal({ open, onClose, editing, onSuccess, onReques
                                 variant="warning"
                                 onClick={() => {
                                     if (!isReturnEligible) return;
-                                    onRequestReturn?.(editing);
+                                    onRequestReturn?.(returnOrderDraft || editing);
                                 }}
                                 disabled={!isReturnEligible}
                             >
@@ -1500,8 +1620,8 @@ function SavedOrderRow({ order, index, absImg }) {
                                         <p className="text-[10px] text-gray-500 truncate">SKU: {item.sku || item.marketplaceSku}</p>
                                     </div>
                                     <div className="text-right">
-                                        <p className="text-[11px] font-bold text-gray-900">Qty: {item.quantity}</p>
-                                        <p className="text-[10px] text-gray-500">Price: ${Number(item.unitPrice).toFixed(2)}</p>
+                                        <p className="text-[11px] font-bold text-gray-900">Packs: {item.quantity} | Loose: {item.looseUnits}</p>
+                                        <p className="text-[10px] text-gray-500">Price/Unit: ${Number(item.salePricePerUnit).toFixed(2)}</p>
                                     </div>
                                 </div>
                             ))}

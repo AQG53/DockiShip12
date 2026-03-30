@@ -3472,7 +3472,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
 
                                                 {/* Existing listings */}
                                                 <div className="rounded-xl border border-gray-200 overflow-hidden">
-                                                    <div className={`grid ${variantEnabled ? 'grid-cols-[72px_minmax(290px,2.35fr)_minmax(115px,0.9fr)_minmax(90px,0.8fr)_minmax(70px,0.6fr)_minmax(70px,0.6fr)_minmax(70px,0.6fr)_minmax(110px,0.9fr)_70px]' : 'grid-cols-[72px_minmax(320px,2.6fr)_minmax(120px,1fr)_minmax(100px,0.9fr)_minmax(80px,0.7fr)_minmax(80px,0.7fr)_minmax(80px,0.7fr)_70px]'} text-[12px] font-medium text-gray-700`}>
+                                                    <div className={`grid ${variantEnabled ? 'grid-cols-[72px_minmax(290px,2.25fr)_minmax(115px,0.9fr)_minmax(90px,0.8fr)_minmax(70px,0.6fr)_minmax(70px,0.6fr)_minmax(70px,0.6fr)_84px_minmax(110px,0.9fr)_70px]' : 'grid-cols-[72px_minmax(320px,2.45fr)_minmax(120px,1fr)_minmax(100px,0.9fr)_minmax(80px,0.7fr)_minmax(80px,0.7fr)_minmax(80px,0.7fr)_84px_70px]'} text-[12px] font-medium text-gray-700`}>
                                                         <div className="bg-gray-50 px-3 py-2 text-center">Image</div>
                                                         <div className="bg-gray-50 px-4 py-2">Product Name</div>
                                                         <div className="bg-gray-50 px-3 py-2">Marketplace</div>
@@ -3480,6 +3480,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                         <div className="bg-gray-50 px-3 py-2 text-center">Units</div>
                                                         <div className="bg-gray-50 px-3 py-2 text-center">Assign</div>
                                                         <div className="bg-gray-50 px-3 py-2 text-center">Stock</div>
+                                                        <div className="bg-gray-50 px-2 py-2 text-center">Active</div>
                                                         {variantEnabled && <div className="bg-gray-50 px-3 py-2">Variant</div>}
                                                         <div className="bg-gray-50 px-3 py-2 text-center">Actions</div>
                                                     </div>

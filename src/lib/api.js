@@ -605,13 +605,14 @@ export async function getWarehouseStock(id) {
 
 // Purchase Orders
 // =====================
-export async function listPurchaseOrders({ page, perPage, search, status, supplierId, sortBy, sortOrder } = {}) {
+export async function listPurchaseOrders({ page, perPage, search, status, supplierId, supplierIds, sortBy, sortOrder } = {}) {
   const params = {};
   if (page != null) params.page = page;
   if (perPage != null) params.perPage = perPage;
   if (search) params.search = search;
   if (status) params.status = status;
-  if (supplierId) params.supplierId = supplierId;
+  if (Array.isArray(supplierIds) && supplierIds.length > 0) params.supplierIds = supplierIds.join(",");
+  else if (supplierId) params.supplierId = supplierId;
   if (sortBy) params.sortBy = sortBy;
   if (sortOrder) params.sortOrder = sortOrder;
 
@@ -1051,10 +1052,29 @@ export async function getOrderCounts() {
   return res.data;
 }
 
-export async function getOrderSummary({ startDate, endDate } = {}) {
+export async function getOrderSummary({
+  search,
+  status,
+  startDate,
+  endDate,
+  mediumId,
+  courierId,
+  remarkTypeId,
+  isSettled,
+  sharedFlyersOnly,
+  dateType,
+} = {}) {
   const params = {};
+  if (search) params.search = search;
+  if (status && status !== 'ALL') params.status = status;
   if (startDate) params.startDate = startDate;
   if (endDate) params.endDate = endDate;
+  if (mediumId) params.mediumId = mediumId;
+  if (courierId) params.courierId = courierId;
+  if (remarkTypeId) params.remarkTypeId = remarkTypeId;
+  if (isSettled) params.isSettled = isSettled;
+  if (sharedFlyersOnly) params.sharedFlyersOnly = sharedFlyersOnly;
+  if (dateType) params.dateType = dateType;
   const res = await axiosInstance.get("/orders/meta/summary", { params });
   return res?.data ?? {};
 }

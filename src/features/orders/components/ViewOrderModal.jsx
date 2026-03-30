@@ -61,6 +61,39 @@ const toNumber = (value, fallback = 0) => {
     return Number.isFinite(num) ? num : fallback;
 };
 
+const resolveSalePricePerUnit = (item, totalUnits, unitsPerPack) => {
+    const explicitPerUnit = toNumber(item?.salePricePerUnit, NaN);
+    if (Number.isFinite(explicitPerUnit) && explicitPerUnit > 0) {
+        return explicitPerUnit;
+    }
+
+    const totalAmount = toNumber(item?.totalAmount, NaN);
+    if (Number.isFinite(totalAmount) && totalAmount > 0 && totalUnits > 0) {
+        return totalAmount / totalUnits;
+    }
+
+    const packPrice = toNumber(item?.unitPrice, NaN);
+    if (Number.isFinite(packPrice) && packPrice > 0 && unitsPerPack > 0) {
+        return packPrice / unitsPerPack;
+    }
+
+    return 0;
+};
+
+const resolvePackSalePrice = (item, totalUnits, unitsPerPack) => {
+    const explicitPackPrice = toNumber(item?.unitPrice, NaN);
+    if (Number.isFinite(explicitPackPrice) && explicitPackPrice > 0) {
+        return explicitPackPrice;
+    }
+
+    const salePricePerUnit = resolveSalePricePerUnit(item, totalUnits, unitsPerPack);
+    if (salePricePerUnit > 0 && unitsPerPack > 0) {
+        return salePricePerUnit * unitsPerPack;
+    }
+
+    return 0;
+};
+
 const parseReturnEventsFromRemarks = (remarksRaw) => {
     const remarksText = normalizeText(remarksRaw);
     if (!remarksText.trim()) return [];
@@ -630,9 +663,11 @@ export default function ViewOrderModal({ open, onClose, order }) {
                         <thead className="bg-gray-50 border-b border-gray-100">
                             <tr>
                                 <th className="px-4 py-3 font-medium text-gray-500 w-[50%]">Product</th>
-                                <th className="px-2 py-3 font-medium text-gray-500 w-[10%] text-center">Qty</th>
-                                {/* <th className="px-2 py-3 font-medium text-gray-500 w-[15%] text-center">Unit Cost</th> */}
-                                <th className="px-2 py-3 font-medium text-gray-500 w-[15%] text-center">Unit Sale Price</th>
+                                <th className="px-2 py-3 font-medium text-gray-500 w-[10%] text-center">Units/Pack</th>
+                                <th className="px-2 py-3 font-medium text-gray-500 w-[10%] text-center">Packs</th>
+                                <th className="px-2 py-3 font-medium text-gray-500 w-[10%] text-center">Loose</th>
+                                <th className="px-2 py-3 font-medium text-gray-500 w-[10%] text-center">Total Units</th>
+                                <th className="px-2 py-3 font-medium text-gray-500 w-[15%] text-center">Pack Sale Price</th>
                                 <th className="px-4 py-3 font-medium text-gray-500 w-[15%] text-right whitespace-nowrap">Total Sale Price</th>
                             </tr>
                         </thead>
@@ -647,7 +682,10 @@ export default function ViewOrderModal({ open, onClose, order }) {
                                     const imageUrl = resolveOrderItemImage(item);
                                     const name = listing?.productName || item.productDescription || product?.name || "Product";
                                     const sku = variant?.sku || product?.sku || "";
-                                    const units = listing?.units || 1;
+                                    const units = toNumber(item.unitsPerPack ?? listing?.units, 1) || 1;
+                                    const totalUnits = toNumber(item.totalUnits, (toNumber(item.quantity, 0) * units) + toNumber(item.looseUnits, 0));
+                                    const looseUnits = toNumber(item.looseUnits, 0);
+                                    const packSalePrice = resolvePackSalePrice(item, totalUnits, units);
 
                                     return (
                                         <tr key={item.id || idx} className="hover:bg-gray-50/50 transition-colors">
@@ -671,17 +709,18 @@ export default function ViewOrderModal({ open, onClose, order }) {
                                                     </div>
                                                 </div>
                                             </td>
+                                            <td className="px-2 py-3 align-top text-center text-gray-900 font-medium">{units}</td>
                                             <td className="px-2 py-3 align-top text-center text-gray-900 font-medium">{item.quantity}</td>
-                                            {/* <td className="px-2 py-3 align-top text-center text-gray-500">{formatPrice(item.unitCost)}</td> */}
-                                            {/* <td className="px-2 py-3 align-top text-center text-gray-500">{formatPrice(item.totalCost)}</td> */}
-                                            <td className="px-2 py-3 align-top text-center text-gray-500">{formatPrice(item.unitPrice)}</td>
+                                            <td className="px-2 py-3 align-top text-center text-gray-900 font-medium">{looseUnits}</td>
+                                            <td className="px-2 py-3 align-top text-center text-gray-900 font-medium">{totalUnits}</td>
+                                            <td className="px-2 py-3 align-top text-center text-gray-500">{formatPrice(packSalePrice)}</td>
                                             <td className="px-4 py-3 align-top text-right text-gray-900 font-medium">{formatPrice(item.totalAmount)}</td>
                                         </tr>
                                     );
                                 })
                             ) : (
                                 <tr>
-                                    <td colSpan={4} className="px-4 py-8 text-center text-gray-400 italic">
+                                    <td colSpan={7} className="px-4 py-8 text-center text-gray-400 italic">
                                         No items or legacy order format.
                                         {/* Fallback for legacy simple orders if needed, though mostly items exist now */}
                                         {order.productDescription && (

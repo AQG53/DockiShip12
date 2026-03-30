@@ -121,6 +121,15 @@ const Navbar = () => {
   const canSeeInventory = isOwner || moduleSet.has('inventory');
   const canSeePurchases = isOwner || moduleSet.has('purchases') || moduleSet.has('suppliers');
   const canSeeOrders = isOwner || moduleSet.has('orders');
+  const canAccessInventoryProducts = isOwner || perms?.has('inventory.product.read') || perms?.has('inventory.product.manage');
+  const canAccessWarehouses = isOwner || perms?.has('warehouses.read') || perms?.has('warehouses.manage');
+  const canAccessSuppliers = isOwner || perms?.has('suppliers.read') || perms?.has('suppliers.manage');
+  const canAccessPurchaseOrders = isOwner || Array.from(perms || []).some((perm) => {
+    const value = String(perm).toLowerCase();
+    return value.startsWith('purchases.po.') || value.startsWith('purchases.');
+  });
+  const canAccessOrderListing = isOwner || Array.from(perms || []).some((perm) => String(perm).toLowerCase().startsWith('orders.'));
+  const canSeeInventoryNav = canSeeInventory || canAccessWarehouses;
   const canAccessSettingsItem = ({ permsAny }) => {
     if (isOwner) return true;
     const required = Array.isArray(permsAny) ? permsAny : [];
@@ -133,12 +142,12 @@ const Navbar = () => {
     return navLinks.filter((link) => {
       const key = (link.id || link.name || '').toString().toLowerCase();
       if (key === 'home') return true;
-      if (key === 'inventory') return canSeeInventory;
+      if (key === 'inventory') return canSeeInventoryNav;
       if (key === 'purchases') return canSeePurchases;
       if (key === 'orders') return canSeeOrders;
       return false;
     });
-  }, [navLinks, canSeeInventory, canSeePurchases, canSeeOrders]);
+  }, [navLinks, canSeeInventoryNav, canSeePurchases, canSeeOrders]);
 
   return (
     <nav className="bg-[#ffeb9e] shadow-md fixed w-full top-0 z-50">
@@ -186,7 +195,22 @@ const Navbar = () => {
                         Quick Access
                       </div>
                       <div className="space-y-1">
-                        {link.submenu.map((sub) => {
+                        {link.submenu
+                          .filter((sub) => {
+                            if (link.id === 'inventory') {
+                              if (sub.path === '/inventory/warehouses') return canAccessWarehouses;
+                              return canAccessInventoryProducts;
+                            }
+                            if (link.id === 'purchases') {
+                              if (sub.path === '/purchases/suppliers/manage') return canAccessSuppliers;
+                              if (sub.path === '/purchases/to-purchase') return canAccessPurchaseOrders;
+                            }
+                            if (link.id === 'orders') {
+                              return canAccessOrderListing;
+                            }
+                            return true;
+                          })
+                          .map((sub) => {
                           const isSubActive = location.pathname === sub.path || location.pathname.startsWith(`${sub.path}/`);
                           return (
                             <button

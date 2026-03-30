@@ -340,6 +340,19 @@ export default function PurchasesPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [sortBy, setSortBy] = useState("createdAt");
   const [sortOrder, setSortOrder] = useState("desc");
+  const [supplierFilterIds, setSupplierFilterIds] = useState([]);
+  const { data: supplierFilterRows = [], isLoading: loadingSupplierFilters } = useSuppliers();
+
+  const supplierFilterOptions = useMemo(() => {
+    const rows = Array.isArray(supplierFilterRows) ? supplierFilterRows : [];
+    return rows
+      .filter((supplier) => supplier?.id)
+      .map((supplier) => ({
+        value: supplier.id,
+        label: supplier.companyName || supplier.displayName || "Supplier",
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [supplierFilterRows]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -354,6 +367,7 @@ export default function PurchasesPage() {
     perPage,
     search: debouncedSearch,
     status: statusFilter.value || undefined,
+    supplierIds: supplierFilterIds.length > 0 ? supplierFilterIds : undefined,
     sortBy,
     sortOrder,
   });
@@ -574,23 +588,39 @@ export default function PurchasesPage() {
       </div>
 
       <div className={card}>
-        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-2.5">
-          <div className="flex items-center gap-3">
-            <div className="relative">
+        <div className="flex flex-col gap-3 border-b border-gray-200 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-1 flex-wrap items-center gap-3">
+            <div className="relative w-full sm:w-[220px]">
               <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search PO, Supplier..."
-                className={`${input} w-[220px] pl-8`}
+                className={`${input} w-full pl-8`}
               />
             </div>
             <HeadlessSelect
               value={statusFilter}
               onChange={(val) => { setStatusFilter(val); setPage(1); }}
               options={statusOptions}
-              className="w-[160px]"
+              className="w-full sm:w-[160px]"
             />
+            <div className="w-full sm:w-[220px]">
+              <SelectCompact
+                multiple
+                value={supplierFilterIds}
+                onChange={(val) => {
+                  setSupplierFilterIds(Array.isArray(val) ? val : []);
+                  setPage(1);
+                }}
+                options={supplierFilterOptions}
+                filterable
+                placeholder="All suppliers"
+                hideCheck
+                loading={loadingSupplierFilters}
+                loadingText="Loading suppliers..."
+              />
+            </div>
           </div>
           {(!statusFilter.value || statusFilter.value === "to_purchase") && can("purchases.po.create") && (
             <Button
@@ -1265,15 +1295,23 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
     };
 
     productOptions.forEach((prod) => {
+      if (String(prod?.status || "").toLowerCase() !== "active") return;
+
       const variants = Array.isArray(prod?.variants) ? prod.variants : [];
+      const activeVariants = variants.filter(
+        (variant) => String(variant?.status || "").toLowerCase() === "active",
+      );
 
       // Treat a single variant with the same SKU as the parent as a simple product
-      const looksLikeSimple = variants.length === 1 && variants[0] && variants[0].sku === prod?.sku;
+      const looksLikeSimple =
+        activeVariants.length === 1 &&
+        activeVariants[0] &&
+        activeVariants[0].sku === prod?.sku;
 
       if (variants.length === 0 || looksLikeSimple) {
         const key = `${prod.id}::null`;
         if (selectedKeys.has(key)) return;
-        const singleVariant = looksLikeSimple ? variants[0] : undefined;
+        const singleVariant = looksLikeSimple ? activeVariants[0] : undefined;
         rows.push({
           value: String(prod.id),
           label: prod.name || "Unnamed product",
@@ -1324,7 +1362,9 @@ function PurchaseOrderModal({ open, onClose, currency, mode = "create", initialP
         return;
       }
 
-      variants.forEach((variant) => {
+      if (activeVariants.length === 0) return;
+
+      activeVariants.forEach((variant) => {
         const key = `${prod.id}::${variant.id}`;
         if (selectedKeys.has(key)) return;
 

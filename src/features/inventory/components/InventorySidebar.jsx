@@ -1,7 +1,8 @@
 import { NavLink, useLocation } from "react-router";
 import { Disclosure } from "@headlessui/react";
 import { Package, ChevronDown, MapPin } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import useUserPermissions from "../../auth/hooks/useUserPermissions";
 
 const sections = [
   {
@@ -54,11 +55,37 @@ const sections = [
 
 export default function InventorySidebar() {
   const { pathname } = useLocation();
+  const { perms, claims } = useUserPermissions();
+  const isOwner = Array.isArray(claims?.roles)
+    && claims.roles.some((role) => String(role).toLowerCase() === "owner");
+  const permSet = useMemo(
+    () => new Set(Array.from(perms || []).map((perm) => String(perm).toLowerCase())),
+    [perms],
+  );
+  const canAccessProducts = isOwner || permSet.has("inventory.product.read") || permSet.has("inventory.product.manage");
+  const canAccessWarehouses = isOwner || permSet.has("warehouses.read") || permSet.has("warehouses.manage");
+  const filteredSections = useMemo(() => {
+    return sections
+      .map((section) => {
+        if (section.id === "products") {
+          const items = section.items.filter((item) => {
+            if (item.to === "/inventory/warehouses") return canAccessWarehouses;
+            return canAccessProducts;
+          });
+          return { ...section, items };
+        }
+        if (section.id === "warehouses") {
+          return canAccessWarehouses ? section : { ...section, items: [] };
+        }
+        return section;
+      })
+      .filter((section) => section.items.length > 0);
+  }, [canAccessProducts, canAccessWarehouses]);
 
   const [openSections, setOpenSections] = useState(() => new Set(sections.map((s) => s.id)));
 
   useEffect(() => {
-    const match = sections.find((s) => s.items.some((it) => pathname.startsWith(it.to)));
+    const match = filteredSections.find((s) => s.items.some((it) => pathname.startsWith(it.to)));
     if (!match) return;
     setOpenSections((prev) => {
       if (prev.has(match.id)) return prev;
@@ -66,7 +93,7 @@ export default function InventorySidebar() {
       next.add(match.id);
       return next;
     });
-  }, [pathname]);
+  }, [pathname, filteredSections]);
 
   const toggleSection = (id) => {
     setOpenSections((prev) => {
@@ -88,7 +115,7 @@ export default function InventorySidebar() {
         </h2>
 
         <nav className="space-y-2">
-          {sections.map((sec) => {
+          {filteredSections.map((sec) => {
             const Icon = sec.icon;
             const isOpen = openSections.has(sec.id);
             return (

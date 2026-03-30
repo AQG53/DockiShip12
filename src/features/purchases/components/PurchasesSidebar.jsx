@@ -16,6 +16,12 @@ export default function PurchasesSidebar() {
     if (typeof r === 'string') return r.toLowerCase() === 'owner';
     return String(r?.name).toLowerCase() === 'owner';
   });
+  const hasAnyPermission = (...candidates) =>
+    candidates.some((candidate) => perms.includes(candidate));
+  const canAccessSuppliers = isOwner || hasAnyPermission("suppliers.read", "suppliers.manage");
+  const canAccessPurchaseOrders = isOwner || perms.some((perm) =>
+    String(perm).startsWith("purchases.po.") || String(perm).startsWith("purchases.")
+  );
 
   // Fetch all orders to calculate counts
   const { data } = usePurchaseOrders();
@@ -77,9 +83,8 @@ export default function PurchasesSidebar() {
   const [openSections, setOpenSections] = useState(() => new Set(sections.map((s) => s.id)));
 
   const filteredSections = sections.filter((sec) => {
-    if (isOwner) return true;
-    if (sec.id === "suppliers") return perms.includes("suppliers.read");
-    if (sec.id === "purchase-orders") return perms.includes("purchases.po.read");
+    if (sec.id === "suppliers") return canAccessSuppliers;
+    if (sec.id === "purchase-orders") return canAccessPurchaseOrders;
     return true;
   });
 

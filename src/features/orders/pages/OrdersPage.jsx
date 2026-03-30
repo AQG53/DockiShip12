@@ -194,26 +194,48 @@ const getOrderItemSummaryQty = (item) => {
     return qty * units;
 };
 
+const mergeSummaryImages = (existing = [], incoming = [], fallbackName = "Product") => {
+    const merged = [];
+    const seen = new Set();
+
+    [...(Array.isArray(existing) ? existing : []), ...(Array.isArray(incoming) ? incoming : [])].forEach((image) => {
+        const url = String(image?.url || "").trim();
+        if (!url || seen.has(url)) return;
+        seen.add(url);
+        merged.push({
+            ...image,
+            url,
+            alt: image?.alt || fallbackName,
+            productName: image?.productName || fallbackName,
+        });
+    });
+
+    return merged;
+};
+
 const buildOrderProductSummaryRows = (orders) => {
     const map = new Map();
     const upsert = ({ groupKey, groupName, productName, variant, qty, images }) => {
         if (!Number.isFinite(qty) || qty <= 0) return;
-        const key = `${String(groupKey).toLowerCase()}|||${String(variant).toLowerCase()}`;
+        const key = String(groupKey).toLowerCase();
+        const normalizedVariant = String(variant || "—").trim() || "—";
+        const displayName = normalizeSummaryText(groupName || productName);
         const prev = map.get(key);
         if (prev) {
             prev.qty += qty;
-            if ((!prev.images || prev.images.length === 0) && Array.isArray(images) && images.length > 0) {
-                prev.images = images;
-            }
+            prev.images = mergeSummaryImages(prev.images, images, displayName);
+            const prevVariant = prev.variantMap.get(normalizedVariant);
+            if (prevVariant) prevVariant.qty += qty;
+            else prev.variantMap.set(normalizedVariant, { label: normalizedVariant, qty });
             return;
         }
         map.set(key, {
             groupKey,
-            groupName,
-            productName,
-            variant,
+            groupName: displayName,
+            productName: displayName,
             qty,
-            images: Array.isArray(images) ? images : [],
+            images: mergeSummaryImages([], images, displayName),
+            variantMap: new Map([[normalizedVariant, { label: normalizedVariant, qty }]]),
         });
     };
 
@@ -274,11 +296,14 @@ const buildOrderProductSummaryRows = (orders) => {
         });
     });
 
-    return Array.from(map.values()).sort((a, b) => {
+    return Array.from(map.values()).map((row) => ({
+        ...row,
+        variants: Array.from(row.variantMap.values()).sort((a, b) =>
+            String(a.label).localeCompare(String(b.label), undefined, { sensitivity: "base", numeric: true }),
+        ),
+    })).sort((a, b) => {
         const groupCmp = String(a.groupName).localeCompare(String(b.groupName), undefined, { sensitivity: "base", numeric: true });
         if (groupCmp !== 0) return groupCmp;
-        const variantCmp = String(a.variant).localeCompare(String(b.variant), undefined, { sensitivity: "base", numeric: true });
-        if (variantCmp !== 0) return variantCmp;
         return String(a.productName).localeCompare(String(b.productName), undefined, { sensitivity: "base", numeric: true });
     });
 };
@@ -445,14 +470,6 @@ export default function OrdersPage() {
 
     const [summaryData, setSummaryData] = useState(null);
     const [isSummaryLoading, setIsSummaryLoading] = useState(false);
-    const summaryStartDate = useMemo(
-        () => formatAsDateOnlyParam(dateRange?.from),
-        [dateRange?.from?.getTime()]
-    );
-    const summaryEndDate = useMemo(
-        () => formatAsDateOnlyParam(dateRange?.to || dateRange?.from),
-        [dateRange?.from?.getTime(), dateRange?.to?.getTime()]
-    );
 
     useEffect(() => {
         let ignore = false;
@@ -460,10 +477,7 @@ export default function OrdersPage() {
         const fetchSummary = async () => {
             setIsSummaryLoading(true);
             try {
-                const summary = await getOrderSummary({
-                    startDate: summaryStartDate,
-                    endDate: summaryEndDate,
-                });
+                const summary = await getOrderSummary(filteredOrderParams);
                 if (!ignore) setSummaryData(summary || null);
             } catch {
                 if (!ignore) {
@@ -479,7 +493,7 @@ export default function OrdersPage() {
         return () => {
             ignore = true;
         };
-    }, [summaryStartDate, summaryEndDate]);
+    }, [filteredOrderParams]);
 
     const totals = summaryData?.totals || {
         totalOrders: 0,
@@ -2312,7 +2326,7 @@ export default function OrdersPage() {
                     <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
                         <p className="text-sm font-medium text-gray-700">Date Range: {activeRangeLabel}</p>
                         <p className="text-xs text-gray-500">
-                            {isProductSummaryLoading ? "Loading..." : `Orders: ${productSummaryOrderCount} | Items: ${productSummaryRows.length}`}
+                            {isProductSummaryLoading ? "Loading..." : `Orders: ${productSummaryOrderCount} | Products: ${productSummaryRows.length}`}
                         </p>
                     </div>
 
@@ -2333,7 +2347,7 @@ export default function OrdersPage() {
                                 <tbody>
                                     {productSummaryRows.map((row, index) => (
                                         <tr
-                                            key={`${row.groupKey}-${row.variant}-${index}`}
+                                            key={`${row.groupKey}-${index}`}
                                             className="border-b border-gray-100 last:border-0"
                                         >
                                             <td className="px-3 py-2 text-gray-900">
@@ -2351,8 +2365,24 @@ export default function OrdersPage() {
                                                     <span className="block truncate" title={row.productName}>{row.productName}</span>
                                                 </div>
                                             </td>
-                                            <td className="px-3 py-2 text-gray-700">{row.variant || "—"}</td>
-                                            <td className="pl-2 pr-6 py-2 text-right font-semibold tabular-nums text-gray-900">{formatSummaryQty(row.qty)}</td>
+                                            <td className="px-3 py-2 text-gray-700">
+                                                <div className="space-y-1">
+                                                    {(Array.isArray(row.variants) ? row.variants : []).map((variantRow, variantIndex) => (
+                                                        <div key={`${row.groupKey}-variant-${variantIndex}`} className="truncate" title={variantRow.label || "—"}>
+                                                            {variantRow.label || "—"}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </td>
+                                            <td className="pl-2 pr-6 py-2 text-right font-semibold tabular-nums text-gray-900">
+                                                <div className="space-y-1">
+                                                    {(Array.isArray(row.variants) ? row.variants : []).map((variantRow, variantIndex) => (
+                                                        <div key={`${row.groupKey}-qty-${variantIndex}`}>
+                                                            {formatSummaryQty(variantRow.qty)}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
