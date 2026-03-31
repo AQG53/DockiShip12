@@ -312,6 +312,13 @@ const formatSummaryQty = (qty) => (
     Number.isInteger(qty) ? String(qty) : Number(qty).toFixed(2)
 );
 
+const escapeHtml = (value) => String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
 export default function OrdersPage() {
     const [search, setSearch] = useState("");
     const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -750,6 +757,154 @@ export default function OrdersPage() {
                 toast.error("Failed to download labels", { id: toastId });
             }
         }
+    };
+
+    const handleDownloadProductSummaryPdf = () => {
+        if (isProductSummaryLoading) {
+            toast.error("Product summary is still loading.");
+            return;
+        }
+
+        if (!Array.isArray(productSummaryRows) || productSummaryRows.length === 0) {
+            toast.error("No product summary data to export.");
+            return;
+        }
+
+        const flattenedRows = productSummaryRows.flatMap((row) => {
+            const variants = Array.isArray(row.variants) && row.variants.length > 0
+                ? row.variants
+                : [{ label: "—", qty: row.qty }];
+
+            return variants.map((variantRow) => ({
+                productName: row.productName || row.groupName || "Product",
+                variantLabel: variantRow.label || "—",
+                qty: formatSummaryQty(variantRow.qty),
+            }));
+        });
+
+        const printWindow = window.open("", "_blank", "noopener,noreferrer,width=1100,height=800");
+        if (!printWindow) {
+            toast.error("Please allow pop-ups to download the PDF.");
+            return;
+        }
+
+        const exportedAt = new Date();
+        const fileDate = exportedAt.toISOString().split("T")[0];
+        const title = `product-summary-${fileDate}`;
+        const rowsMarkup = flattenedRows.map((row) => `
+            <tr>
+                <td>${escapeHtml(row.productName)}</td>
+                <td>${escapeHtml(row.variantLabel)}</td>
+                <td class="qty">${escapeHtml(row.qty)}</td>
+            </tr>
+        `).join("");
+
+        printWindow.document.write(`
+            <!doctype html>
+            <html>
+                <head>
+                    <meta charset="utf-8" />
+                    <title>${escapeHtml(title)}</title>
+                    <style>
+                        @page { size: A4; margin: 14mm; }
+                        * { box-sizing: border-box; }
+                        body {
+                            margin: 0;
+                            font-family: Inter, Arial, sans-serif;
+                            color: #111827;
+                            background: #ffffff;
+                        }
+                        .sheet {
+                            padding: 24px 28px;
+                        }
+                        .header {
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: flex-start;
+                            gap: 16px;
+                            margin-bottom: 18px;
+                        }
+                        .title {
+                            margin: 0 0 4px;
+                            font-size: 24px;
+                            font-weight: 700;
+                        }
+                        .meta {
+                            margin: 0;
+                            font-size: 13px;
+                            color: #4b5563;
+                        }
+                        .stats {
+                            text-align: right;
+                            font-size: 13px;
+                            color: #4b5563;
+                            white-space: nowrap;
+                        }
+                        table {
+                            width: 100%;
+                            border-collapse: collapse;
+                            table-layout: fixed;
+                        }
+                        thead th {
+                            background: #f9fafb;
+                            color: #374151;
+                            font-size: 12px;
+                            font-weight: 700;
+                            letter-spacing: 0.04em;
+                            text-transform: uppercase;
+                            padding: 10px 12px;
+                            border: 1px solid #e5e7eb;
+                            text-align: left;
+                        }
+                        tbody td {
+                            padding: 10px 12px;
+                            border: 1px solid #e5e7eb;
+                            font-size: 13px;
+                            vertical-align: top;
+                            word-break: break-word;
+                        }
+                        .qty {
+                            text-align: right;
+                            font-variant-numeric: tabular-nums;
+                            font-weight: 600;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="sheet">
+                        <div class="header">
+                            <div>
+                                <h1 class="title">Product Summary</h1>
+                                <p class="meta">Date Range: ${escapeHtml(activeRangeLabel)}</p>
+                            </div>
+                            <div class="stats">
+                                <div>Orders: ${escapeHtml(productSummaryOrderCount)}</div>
+                                <div>Products: ${escapeHtml(productSummaryRows.length)}</div>
+                                <div>Exported: ${escapeHtml(exportedAt.toLocaleString())}</div>
+                            </div>
+                        </div>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style="width:50%">Product Name</th>
+                                    <th style="width:38%">Variant (Color + Size)</th>
+                                    <th style="width:12%; text-align:right">Qty</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rowsMarkup}</tbody>
+                        </table>
+                    </div>
+                    <script>
+                        window.addEventListener("load", () => {
+                            setTimeout(() => {
+                                window.print();
+                            }, 150);
+                        });
+                    </script>
+                </body>
+            </html>
+        `);
+        printWindow.document.close();
     };
 
     const handleOpenProductSummary = async () => {
@@ -2317,9 +2472,19 @@ export default function OrdersPage() {
                 title="Product Summary"
                 widthClass="max-w-5xl"
                 footer={(
-                    <Button variant="ghost" onClick={() => setProductSummaryOpen(false)}>
-                        Close
-                    </Button>
+                    <>
+                        <Button
+                            variant="secondary"
+                            onClick={handleDownloadProductSummaryPdf}
+                            disabled={isProductSummaryLoading || productSummaryRows.length === 0}
+                        >
+                            <Download size={14} className="mr-1" />
+                            Download PDF
+                        </Button>
+                        <Button variant="ghost" onClick={() => setProductSummaryOpen(false)}>
+                            Close
+                        </Button>
+                    </>
                 )}
             >
                 <div className="space-y-3">
@@ -2336,12 +2501,12 @@ export default function OrdersPage() {
                         <div className="py-8 text-center text-sm text-gray-500">No products found for the selected range.</div>
                     ) : (
                         <div className="max-h-[60vh] overflow-auto rounded-lg border border-gray-200">
-                            <table className="min-w-full table-fixed text-sm">
-                                <thead className="sticky top-0 bg-gray-50">
+                            <table className="min-w-full table-fixed border-separate border-spacing-0 text-sm">
+                                <thead className="bg-gray-50">
                                     <tr className="border-b border-gray-200">
-                                        <th className="w-[50%] px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Product Name</th>
-                                        <th className="w-[38%] px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Variant (Color + Size)</th>
-                                        <th className="w-[12%] pl-2 pr-6 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600">Qty</th>
+                                        <th className="sticky top-0 z-10 w-[50%] border-b border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Product Name</th>
+                                        <th className="sticky top-0 z-10 w-[38%] border-b border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Variant (Color + Size)</th>
+                                        <th className="sticky top-0 z-10 w-[12%] border-b border-gray-200 bg-gray-50 pl-2 pr-6 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600">Qty</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -2409,14 +2574,14 @@ export default function OrdersPage() {
                     <div className="py-8 text-center text-sm text-gray-500">No orders found for this tracking ID.</div>
                 ) : (
                     <div className="max-h-[60vh] overflow-auto rounded-lg border border-gray-200">
-                        <table className="min-w-full text-sm">
-                            <thead className="sticky top-0 bg-gray-50">
+                        <table className="min-w-full border-separate border-spacing-0 text-sm">
+                            <thead className="bg-gray-50">
                                 <tr className="border-b border-gray-200">
-                                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Order ID</th>
-                                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Date</th>
-                                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Marketplace</th>
-                                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Courier</th>
-                                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Status</th>
+                                    <th className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Order ID</th>
+                                    <th className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Date</th>
+                                    <th className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Marketplace</th>
+                                    <th className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Courier</th>
+                                    <th className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Status</th>
                                 </tr>
                             </thead>
                             <tbody>

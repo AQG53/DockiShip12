@@ -87,6 +87,16 @@ export default function MarketplaceListingRow({
     const channel = (allChannels || []).find(c => c.id === listing.channelId || c.id === listing.channel?.id);
     const displayChannel = channel ? (channel.marketplace + (channel.provider ? ` (${channel.provider})` : '')) : (listing.channel?.marketplace || "—");
     const isListingActive = String(listing?.status ?? "active").toLowerCase() !== "inactive";
+    const isProductActive = String(productDetail?.status ?? "").toLowerCase() === "active";
+    const matchedVariant = variantId
+        ? (variants || []).find(v => String(v.id) === String(variantId))
+        : null;
+    const isVariantActive = matchedVariant
+        ? String(matchedVariant?.status ?? "").toLowerCase() === "active"
+        : true;
+    const activationBlockReason = !isProductActive
+        ? "Cannot activate listing while the attached product is inactive."
+        : (!isVariantActive ? "Cannot activate listing while the attached variant is inactive." : "");
 
     const handleSave = async () => {
         setIsSaving(true);
@@ -150,6 +160,10 @@ export default function MarketplaceListingRow({
 
     const handleToggleStatus = async () => {
         if (isSaving || isTogglingStatus || isEditing) return;
+        if (!isListingActive && activationBlockReason) {
+            toast.error(activationBlockReason);
+            return;
+        }
         setIsTogglingStatus(true);
         try {
             await onUpdate(listing.id, { status: isListingActive ? "inactive" : "active" });
@@ -315,7 +329,7 @@ export default function MarketplaceListingRow({
                     onClick={handleToggleStatus}
                     disabled={isSaving || isTogglingStatus || isEditing}
                     className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${isListingActive ? "bg-emerald-500" : "bg-gray-300"}`}
-                    title={isListingActive ? "Mark inactive" : "Mark active"}
+                    title={!isListingActive && activationBlockReason ? activationBlockReason : (isListingActive ? "Mark inactive" : "Mark active")}
                 >
                     <span
                         className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${isListingActive ? "translate-x-5" : "translate-x-1"}`}
