@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import logo from "../assets/logo1.png"
-import { ChevronDown, ChevronRight, LogOut, Settings, User, User2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, LogOut, RadioTower, Settings, User, User2 } from 'lucide-react';
 import { logout } from "../lib/api"
 import { Menu, MenuButton, MenuItem, MenuItems, Transition } from "@headlessui/react";
 import { useNavigate, Link, useLocation } from 'react-router';
@@ -26,6 +26,7 @@ const Navbar = () => {
   const location = useLocation();
   const { data, isLoading } = useAuthCheck();
   const { perms, claims: permissionClaims } = useUserPermissions();
+  const isUspsSubscriptionsDevMode = String(import.meta.env.VITE_MODE || "").trim().toLowerCase() === "development";
 
   useEffect(() => {
     const map = new Map([
@@ -129,6 +130,16 @@ const Navbar = () => {
     return value.startsWith('purchases.po.') || value.startsWith('purchases.');
   });
   const canAccessOrderListing = isOwner || Array.from(perms || []).some((perm) => String(perm).toLowerCase().startsWith('orders.'));
+  const canAccessUspsSubscriptions = isUspsSubscriptionsDevMode && (
+    isOwner
+    || Array.from(perms || []).some((perm) => {
+      const value = String(perm || "").toLowerCase();
+      return value === "orders.read"
+        || value === "settings.orders.read"
+        || value === "settings.orders.manage"
+        || value === "settings.manage";
+    })
+  );
   const canSeeInventoryNav = canSeeInventory || canAccessWarehouses;
   const canAccessSettingsItem = ({ permsAny }) => {
     if (isOwner) return true;
@@ -243,6 +254,24 @@ const Navbar = () => {
           </div>
 
           <div className='flex items-center gap-5'>
+            {canAccessUspsSubscriptions && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveLink("");
+                  navigate("/dev/usps-subscriptions");
+                }}
+                className={`inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-medium transition-colors ${
+                  location.pathname === "/dev/usps-subscriptions"
+                    ? "border-blue-200 bg-blue-50 text-blue-700"
+                    : "border-transparent bg-white/50 text-gray-700 hover:border-amber-200 hover:bg-amber-50"
+                }`}
+              >
+                <RadioTower size={16} />
+                Subscriptions
+              </button>
+            )}
+
             {/* <div className='flex items-center gap-2'>
               <div className='relative w-5 h-5'>
                 <svg className='w-5 h-5 transform -rotate-90'>

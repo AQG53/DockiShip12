@@ -1,10 +1,10 @@
 import { useMemo, useRef } from "react";
-import { Package, Truck, User, Calendar, Hash, DollarSign, Tag, MessageSquare, Copy, Check, Paperclip, Download, Trash2, Loader2, Plus, Receipt, RotateCcw } from "lucide-react";
+import { Package, Truck, User, Calendar, Hash, DollarSign, Tag, MessageSquare, Copy, Check, Paperclip, Download, Trash2, Loader2, Plus, Receipt, RotateCcw, MapPin, Circle, ExternalLink } from "lucide-react";
 import { useState, useEffect } from "react";
 import ViewModal from "../../../components/ViewModal";
 import ImageGallery from "../../../components/ImageGallery";
 import { useAuthCheck } from "../../auth/hooks/useAuthCheck";
-import { uploadOrderAttachment, deleteOrderAttachment, getPrintableOrderLabel } from "../../../lib/api";
+import { uploadOrderAttachment, deleteOrderAttachment, getPrintableOrderLabel, trackUspsPackages, createUspsTrackingSubscription, deleteUspsTrackingSubscription } from "../../../lib/api";
 import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { absOrderImage, ORDER_IMG_PLACEHOLDER, resolveOrderItemImage } from "../utils/orderItemImage";
@@ -54,6 +54,52 @@ const normalizeText = (value) => {
     if (Array.isArray(value)) return value.map((v) => String(v ?? "")).join("\n");
     if (value === null || value === undefined) return "";
     return String(value);
+};
+
+const decodeHtmlEntities = (value = "") => {
+    if (typeof window === "undefined") return String(value || "");
+    const textarea = document.createElement("textarea");
+    textarea.innerHTML = String(value || "");
+    return textarea.value;
+};
+
+const cleanUspsText = (value) => decodeHtmlEntities(String(value || "").replace(/<[^>]+>/g, ""));
+
+const isUspsCourier = (courierMedium) => {
+    const text = `${courierMedium?.shortName || ""} ${courierMedium?.fullName || ""}`.toLowerCase();
+    return text.includes("usps");
+};
+
+const formatUspsDate = (value) => {
+    if (!value) return "—";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return String(value);
+    return parsed.toLocaleDateString(undefined, {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+    });
+};
+
+const formatUspsDateTime = (value) => {
+    if (!value) return "—";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return String(value);
+    return parsed.toLocaleString(undefined, {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+    });
+};
+
+const buildUspsLocation = (event) => {
+    const city = String(event?.eventCity || "").trim();
+    const state = String(event?.eventState || "").trim();
+    const zip = String(event?.eventZIPCode || "").trim();
+    const line = [city, state].filter(Boolean).join(", ");
+    return [line, zip].filter(Boolean).join(" ");
 };
 
 const toNumber = (value, fallback = 0) => {
@@ -220,6 +266,34 @@ const DetailRow = ({ label, value, copyable = false, className = "" }) => (
         <p className="text-xs font-medium text-gray-500 mb-0.5">{label}</p>
         <div className="flex items-center gap-1.5">
             <p className="text-sm font-medium text-gray-900">{value || "—"}</p>
+            {copyable && value && <CopyButton text={value} />}
+        </div>
+    </div>
+);
+
+const TrackingValueRow = ({
+    label,
+    value,
+    copyable = false,
+    className = "",
+    clickable = false,
+    onClick,
+}) => (
+    <div className={className}>
+        <p className="text-xs font-medium text-gray-500 mb-0.5">{label}</p>
+        <div className="flex items-center gap-1.5">
+            {clickable && value ? (
+                <button
+                    type="button"
+                    onClick={onClick}
+                    className="inline-flex items-center gap-1.5 text-left text-sm font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+                >
+                    <span>{value}</span>
+                    <ExternalLink size={14} />
+                </button>
+            ) : (
+                <p className="text-sm font-medium text-gray-900">{value || "—"}</p>
+            )}
             {copyable && value && <CopyButton text={value} />}
         </div>
     </div>
@@ -438,10 +512,17 @@ export default function ViewOrderModal({ open, onClose, order }) {
     }, [order?.remarks]);
 
     const profitClass = calculatedProfit >= 0 ? "text-emerald-600" : "text-rose-500";
+    const isUspsTracking = Boolean(order?.trackingId) && isUspsCourier(order?.courierMedium);
 
     // Attachments Logic
     const [localAttachments, setLocalAttachments] = useState([]);
     const [uploading, setUploading] = useState(false);
+    const [trackingModalOpen, setTrackingModalOpen] = useState(false);
+    const [trackingLoading, setTrackingLoading] = useState(false);
+    const [subscriptionLoading, setSubscriptionLoading] = useState(false);
+    const [subscriptionDeleting, setSubscriptionDeleting] = useState(false);
+    const [trackingError, setTrackingError] = useState("");
+    const [trackingDetails, setTrackingDetails] = useState(null);
     const fileInputRef = useRef(null);
     const queryClient = useQueryClient();
 
@@ -452,6 +533,15 @@ export default function ViewOrderModal({ open, onClose, order }) {
             setLocalAttachments([]);
         }
     }, [order]);
+
+    useEffect(() => {
+        setTrackingModalOpen(false);
+        setTrackingLoading(false);
+        setSubscriptionLoading(false);
+        setSubscriptionDeleting(false);
+        setTrackingError("");
+        setTrackingDetails(null);
+    }, [order?.id, order?.trackingId]);
 
     const handleUpload = async (e) => {
         const file = e.target.files?.[0];
@@ -614,6 +704,105 @@ export default function ViewOrderModal({ open, onClose, order }) {
         clearDocumentPreviewObjectUrl();
         setDocumentAttachmentPreview(null);
     };
+
+    const handleOpenTrackingModal = async () => {
+        const trackingId = String(order?.trackingId || "").trim();
+        if (!trackingId) return;
+
+        setTrackingModalOpen(true);
+        setTrackingLoading(true);
+        setTrackingError("");
+
+        try {
+            const response = await trackUspsPackages([trackingId]);
+            const pkg = Array.isArray(response?.packages) ? response.packages[0] : null;
+            if (!pkg) {
+                throw new Error("No USPS tracking details were returned.");
+            }
+            setTrackingDetails(pkg);
+        } catch (error) {
+            console.error("Failed to fetch USPS tracking", error);
+            const message =
+                error?.response?.data?.message
+                || error?.response?.data?.error
+                || error?.message
+                || "Failed to load USPS tracking details.";
+            setTrackingError(String(message));
+            setTrackingDetails(null);
+        } finally {
+            setTrackingLoading(false);
+        }
+    };
+
+    const handleCreateTrackingSubscription = async () => {
+        const trackingNumber = String(trackingDetails?.trackingNumber || order?.trackingId || "").trim();
+        if (!trackingNumber) return;
+
+        try {
+            setSubscriptionLoading(true);
+            const response = await createUspsTrackingSubscription(trackingNumber);
+            if (!response?.subscription) {
+                throw new Error("No subscription details were returned.");
+            }
+
+            setTrackingDetails((prev) => prev ? ({
+                ...prev,
+                dockishipSubscription: response.subscription,
+            }) : prev);
+
+            toast.success(response?.created ? "USPS live updates enabled" : "USPS live updates already active");
+        } catch (error) {
+            console.error("Failed to create USPS subscription", error);
+            const message =
+                error?.response?.data?.message
+                || error?.response?.data?.error
+                || error?.message
+                || "Failed to create USPS subscription.";
+            toast.error(String(message));
+        } finally {
+            setSubscriptionLoading(false);
+        }
+    };
+
+    const handleDeleteTrackingSubscription = async () => {
+        const trackingNumber = String(trackingDetails?.trackingNumber || order?.trackingId || "").trim();
+        if (!trackingNumber) return;
+        if (!window.confirm(`Delete USPS live subscription for ${trackingNumber}?`)) return;
+
+        try {
+            setSubscriptionDeleting(true);
+            await deleteUspsTrackingSubscription(trackingNumber);
+            setTrackingDetails((prev) => prev ? ({
+                ...prev,
+                dockishipSubscription: null,
+            }) : prev);
+            toast.success("USPS live updates disabled");
+        } catch (error) {
+            console.error("Failed to delete USPS subscription", error);
+            const message =
+                error?.response?.data?.message
+                || error?.response?.data?.error
+                || error?.message
+                || "Failed to delete USPS subscription.";
+            toast.error(String(message));
+        } finally {
+            setSubscriptionDeleting(false);
+        }
+    };
+
+    const latestTrackingEvent = Array.isArray(trackingDetails?.trackingEvents) && trackingDetails.trackingEvents.length > 0
+        ? trackingDetails.trackingEvents[0]
+        : null;
+    const latestLocation = buildUspsLocation(latestTrackingEvent);
+    const deliveryPrediction = trackingDetails?.deliveryDateExpectation?.predictedDeliveryDate
+        ? formatUspsDate(trackingDetails.deliveryDateExpectation.predictedDeliveryDate)
+        : null;
+    const delivered = String(trackingDetails?.statusCategory || "").toLowerCase().includes("delivered")
+        || String(trackingDetails?.status || "").toLowerCase().includes("delivered");
+    const currentSubscription = trackingDetails?.dockishipSubscription || null;
+    const subscriptionExpiresAtMs = currentSubscription?.expirationTimestamp ? new Date(currentSubscription.expirationTimestamp).getTime() : NaN;
+    const isSubscriptionExpired = Number.isFinite(subscriptionExpiresAtMs) && subscriptionExpiresAtMs <= Date.now();
+    const hasLiveSubscription = Boolean(currentSubscription?.subscriptionId) && !isSubscriptionExpired;
 
     return (
         <>
@@ -878,7 +1067,14 @@ export default function ViewOrderModal({ open, onClose, order }) {
             <CardSection icon={Truck} title="Shipping Details">
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                     <DetailRow label="Courier" value={order.courierMedium?.shortName || order.courierMedium?.fullName} />
-                    <DetailRow label="Tracking ID" value={order.trackingId} copyable className="col-span-2" />
+                    <TrackingValueRow
+                        label="Tracking ID"
+                        value={order.trackingId}
+                        copyable
+                        clickable={isUspsTracking}
+                        onClick={handleOpenTrackingModal}
+                        className="col-span-2"
+                    />
                 </div>
             </CardSection>
 
@@ -1002,6 +1198,218 @@ export default function ViewOrderModal({ open, onClose, order }) {
                     />
                 ) : (
                     <p className="text-sm text-gray-500">No document attachment available.</p>
+                )}
+            </ViewModal>
+
+            <ViewModal
+                open={trackingModalOpen}
+                onClose={() => setTrackingModalOpen(false)}
+                title="USPS Tracking"
+                subtitle={order?.trackingId || "Tracking Details"}
+                icon={Truck}
+                widthClass="max-w-6xl"
+                heightClass="h-[88vh]"
+                footer={(
+                    <button
+                        className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                        onClick={() => setTrackingModalOpen(false)}
+                    >
+                        Close
+                    </button>
+                )}
+            >
+                {trackingLoading ? (
+                    <div className="flex min-h-[320px] items-center justify-center">
+                        <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600 shadow-sm">
+                            <Loader2 size={18} className="animate-spin text-blue-600" />
+                            Loading USPS tracking details...
+                        </div>
+                    </div>
+                ) : trackingError ? (
+                    <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">
+                        {trackingError}
+                    </div>
+                ) : !trackingDetails ? (
+                    <div className="rounded-2xl border border-gray-200 bg-white p-5 text-sm text-gray-500">
+                        No USPS tracking details available.
+                    </div>
+                ) : (
+                    <div className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
+                        <div className="space-y-4">
+                            <div className={`overflow-hidden rounded-[24px] border ${delivered ? "border-emerald-200 bg-emerald-50" : "border-blue-200 bg-blue-50"} shadow-sm`}>
+                                <div className={`h-2 w-full ${delivered ? "bg-emerald-500" : "bg-blue-500"}`} />
+                                <div className="space-y-4 p-5">
+                                    <div>
+                                        <p className={`text-xs font-semibold uppercase tracking-[0.18em] ${delivered ? "text-emerald-700" : "text-blue-700"}`}>
+                                            Latest Update
+                                        </p>
+                                        <h3 className="mt-2 text-xl font-semibold text-gray-900">
+                                            {cleanUspsText(trackingDetails?.status) || "Tracking Update"}
+                                        </h3>
+                                        <p className="mt-2 text-sm leading-6 text-gray-700">
+                                            {cleanUspsText(trackingDetails?.statusSummary) || "No summary available."}
+                                        </p>
+                                    </div>
+
+                                    <div className="space-y-2 border-t border-black/10 pt-4 text-sm text-gray-700">
+                                        <div className="flex items-start gap-2">
+                                            <Hash size={15} className="mt-0.5 text-gray-400" />
+                                            <span>{trackingDetails?.trackingNumber || order?.trackingId || "—"}</span>
+                                        </div>
+                                        <div className="flex items-start gap-2">
+                                            <Truck size={15} className="mt-0.5 text-gray-400" />
+                                            <span>{cleanUspsText(trackingDetails?.mailClass) || cleanUspsText(trackingDetails?.statusCategory) || "USPS"}</span>
+                                        </div>
+                                        {deliveryPrediction && (
+                                            <div className="flex items-start gap-2">
+                                                <Calendar size={15} className="mt-0.5 text-gray-400" />
+                                                <span>
+                                                    Expected delivery {deliveryPrediction}
+                                                    {trackingDetails?.deliveryDateExpectation?.endOfDay ? ` ${trackingDetails.deliveryDateExpectation.endOfDay}` : ""}
+                                                </span>
+                                            </div>
+                                        )}
+                                        {latestLocation && (
+                                            <div className="flex items-start gap-2">
+                                                <MapPin size={15} className="mt-0.5 text-gray-400" />
+                                                <span>{latestLocation}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {Array.isArray(trackingDetails?.services) && trackingDetails.services.length > 0 && (
+                                <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Services</p>
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                        {trackingDetails.services.map((service, index) => (
+                                            <span
+                                                key={`${service}-${index}`}
+                                                className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs font-medium text-gray-700"
+                                            >
+                                                {cleanUspsText(service)}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Live Updates</p>
+                                        <h3 className="mt-1 text-base font-semibold text-gray-900">
+                                            {hasLiveSubscription ? "Subscription Active" : isSubscriptionExpired ? "Subscription Expired" : "No Subscription Yet"}
+                                        </h3>
+                                    </div>
+                                    {hasLiveSubscription ? (
+                                        <div className="flex items-center gap-2">
+                                            <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+                                                {currentSubscription?.status || "ENABLED"}
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={handleDeleteTrackingSubscription}
+                                                disabled={subscriptionDeleting}
+                                                className="inline-flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                            >
+                                                {subscriptionDeleting ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                                                Delete Subscription
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={handleCreateTrackingSubscription}
+                                            disabled={subscriptionLoading}
+                                            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                        >
+                                            {subscriptionLoading ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
+                                            Create Subscription
+                                        </button>
+                                    )}
+                                </div>
+
+                                {hasLiveSubscription ? (
+                                    <div className="mt-4 space-y-2 text-sm text-gray-700">
+                                        <div className="flex items-start gap-2">
+                                            <Hash size={15} className="mt-0.5 text-gray-400" />
+                                            <span>{currentSubscription.subscriptionId}</span>
+                                        </div>
+                                        {currentSubscription?.expirationTimestamp && (
+                                            <div className="flex items-start gap-2">
+                                                <Calendar size={15} className="mt-0.5 text-gray-400" />
+                                                <span>Expires {formatUspsDateTime(currentSubscription.expirationTimestamp)}</span>
+                                            </div>
+                                        )}
+                                        {currentSubscription?.listenerURL && (
+                                            <div className="flex items-start gap-2">
+                                                <ExternalLink size={15} className="mt-0.5 text-gray-400" />
+                                                <span className="break-all">{currentSubscription.listenerURL}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <p className="mt-3 text-sm text-gray-500">
+                                        Create a USPS subscription for this tracking number to receive live webhook updates automatically.
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="rounded-[24px] border border-gray-200 bg-white p-5 shadow-sm">
+                            <div className="mb-5 flex items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Tracking History</p>
+                                    <h3 className="mt-1 text-lg font-semibold text-gray-900">
+                                        {cleanUspsText(trackingDetails?.statusCategory) || "Shipment Journey"}
+                                    </h3>
+                                </div>
+                                {trackingDetails?.uniqueTrackingID && (
+                                    <span className="rounded-full bg-gray-100 px-3 py-1 text-[11px] font-medium text-gray-500">
+                                        Ref {trackingDetails.uniqueTrackingID.slice(0, 8)}
+                                    </span>
+                                )}
+                            </div>
+
+                            {Array.isArray(trackingDetails?.trackingEvents) && trackingDetails.trackingEvents.length > 0 ? (
+                                <div className="space-y-0">
+                                    {trackingDetails.trackingEvents.map((event, index) => {
+                                        const location = buildUspsLocation(event);
+                                        const isLast = index === trackingDetails.trackingEvents.length - 1;
+                                        return (
+                                            <div key={`${event?.GMTTimestamp || event?.eventTimestamp || index}-${event?.eventCode || index}`} className="grid grid-cols-[28px_minmax(0,1fr)] gap-4">
+                                                <div className="flex flex-col items-center">
+                                                    <Circle
+                                                        size={12}
+                                                        className={`mt-1 fill-current ${index === 0 ? (delivered ? "text-emerald-500" : "text-blue-600") : "text-slate-400"}`}
+                                                        strokeWidth={0}
+                                                    />
+                                                    {!isLast && <div className="mt-2 w-px flex-1 bg-slate-300" />}
+                                                </div>
+                                                <div className={`pb-7 ${isLast ? "pb-0" : ""}`}>
+                                                    <h4 className="text-base font-semibold text-slate-900">
+                                                        {cleanUspsText(event?.eventType) || "Tracking Update"}
+                                                    </h4>
+                                                    {location && (
+                                                        <p className="mt-1 text-sm font-medium uppercase tracking-wide text-slate-600">
+                                                            {location}
+                                                        </p>
+                                                    )}
+                                                    <p className="mt-1 text-sm text-slate-500">
+                                                        {formatUspsDateTime(event?.eventTimestamp || event?.GMTTimestamp)}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <p className="text-sm text-gray-500">No tracking events available.</p>
+                            )}
+                        </div>
+                    </div>
                 )}
             </ViewModal>
         </>

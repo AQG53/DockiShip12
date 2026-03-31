@@ -38,11 +38,25 @@ import OrdersPage from './features/orders/pages/OrdersPage.jsx'
 import TemuCallbackPage from './pages/TemuCallbackPage.jsx'
 import TermsOfServicePage from './features/auth/pages/TermsOfServicePage.jsx'
 import PrivacyPolicyPage from './features/auth/pages/PrivacyPolicyPage.jsx'
+import UspsLiveNotifications from './components/UspsLiveNotifications.jsx'
+import UspsSubscriptionsPage from './pages/UspsSubscriptionsPage.jsx'
 
 const App = () => {
   const { isLoading, isAuthenticated } = useAuthUser();
+  const isUspsSubscriptionsDevMode = String(import.meta.env.VITE_MODE || "").trim().toLowerCase() === "development";
 
   const { claims } = useUserPermissions();
+  const orderNotificationAllowed =
+    claims?.isOwner
+    || (Array.isArray(claims?.perms) && claims.perms.some((perm) => {
+      const key = String(perm || "").toLowerCase();
+      return (
+        key === "orders.read"
+        || key === "settings.orders.read"
+        || key === "settings.orders.manage"
+        || key === "settings.manage"
+      );
+    }));
   useEffect(() => {
     if (claims?.user)
       console.log(claims)
@@ -171,6 +185,13 @@ const App = () => {
           element={<PrivacyPolicyPage />}
         />
 
+        {isUspsSubscriptionsDevMode && (
+          <Route
+            path='/dev/usps-subscriptions'
+            element={isAuthenticated ? <UspsSubscriptionsPage /> : <Navigate to="/login/owner" replace />}
+          />
+        )}
+
         <Route
           path='/orders'
           element={isAuthenticated ? <OrdersLayout /> : <Navigate to="/login/owner" replace />}
@@ -232,6 +253,7 @@ const App = () => {
           element={<Navigate to={"/"} />}
         />
       </Routes>
+      <UspsLiveNotifications enabled={Boolean(isAuthenticated && hasTenant !== false && orderNotificationAllowed)} />
       <Toaster />
     </div>
   )

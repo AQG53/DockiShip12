@@ -1096,6 +1096,63 @@ export async function listOrdersByTracking({ trackingId } = {}) {
   return payload?.rows || payload?.data || [];
 }
 
+export async function trackUspsPackages(trackingNumbers = []) {
+  const payload = (Array.isArray(trackingNumbers) ? trackingNumbers : [])
+    .map((trackingNumber) => String(trackingNumber || "").trim())
+    .filter(Boolean)
+    .map((trackingNumber) => ({ trackingNumber }));
+
+  if (payload.length === 0) {
+    throw new Error("At least one tracking number is required.");
+  }
+
+  const res = await axiosInstance.post("/integrations/usps/track", payload);
+  return res?.data ?? {};
+}
+
+export async function createUspsTrackingSubscription(trackingNumber) {
+  const normalizedTrackingNumber = String(trackingNumber || "").trim();
+  if (!normalizedTrackingNumber) {
+    throw new Error("trackingNumber is required.");
+  }
+
+  const res = await axiosInstance.post("/integrations/usps/subscriptions", {
+    trackingNumber: normalizedTrackingNumber,
+  });
+  return res?.data ?? {};
+}
+
+export async function deleteUspsTrackingSubscription(trackingNumber) {
+  const normalizedTrackingNumber = String(trackingNumber || "").trim();
+  if (!normalizedTrackingNumber) {
+    throw new Error("trackingNumber is required.");
+  }
+
+  const res = await axiosInstance.delete("/integrations/usps/subscriptions", {
+    params: { trackingNumber: normalizedTrackingNumber },
+  });
+  return res?.data ?? {};
+}
+
+export async function listUspsWebhookEvents({ trackingNumber, limit } = {}) {
+  const params = {};
+  if (trackingNumber) params.trackingNumber = trackingNumber;
+  if (limit) params.limit = limit;
+
+  const res = await axiosInstance.get("/integrations/usps/webhook-events", { params });
+  return res?.data ?? { count: 0, rows: [] };
+}
+
+export async function listUspsSubscriptions() {
+  const res = await axiosInstance.get("/integrations/usps/subscriptions");
+  return res?.data ?? { count: 0, rows: [], callbackUrl: "", callbackPath: "" };
+}
+
+export async function getUspsWebhookConfig() {
+  const res = await axiosInstance.get("/integrations/usps/webhook-config");
+  return res?.data ?? { callbackUrl: "", callbackPath: "", hasSecret: false };
+}
+
 export async function checkOrderLabelNameExists({ fileName, excludeOrderId } = {}) {
   const params = {};
   if (fileName) params.fileName = fileName;
