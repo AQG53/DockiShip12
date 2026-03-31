@@ -58,6 +58,16 @@ const resolveOrderProductImages = ({ listing, product, variant, name }) => {
                 productName: name,
             }));
 
+    if (isImagePath(listingImage)) {
+        return [
+            {
+                url: listingImage,
+                alt: name,
+                productName: name,
+            },
+        ];
+    }
+
     if (variant?.id) {
         const variantEntityImages = Array.isArray(variant?.images)
             ? toGalleryRows(variant.images)
@@ -80,16 +90,6 @@ const resolveOrderProductImages = ({ listing, product, variant, name }) => {
 
     const productImageRows = toGalleryRows(productImages);
     if (productImageRows.length > 0) return productImageRows;
-
-    if (isImagePath(listingImage)) {
-        return [
-            {
-                url: listingImage,
-                alt: name,
-                productName: name,
-            },
-        ];
-    }
 
     // Last safety fallback: any product image path.
     return toGalleryRows(rawImages);
