@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Truck, X, AlertCircle } from "lucide-react";
-import { listUspsWebhookEvents } from "../lib/api";
+import { subscribeUspsStream } from "../lib/uspsStream";
 
-const POLL_MS = 8000;
 const MAX_VISIBLE = 3;
 const AUTO_DISMISS_MS = 5000;
 
@@ -112,10 +111,8 @@ function NotificationCard({ item, onDismiss }) {
 export default function UspsLiveNotifications({ enabled = true }) {
   const [visibleItems, setVisibleItems] = useState([]);
   const queueRef = useRef([]);
-  const initializedRef = useRef(false);
   const seenIdsRef = useRef(new Set());
   const timersRef = useRef(new Map());
-  const pollingRef = useRef(false);
 
   const dismiss = (id) => {
     const timer = timersRef.current.get(id);
@@ -157,61 +154,44 @@ export default function UspsLiveNotifications({ enabled = true }) {
 
   useEffect(() => {
     if (!enabled) {
-      initializedRef.current = false;
+      for (const timer of timersRef.current.values()) {
+        window.clearTimeout(timer);
+      }
+      timersRef.current.clear();
       seenIdsRef.current = new Set();
       queueRef.current = [];
       setVisibleItems([]);
       return;
     }
 
-    let cancelled = false;
+    const unsubscribe = subscribeUspsStream({
+      onEvent: (streamEvent) => {
+        const type = String(streamEvent?.type || "");
+        if (type !== "usps.webhook.received" && type !== "usps.webhook.error") return;
 
-    const poll = async () => {
-      if (pollingRef.current || cancelled) return;
-      pollingRef.current = true;
-      try {
-        const response = await listUspsWebhookEvents({ limit: 20 });
-        const rows = Array.isArray(response?.rows) ? response.rows : [];
-        const orderedRows = [...rows].reverse();
+        const row = streamEvent?.data?.row;
+        const rowId = String(row?.id || "").trim();
+        if (!rowId || seenIdsRef.current.has(rowId)) return;
 
-        if (!initializedRef.current) {
-          orderedRows.forEach((row) => {
-            if (row?.id) seenIdsRef.current.add(row.id);
-          });
-          initializedRef.current = true;
-          return;
+        seenIdsRef.current.add(rowId);
+        if (seenIdsRef.current.size > 200) {
+          const values = Array.from(seenIdsRef.current.values());
+          seenIdsRef.current = new Set(values.slice(values.length - 150));
         }
 
-        const newItems = orderedRows
-          .filter((row) => row?.id && !seenIdsRef.current.has(row.id))
-          .map((row) => {
-            seenIdsRef.current.add(row.id);
-            return {
-              id: row.id,
-              event: row,
-            };
-          });
-
-        if (newItems.length > 0 && !cancelled) {
-          queueRef.current.push(...newItems);
-          setVisibleItems((prev) => [...prev]);
-        }
-      } catch (error) {
-        console.error("Failed to poll USPS webhook events", error);
-      } finally {
-        pollingRef.current = false;
-      }
-    };
-
-    void poll();
-    const intervalId = window.setInterval(() => {
-      void poll();
-    }, POLL_MS);
+        queueRef.current.push({
+          id: rowId,
+          event: row,
+        });
+        setVisibleItems((prev) => [...prev]);
+      },
+      onError: (error) => {
+        console.error("USPS push stream failed for notifications", error);
+      },
+    });
 
     return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-      pollingRef.current = false;
+      unsubscribe();
     };
   }, [enabled]);
 

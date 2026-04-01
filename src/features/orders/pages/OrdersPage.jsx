@@ -23,6 +23,8 @@ import {
     listOrders,
     listOrdersByTracking,
     getOrderSummary,
+    getOrderProductSummary,
+    getOrderProductSummaryPdf,
     downloadBulkLabels,
     checkOrderLabelNameExists,
     getPrintableOrderLabel,
@@ -46,8 +48,6 @@ const isImagePath = (value) => {
 };
 
 const resolveOrderProductImages = ({ listing, product, variant, name }) => {
-    const listingImage = String(listing?.url || listing?.imageUrl || "").trim();
-
     const rawImages = Array.isArray(product?.images) ? product.images : [];
     const toGalleryRows = (rows) =>
         rows
@@ -57,16 +57,6 @@ const resolveOrderProductImages = ({ listing, product, variant, name }) => {
                 alt: name,
                 productName: name,
             }));
-
-    if (isImagePath(listingImage)) {
-        return [
-            {
-                url: listingImage,
-                alt: name,
-                productName: name,
-            },
-        ];
-    }
 
     if (variant?.id) {
         const variantEntityImages = Array.isArray(variant?.images)
@@ -78,6 +68,17 @@ const resolveOrderProductImages = ({ listing, product, variant, name }) => {
             rawImages.filter((img) => img?.url && String(img.url).includes(String(variant.id))),
         );
         if (variantImagesFromProduct.length > 0) return variantImagesFromProduct;
+    }
+
+    const listingImage = String(listing?.url || listing?.imageUrl || "").trim();
+    if (isImagePath(listingImage)) {
+        return [
+            {
+                url: listingImage,
+                alt: name,
+                productName: name,
+            },
+        ];
     }
 
     // Parent product image fallback.
@@ -156,168 +157,21 @@ const formatMoney = (value) => {
 
 const PRODUCT_SUMMARY_STATUSES = new Set(["PENDING", "LABEL_UPLOADED", "LABEL_PRINTED", "PACKED"]);
 
-const normalizeSummaryText = (value) => {
-    const text = String(value ?? "").trim();
-    return text || "—";
-};
-
-const getVariantSummaryLabel = (variant) => {
-    if (!variant) return "—";
-    const color = String(variant?.colorText || "").trim();
-    const size = String(variant?.size?.name || variant?.sizeText || "").trim();
-    const parts = [color, size].filter(Boolean);
-    return parts.length > 0 ? parts.join(" + ") : "—";
-};
-
-const getOrderItemSummaryEntities = (item) => {
-    const listing = item?.channelListing || null;
-    const variant = listing?.productVariant || item?.productVariant || null;
-    const product = listing?.product || variant?.product || item?.product || null;
-    return { listing, variant, product };
-};
-
-const getOrderItemSummaryProductName = (item, entities = null) => {
-    const resolved = entities || getOrderItemSummaryEntities(item);
-    return normalizeSummaryText(
-        item?.productDescription ||
-        resolved?.listing?.productName ||
-        resolved?.product?.name ||
-        resolved?.variant?.product?.name
-    );
-};
-
-const getOrderItemSummaryQty = (item) => {
-    const qty = Number(item?.quantity || 0);
-    if (!Number.isFinite(qty) || qty <= 0) return 0;
-    const listingUnits = Number(item?.channelListing?.units);
-    const units = Number.isFinite(listingUnits) && listingUnits > 0 ? listingUnits : 1;
-    return qty * units;
-};
-
-const mergeSummaryImages = (existing = [], incoming = [], fallbackName = "Product") => {
-    const merged = [];
-    const seen = new Set();
-
-    [...(Array.isArray(existing) ? existing : []), ...(Array.isArray(incoming) ? incoming : [])].forEach((image) => {
-        const url = String(image?.url || "").trim();
-        if (!url || seen.has(url)) return;
-        seen.add(url);
-        merged.push({
-            ...image,
-            url,
-            alt: image?.alt || fallbackName,
-            productName: image?.productName || fallbackName,
-        });
-    });
-
-    return merged;
-};
-
-const buildOrderProductSummaryRows = (orders) => {
-    const map = new Map();
-    const upsert = ({ groupKey, groupName, productName, variant, qty, images }) => {
-        if (!Number.isFinite(qty) || qty <= 0) return;
-        const key = String(groupKey).toLowerCase();
-        const normalizedVariant = String(variant || "—").trim() || "—";
-        const displayName = normalizeSummaryText(groupName || productName);
-        const prev = map.get(key);
-        if (prev) {
-            prev.qty += qty;
-            prev.images = mergeSummaryImages(prev.images, images, displayName);
-            const prevVariant = prev.variantMap.get(normalizedVariant);
-            if (prevVariant) prevVariant.qty += qty;
-            else prev.variantMap.set(normalizedVariant, { label: normalizedVariant, qty });
-            return;
-        }
-        map.set(key, {
-            groupKey,
-            groupName: displayName,
-            productName: displayName,
-            qty,
-            images: mergeSummaryImages([], images, displayName),
-            variantMap: new Map([[normalizedVariant, { label: normalizedVariant, qty }]]),
-        });
-    };
-
-    (Array.isArray(orders) ? orders : []).forEach((order) => {
-        if (Array.isArray(order?.items) && order.items.length > 0) {
-            order.items.forEach((item) => {
-                const entities = getOrderItemSummaryEntities(item);
-                const productName = getOrderItemSummaryProductName(item, entities);
-                const variant = getVariantSummaryLabel(entities?.variant);
-                const groupKey = String(entities?.product?.id || productName).toLowerCase();
-                const groupName = normalizeSummaryText(entities?.product?.name || productName);
-                const images = resolveOrderProductImages({
-                    listing: entities?.listing,
-                    product: entities?.product,
-                    variant: entities?.variant,
-                    name: productName,
-                });
-                upsert({
-                    groupKey,
-                    groupName,
-                    productName,
-                    variant,
-                    qty: getOrderItemSummaryQty(item),
-                    images,
-                });
-            });
-            return;
-        }
-
-        // Legacy fallback for older rows without `items`.
-        const legacyQty = Number(order?.quantity || 0);
-        if (!Number.isFinite(legacyQty) || legacyQty <= 0) return;
-        const legacyListing = order?.channelListing || null;
-        const legacyVariant = legacyListing?.productVariant || order?.productVariant || null;
-        const legacyProduct = legacyListing?.product || legacyVariant?.product || order?.product || null;
-        const productName = normalizeSummaryText(
-            order?.productDescription ||
-            legacyListing?.productName ||
-            legacyProduct?.name ||
-            order?.product?.name
-        );
-        const variant = getVariantSummaryLabel(legacyVariant);
-        const groupKey = String(legacyProduct?.id || productName).toLowerCase();
-        const groupName = normalizeSummaryText(legacyProduct?.name || productName);
-        const images = resolveOrderProductImages({
-            listing: legacyListing,
-            product: legacyProduct,
-            variant: legacyVariant,
-            name: productName,
-        });
-        upsert({
-            groupKey,
-            groupName,
-            productName,
-            variant,
-            qty: legacyQty,
-            images,
-        });
-    });
-
-    return Array.from(map.values()).map((row) => ({
-        ...row,
-        variants: Array.from(row.variantMap.values()).sort((a, b) =>
-            String(a.label).localeCompare(String(b.label), undefined, { sensitivity: "base", numeric: true }),
-        ),
-    })).sort((a, b) => {
-        const groupCmp = String(a.groupName).localeCompare(String(b.groupName), undefined, { sensitivity: "base", numeric: true });
-        if (groupCmp !== 0) return groupCmp;
-        return String(a.productName).localeCompare(String(b.productName), undefined, { sensitivity: "base", numeric: true });
-    });
-};
-
 const formatSummaryQty = (qty) => (
     Number.isInteger(qty) ? String(qty) : Number(qty).toFixed(2)
 );
 
-const escapeHtml = (value) => String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+const formatOrderListQty = (quantity, looseUnits) => {
+    const normalizedQty = Number(quantity);
+    const normalizedLooseUnits = Math.max(0, Math.floor(Number(looseUnits) || 0));
+    const baseQty = Number.isFinite(normalizedQty)
+        ? (Number.isInteger(normalizedQty) ? String(normalizedQty) : normalizedQty.toFixed(2))
+        : "0";
+
+    return normalizedLooseUnits > 0
+        ? `${baseQty} + (${normalizedLooseUnits})`
+        : baseQty;
+};
 
 export default function OrdersPage() {
     const [search, setSearch] = useState("");
@@ -406,6 +260,7 @@ export default function OrdersPage() {
         ...(Array.isArray(remarkTypes) ? remarkTypes : []).map(r => ({ id: r.id, name: r.name }))
     ], [remarkTypes]);
     const [sharedFlyersOnly, setSharedFlyersOnly] = useState(false);
+    const [partialDeliveredOnly, setPartialDeliveredOnly] = useState(false);
 
     const buildOrderQueryParams = ({ page: queryPage, perPage: queryPerPage } = {}) => ({
         search: debouncedSearch,
@@ -418,6 +273,7 @@ export default function OrdersPage() {
         endDate: formatAsDateOnlyParam(dateRange?.to || dateRange?.from),
         isSettled: settledFilter.id !== "all" ? settledFilter.id : undefined,
         sharedFlyersOnly: sharedFlyersOnly ? "true" : undefined,
+        partialDeliveredOnly: partialDeliveredOnly ? "true" : undefined,
         sortBy: "date",
         sortOrder: dateSortOrder,
         page: queryPage,
@@ -436,6 +292,7 @@ export default function OrdersPage() {
             dateTypeFilter.id,
             settledFilter.id,
             sharedFlyersOnly,
+            partialDeliveredOnly,
             dateSortOrder,
             page,
             perPage,
@@ -456,6 +313,7 @@ export default function OrdersPage() {
             dateTypeFilter.id,
             settledFilter.id,
             sharedFlyersOnly,
+            partialDeliveredOnly,
             dateSortOrder,
             dateRange?.from?.getTime(),
             dateRange?.to?.getTime(),
@@ -473,7 +331,14 @@ export default function OrdersPage() {
 
     useEffect(() => {
         setPage(1);
-    }, [sharedFlyersOnly]);
+    }, [sharedFlyersOnly, partialDeliveredOnly]);
+
+    useEffect(() => {
+        const effectiveStatus = statusParam || statusFilter.id;
+        if (effectiveStatus !== "DELIVERED" && partialDeliveredOnly) {
+            setPartialDeliveredOnly(false);
+        }
+    }, [statusParam, statusFilter.id, partialDeliveredOnly]);
 
     const [summaryData, setSummaryData] = useState(null);
     const [isSummaryLoading, setIsSummaryLoading] = useState(false);
@@ -638,6 +503,10 @@ export default function OrdersPage() {
     const [isBulkReturnSubmitting, setIsBulkReturnSubmitting] = useState(false);
     const [productSummaryOpen, setProductSummaryOpen] = useState(false);
     const [isProductSummaryLoading, setIsProductSummaryLoading] = useState(false);
+    const [isProductSummaryPdfLoading, setIsProductSummaryPdfLoading] = useState(false);
+    const [productSummaryPdfPreviewOpen, setProductSummaryPdfPreviewOpen] = useState(false);
+    const [productSummaryPdfPreviewUrl, setProductSummaryPdfPreviewUrl] = useState("");
+    const productSummaryPdfPreviewUrlRef = useRef("");
     const [productSummaryRows, setProductSummaryRows] = useState([]);
     const [productSummaryOrderCount, setProductSummaryOrderCount] = useState(0);
     const [trackingGroupOpen, setTrackingGroupOpen] = useState(false);
@@ -646,10 +515,30 @@ export default function OrdersPage() {
     const [isTrackingGroupLoading, setIsTrackingGroupLoading] = useState(false);
     const canShowProductSummary = PRODUCT_SUMMARY_STATUSES.has(statusFilter.id);
 
+    const setProductSummaryPdfUrl = (nextUrl) => {
+        if (productSummaryPdfPreviewUrlRef.current) {
+            window.URL.revokeObjectURL(productSummaryPdfPreviewUrlRef.current);
+        }
+        productSummaryPdfPreviewUrlRef.current = nextUrl;
+        setProductSummaryPdfPreviewUrl(nextUrl);
+    };
+
+    const closeProductSummaryPdfPreview = () => {
+        setProductSummaryPdfPreviewOpen(false);
+        setProductSummaryPdfUrl("");
+    };
+
+    useEffect(() => () => {
+        if (productSummaryPdfPreviewUrlRef.current) {
+            window.URL.revokeObjectURL(productSummaryPdfPreviewUrlRef.current);
+            productSummaryPdfPreviewUrlRef.current = "";
+        }
+    }, []);
+
     // Clear selection on filter change
     useEffect(() => {
         setSelectedIds(new Set());
-    }, [statusFilter.id, statusParam, channelFilter.id, courierFilter.id, remarkFilter.id, settledFilter.id, sharedFlyersOnly, dateRange?.from?.getTime(), dateRange?.to?.getTime()]);
+    }, [statusFilter.id, statusParam, channelFilter.id, courierFilter.id, remarkFilter.id, settledFilter.id, sharedFlyersOnly, partialDeliveredOnly, dateRange?.from?.getTime(), dateRange?.to?.getTime()]);
 
     const handleSelectAll = (checked) => {
         if (checked) {
@@ -759,7 +648,7 @@ export default function OrdersPage() {
         }
     };
 
-    const handleDownloadProductSummaryPdf = () => {
+    const handleDownloadProductSummaryPdf = async () => {
         if (isProductSummaryLoading) {
             toast.error("Product summary is still loading.");
             return;
@@ -770,141 +659,33 @@ export default function OrdersPage() {
             return;
         }
 
-        const flattenedRows = productSummaryRows.flatMap((row) => {
-            const variants = Array.isArray(row.variants) && row.variants.length > 0
-                ? row.variants
-                : [{ label: "—", qty: row.qty }];
+        setIsProductSummaryPdfLoading(true);
+        try {
+            const blob = await getOrderProductSummaryPdf(filteredOrderParams);
+            const previewUrl = window.URL.createObjectURL(blob);
+            setProductSummaryPdfUrl(previewUrl);
+            setProductSummaryPdfPreviewOpen(true);
+        } catch (err) {
+            console.error("Product summary PDF generation failed", err);
+            toast.error(err?.message || "Failed to prepare product summary PDF.");
+        } finally {
+            setIsProductSummaryPdfLoading(false);
+        }
+    };
 
-            return variants.map((variantRow) => ({
-                productName: row.productName || row.groupName || "Product",
-                variantLabel: variantRow.label || "—",
-                qty: formatSummaryQty(variantRow.qty),
-            }));
-        });
-
-        const printWindow = window.open("", "_blank", "noopener,noreferrer,width=1100,height=800");
-        if (!printWindow) {
-            toast.error("Please allow pop-ups to download the PDF.");
+    const handleDownloadPreparedProductSummaryPdf = () => {
+        if (!productSummaryPdfPreviewUrl) {
+            toast.error("PDF preview is unavailable.");
             return;
         }
 
-        const exportedAt = new Date();
-        const fileDate = exportedAt.toISOString().split("T")[0];
-        const title = `product-summary-${fileDate}`;
-        const rowsMarkup = flattenedRows.map((row) => `
-            <tr>
-                <td>${escapeHtml(row.productName)}</td>
-                <td>${escapeHtml(row.variantLabel)}</td>
-                <td class="qty">${escapeHtml(row.qty)}</td>
-            </tr>
-        `).join("");
-
-        printWindow.document.write(`
-            <!doctype html>
-            <html>
-                <head>
-                    <meta charset="utf-8" />
-                    <title>${escapeHtml(title)}</title>
-                    <style>
-                        @page { size: A4; margin: 14mm; }
-                        * { box-sizing: border-box; }
-                        body {
-                            margin: 0;
-                            font-family: Inter, Arial, sans-serif;
-                            color: #111827;
-                            background: #ffffff;
-                        }
-                        .sheet {
-                            padding: 24px 28px;
-                        }
-                        .header {
-                            display: flex;
-                            justify-content: space-between;
-                            align-items: flex-start;
-                            gap: 16px;
-                            margin-bottom: 18px;
-                        }
-                        .title {
-                            margin: 0 0 4px;
-                            font-size: 24px;
-                            font-weight: 700;
-                        }
-                        .meta {
-                            margin: 0;
-                            font-size: 13px;
-                            color: #4b5563;
-                        }
-                        .stats {
-                            text-align: right;
-                            font-size: 13px;
-                            color: #4b5563;
-                            white-space: nowrap;
-                        }
-                        table {
-                            width: 100%;
-                            border-collapse: collapse;
-                            table-layout: fixed;
-                        }
-                        thead th {
-                            background: #f9fafb;
-                            color: #374151;
-                            font-size: 12px;
-                            font-weight: 700;
-                            letter-spacing: 0.04em;
-                            text-transform: uppercase;
-                            padding: 10px 12px;
-                            border: 1px solid #e5e7eb;
-                            text-align: left;
-                        }
-                        tbody td {
-                            padding: 10px 12px;
-                            border: 1px solid #e5e7eb;
-                            font-size: 13px;
-                            vertical-align: top;
-                            word-break: break-word;
-                        }
-                        .qty {
-                            text-align: right;
-                            font-variant-numeric: tabular-nums;
-                            font-weight: 600;
-                        }
-                    </style>
-                </head>
-                <body>
-                    <div class="sheet">
-                        <div class="header">
-                            <div>
-                                <h1 class="title">Product Summary</h1>
-                                <p class="meta">Date Range: ${escapeHtml(activeRangeLabel)}</p>
-                            </div>
-                            <div class="stats">
-                                <div>Orders: ${escapeHtml(productSummaryOrderCount)}</div>
-                                <div>Products: ${escapeHtml(productSummaryRows.length)}</div>
-                                <div>Exported: ${escapeHtml(exportedAt.toLocaleString())}</div>
-                            </div>
-                        </div>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th style="width:50%">Product Name</th>
-                                    <th style="width:38%">Variant (Color + Size)</th>
-                                    <th style="width:12%; text-align:right">Qty</th>
-                                </tr>
-                            </thead>
-                            <tbody>${rowsMarkup}</tbody>
-                        </table>
-                    </div>
-                    <script>
-                        window.addEventListener("load", () => {
-                            setTimeout(() => {
-                                window.print();
-                            }, 150);
-                        });
-                    </script>
-                </body>
-            </html>
-        `);
-        printWindow.document.close();
+        const fileName = `product-summary-${new Date().toISOString().split("T")[0]}.pdf`;
+        const link = document.createElement("a");
+        link.href = productSummaryPdfPreviewUrl;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
     };
 
     const handleOpenProductSummary = async () => {
@@ -914,19 +695,9 @@ export default function OrdersPage() {
         setProductSummaryOrderCount(0);
 
         try {
-            const firstPage = await listOrders({ ...filteredOrderParams, page: 1, perPage: 250 });
-            const totalPages = Number(firstPage?.meta?.totalPages || 1);
-            const allOrders = Array.isArray(firstPage?.rows) ? [...firstPage.rows] : [];
-
-            for (let currentPage = 2; currentPage <= totalPages; currentPage += 1) {
-                const pageData = await listOrders({ ...filteredOrderParams, page: currentPage, perPage: 250 });
-                if (Array.isArray(pageData?.rows) && pageData.rows.length > 0) {
-                    allOrders.push(...pageData.rows);
-                }
-            }
-
-            setProductSummaryRows(buildOrderProductSummaryRows(allOrders));
-            setProductSummaryOrderCount(allOrders.length);
+            const summary = await getOrderProductSummary(filteredOrderParams);
+            setProductSummaryRows(Array.isArray(summary?.rows) ? summary.rows : []);
+            setProductSummaryOrderCount(Number(summary?.meta?.orderCount || 0));
         } catch (error) {
             console.error("Failed to load product summary", error);
             toast.error("Failed to load product summary.");
@@ -1510,7 +1281,7 @@ export default function OrdersPage() {
                         <div className="flex flex-col w-full items-center">
                             {visibleItems.map((item, idx) => (
                                 <div key={idx} className="flex items-center justify-center w-full min-h-[3rem] py-1 border-b border-gray-100 last:border-0 text-gray-900 text-[13px] text-center">
-                                    {item.quantity}
+                                    {formatOrderListQty(item.quantity, item.looseUnits)}
                                 </div>
                             ))}
                             {/* Spacer to align with button in product column */}
@@ -1520,7 +1291,7 @@ export default function OrdersPage() {
                 }
                 return (
                     <div className="flex items-center justify-center w-full min-h-[3rem] py-1 text-gray-800 text-[13px] text-center">
-                        {row.quantity}
+                        {formatOrderListQty(row.quantity, row.looseUnits)}
                     </div>
                 );
             }
@@ -1919,6 +1690,7 @@ export default function OrdersPage() {
         setRemarkFilter(newFilters.remark);
         setDateRange(newFilters.dateRange);
         setSettledFilter(newFilters.settled || { id: "all", name: "All" });
+        setPartialDeliveredOnly(Boolean(newFilters.partialDeliveredOnly));
         setPage(1);
 
         const statusId = newFilters.status.id;
@@ -2066,7 +1838,8 @@ export default function OrdersPage() {
                     courier: courierFilter,
                     remark: remarkFilter,
                     dateRange,
-                    settled: settledFilter
+                    settled: settledFilter,
+                    partialDeliveredOnly
                 }}
                 options={{
                     statusOptions,
@@ -2079,7 +1852,7 @@ export default function OrdersPage() {
                 defaultDateRange={defaultDateRange}
             />
 
-            {(statusFilter.id !== "ALL" || channelFilter.id || courierFilter.id || remarkFilter.id || dateRange || settledFilter.id !== "all" || sharedFlyersOnly) && (
+            {(statusFilter.id !== "ALL" || channelFilter.id || courierFilter.id || remarkFilter.id || dateRange || settledFilter.id !== "all" || sharedFlyersOnly || partialDeliveredOnly) && (
                 <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
                     <span className="text-xs font-medium text-gray-500">Applied:</span>
 
@@ -2130,6 +1903,12 @@ export default function OrdersPage() {
                             <button onClick={() => setSharedFlyersOnly(false)} className="hover:text-red-500"><X size={10} /></button>
                         </div>
                     )}
+                    {partialDeliveredOnly && (
+                        <div className="flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full text-[11px] font-medium border border-emerald-200 whitespace-nowrap">
+                            Partial Delivered Only
+                            <button onClick={() => setPartialDeliveredOnly(false)} className="hover:text-red-500"><X size={10} /></button>
+                        </div>
+                    )}
 
                     <div className="h-4 w-px bg-gray-300 mx-1" />
 
@@ -2139,6 +1918,7 @@ export default function OrdersPage() {
                         className="text-red-600 hover:bg-red-50 h-6 px-2"
                         onClick={() => {
                             setSharedFlyersOnly(false);
+                            setPartialDeliveredOnly(false);
                             handleFilterApply({
                                 search: "",
                                 status: statusOptions[0],
@@ -2146,7 +1926,8 @@ export default function OrdersPage() {
                                 courier: courierOptions[0],
                                 remark: remarkOptions[0],
                                 dateRange: defaultDateRange,
-                                settled: { id: "all", name: "All" }
+                                settled: { id: "all", name: "All" },
+                                partialDeliveredOnly: false,
                             });
                         }}
                     >
@@ -2476,7 +2257,8 @@ export default function OrdersPage() {
                         <Button
                             variant="secondary"
                             onClick={handleDownloadProductSummaryPdf}
-                            disabled={isProductSummaryLoading || productSummaryRows.length === 0}
+                            isLoading={isProductSummaryPdfLoading}
+                            disabled={isProductSummaryLoading || isProductSummaryPdfLoading || productSummaryRows.length === 0}
                         >
                             <Download size={14} className="mr-1" />
                             Download PDF
@@ -2500,22 +2282,22 @@ export default function OrdersPage() {
                     ) : productSummaryRows.length === 0 ? (
                         <div className="py-8 text-center text-sm text-gray-500">No products found for the selected range.</div>
                     ) : (
-                        <div className="max-h-[60vh] overflow-auto rounded-lg border border-gray-200">
+                        <div className="max-h-[60vh] overflow-auto rounded-lg border border-gray-300">
                             <table className="min-w-full table-fixed border-separate border-spacing-0 text-sm">
                                 <thead className="bg-gray-50">
-                                    <tr className="border-b border-gray-200">
-                                        <th className="sticky top-0 z-10 w-[50%] border-b border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Product Name</th>
-                                        <th className="sticky top-0 z-10 w-[38%] border-b border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Variant (Color + Size)</th>
-                                        <th className="sticky top-0 z-10 w-[12%] border-b border-gray-200 bg-gray-50 pl-2 pr-6 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600">Qty</th>
+                                    <tr className="border-b border-gray-300">
+                                        <th className="sticky top-0 z-10 w-[50%] border-b border-r border-gray-300 bg-gray-50 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Product Name</th>
+                                        <th className="sticky top-0 z-10 w-[38%] border-b border-r border-gray-300 bg-gray-50 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Variant (Color + Size)</th>
+                                        <th className="sticky top-0 z-10 w-[12%] border-b border-gray-300 bg-gray-50 px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-gray-600">Qty</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {productSummaryRows.map((row, index) => (
                                         <tr
                                             key={`${row.groupKey}-${index}`}
-                                            className="border-b border-gray-100 last:border-0"
+                                            className="group border-b border-gray-200 last:border-0"
                                         >
-                                            <td className="px-3 py-2 text-gray-900">
+                                            <td className="border-b border-r border-gray-200 bg-white px-3 py-2 text-gray-900 transition-colors group-hover:bg-amber-100">
                                                 <div className="flex items-center gap-2 min-w-0">
                                                     <div className="flex-shrink-0">
                                                         <ImageGallery
@@ -2530,19 +2312,38 @@ export default function OrdersPage() {
                                                     <span className="block truncate" title={row.productName}>{row.productName}</span>
                                                 </div>
                                             </td>
-                                            <td className="px-3 py-2 text-gray-700">
-                                                <div className="space-y-1">
+                                            <td className="border-b border-r border-gray-200 bg-white px-3 py-2 text-gray-700 transition-colors group-hover:bg-amber-100">
+                                                <div className="divide-y divide-gray-200">
                                                     {(Array.isArray(row.variants) ? row.variants : []).map((variantRow, variantIndex) => (
-                                                        <div key={`${row.groupKey}-variant-${variantIndex}`} className="truncate" title={variantRow.label || "—"}>
-                                                            {variantRow.label || "—"}
+                                                        <div
+                                                            key={`${row.groupKey}-variant-${variantIndex}`}
+                                                            className="flex min-h-[44px] items-center gap-2 py-1 first:pt-0 last:pb-0 min-w-0"
+                                                            title={variantRow.label || "—"}
+                                                        >
+                                                            <div className="flex-shrink-0">
+                                                                <ImageGallery
+                                                                    images={Array.isArray(variantRow.images) ? variantRow.images : []}
+                                                                    absImg={absImg}
+                                                                    placeholder={IMG_PLACEHOLDER}
+                                                                    compact={true}
+                                                                    className="h-8 w-8"
+                                                                    thumbnailClassName="h-8 w-8 bg-white"
+                                                                />
+                                                            </div>
+                                                            <span className="block truncate">
+                                                                {variantRow.label || "—"}
+                                                            </span>
                                                         </div>
                                                     ))}
                                                 </div>
                                             </td>
-                                            <td className="pl-2 pr-6 py-2 text-right font-semibold tabular-nums text-gray-900">
-                                                <div className="space-y-1">
+                                            <td className="border-b border-gray-200 bg-white px-3 py-2 text-center font-semibold tabular-nums text-gray-900 transition-colors group-hover:bg-amber-100">
+                                                <div className="divide-y divide-gray-200">
                                                     {(Array.isArray(row.variants) ? row.variants : []).map((variantRow, variantIndex) => (
-                                                        <div key={`${row.groupKey}-qty-${variantIndex}`}>
+                                                        <div
+                                                            key={`${row.groupKey}-qty-${variantIndex}`}
+                                                            className="flex min-h-[44px] items-center justify-center py-1 first:pt-0 last:pb-0"
+                                                        >
                                                             {formatSummaryQty(variantRow.qty)}
                                                         </div>
                                                     ))}
@@ -2555,6 +2356,40 @@ export default function OrdersPage() {
                         </div>
                     )}
                 </div>
+            </Modal>
+
+            <Modal
+                open={productSummaryPdfPreviewOpen}
+                onClose={closeProductSummaryPdfPreview}
+                title="Product Summary PDF Preview"
+                widthClass="max-w-6xl"
+                footer={(
+                    <>
+                        <Button
+                            variant="secondary"
+                            onClick={handleDownloadPreparedProductSummaryPdf}
+                            disabled={!productSummaryPdfPreviewUrl}
+                        >
+                            <Download size={14} className="mr-1" />
+                            Download PDF
+                        </Button>
+                        <Button variant="ghost" onClick={closeProductSummaryPdfPreview}>
+                            Close
+                        </Button>
+                    </>
+                )}
+            >
+                {productSummaryPdfPreviewUrl ? (
+                    <iframe
+                        src={productSummaryPdfPreviewUrl}
+                        title="Product Summary PDF Preview"
+                        className="w-full h-[75vh] rounded-md border border-gray-200 bg-white"
+                    />
+                ) : (
+                    <div className="flex h-[75vh] items-center justify-center rounded-md border border-gray-200 bg-white">
+                        <p className="text-sm text-gray-500">PDF preview is unavailable.</p>
+                    </div>
+                )}
             </Modal>
 
             <Modal

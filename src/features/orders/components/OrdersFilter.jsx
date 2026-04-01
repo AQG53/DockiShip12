@@ -5,8 +5,42 @@ import { Button } from "../../../components/ui/Button";
 import { HeadlessSelect } from "../../../components/ui/HeadlessSelect";
 import DateRangePicker from "../../../components/ui/DateRangePicker";
 
+const atStartOfDay = (value) => {
+    const d = new Date(value);
+    d.setHours(0, 0, 0, 0);
+    return d;
+};
+
+const atEndOfDay = (value) => {
+    const d = new Date(value);
+    d.setHours(23, 59, 59, 999);
+    return d;
+};
+
+const getLastMonthRange = () => {
+    const now = new Date();
+    const start = atStartOfDay(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+    const end = atEndOfDay(new Date(now.getFullYear(), now.getMonth(), 0));
+    return { from: start, to: end };
+};
+
+const getLastWeekRange = () => {
+    const now = new Date();
+    const day = now.getDay();
+    const diffToCurrentMonday = day === 0 ? -6 : 1 - day;
+    const currentWeekStart = atStartOfDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToCurrentMonday));
+    const start = atStartOfDay(new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), currentWeekStart.getDate() - 7));
+    const end = atEndOfDay(new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6));
+    return { from: start, to: end };
+};
+
+const isSameDay = (a, b) => {
+    if (!a || !b) return false;
+    return atStartOfDay(a).getTime() === atStartOfDay(b).getTime();
+};
+
 export default function OrdersFilter({
-    filters, // { search, status, medium, courier, remark, dateRange }
+    filters, // { search, status, medium, courier, remark, dateRange, partialDeliveredOnly }
     options, // { statusOptions, mediumOptions, courierOptions, remarkOptions }
     onApply,
     statusReadOnly = false,
@@ -36,7 +70,8 @@ export default function OrdersFilter({
             courier: options.courierOptions[0],
             remark: options.remarkOptions[0],
             dateRange: defaultDateRange,
-            settled: { id: "all", name: "All" }
+            settled: { id: "all", name: "All" },
+            partialDeliveredOnly: false,
         });
     };
 
@@ -46,7 +81,14 @@ export default function OrdersFilter({
         localFilters.medium?.id ||
         localFilters.courier?.id ||
         localFilters.remark?.id ||
-        localFilters.dateRange?.from;
+        localFilters.dateRange?.from ||
+        localFilters.partialDeliveredOnly;
+
+    const showPartialDeliveredToggle = statusReadOnly && localFilters.status?.id === "DELIVERED";
+    const lastMonthRange = getLastMonthRange();
+    const lastWeekRange = getLastWeekRange();
+    const isLastMonthActive = isSameDay(localFilters.dateRange?.from, lastMonthRange.from) && isSameDay(localFilters.dateRange?.to, lastMonthRange.to);
+    const isLastWeekActive = isSameDay(localFilters.dateRange?.from, lastWeekRange.from) && isSameDay(localFilters.dateRange?.to, lastWeekRange.to);
 
     return (
         <Popover className="relative">
@@ -92,6 +134,28 @@ export default function OrdersFilter({
                                         date={localFilters.dateRange}
                                         setDate={(range) => setLocalFilters(prev => ({ ...prev, dateRange: range }))}
                                     />
+                                    <div className="flex flex-wrap gap-1.5 pt-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => setLocalFilters(prev => ({ ...prev, dateRange: lastMonthRange }))}
+                                            className={`rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${isLastMonthActive
+                                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                                : "border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100"
+                                                }`}
+                                        >
+                                            Last Month
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setLocalFilters(prev => ({ ...prev, dateRange: lastWeekRange }))}
+                                            className={`rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${isLastWeekActive
+                                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                                : "border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100"
+                                                }`}
+                                        >
+                                            Last Week
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {/* Status */}
@@ -107,12 +171,27 @@ export default function OrdersFilter({
                                             </button>
                                         )}
                                     </div>
-                                    <HeadlessSelect
-                                        value={localFilters.status}
-                                        onChange={(val) => !statusReadOnly && setLocalFilters(prev => ({ ...prev, status: val }))}
-                                        options={options.statusOptions}
-                                        className={`w-full ${statusReadOnly ? "opacity-60 cursor-not-allowed pointer-events-none" : ""}`}
-                                    />
+                                    <div className="flex items-stretch gap-2">
+                                        <HeadlessSelect
+                                            value={localFilters.status}
+                                            onChange={(val) => !statusReadOnly && setLocalFilters(prev => ({ ...prev, status: val }))}
+                                            options={options.statusOptions}
+                                            className={`min-w-0 flex-1 ${statusReadOnly ? "opacity-60 cursor-not-allowed pointer-events-none" : ""}`}
+                                        />
+                                        {showPartialDeliveredToggle && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setLocalFilters(prev => ({ ...prev, partialDeliveredOnly: !prev.partialDeliveredOnly }))}
+                                                title="Show only partially delivered orders"
+                                                className={`shrink-0 rounded-lg border px-3 text-xs font-medium transition-colors ${localFilters.partialDeliveredOnly
+                                                    ? "border-emerald-600 bg-emerald-50 text-emerald-700"
+                                                    : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+                                                    }`}
+                                            >
+                                                Partially Delivered
+                                            </button>
+                                        )}
+                                    </div>
                                     {statusReadOnly && (
                                         <p className="text-[11px] text-gray-400">
                                             Status is locked for this view.

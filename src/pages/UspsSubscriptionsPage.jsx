@@ -2,8 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, BellRing, RadioTower, RefreshCcw, ShieldCheck, Truck } from "lucide-react";
 import Navbar from "../components/Navbar";
 import { getUspsWebhookConfig, listUspsSubscriptions, listUspsWebhookEvents } from "../lib/api";
-
-const POLL_MS = 8000;
+import { subscribeUspsStream } from "../lib/uspsStream";
 
 const formatDateTime = (value) => {
   if (!value) return "—";
@@ -18,6 +17,33 @@ const stringify = (value) => {
   } catch {
     return String(value ?? "");
   }
+};
+
+const sortSubscriptions = (rows = []) => {
+  return [...rows].sort((a, b) => {
+    const aTime = new Date(a?.statusChangeTimestamp || a?.creationTimestamp || a?.expirationTimestamp || 0).getTime();
+    const bTime = new Date(b?.statusChangeTimestamp || b?.creationTimestamp || b?.expirationTimestamp || 0).getTime();
+    return bTime - aTime;
+  });
+};
+
+const upsertSubscription = (rows = [], subscription) => {
+  if (!subscription?.subscriptionId && !subscription?.trackingNumber) return rows;
+  const next = [...rows];
+  const index = next.findIndex((row) =>
+    (subscription.subscriptionId && row?.subscriptionId === subscription.subscriptionId)
+    || (subscription.trackingNumber && row?.trackingNumber === subscription.trackingNumber),
+  );
+
+  if (index >= 0) next[index] = { ...next[index], ...subscription };
+  else next.unshift(subscription);
+  return sortSubscriptions(next);
+};
+
+const upsertEvent = (rows = [], eventRow) => {
+  if (!eventRow?.id) return rows;
+  const filtered = rows.filter((row) => row?.id !== eventRow.id);
+  return [eventRow, ...filtered].slice(0, 100);
 };
 
 const getEventSummary = (row) => {
@@ -50,9 +76,9 @@ export default function UspsSubscriptionsPage() {
   useEffect(() => {
     let cancelled = false;
 
-    const load = async (silent = false) => {
-      if (!silent) setLoading(true);
-      if (silent) setRefreshing(true);
+    const load = async () => {
+      setLoading(true);
+      setRefreshing(true);
 
       try {
         const [subscriptionRes, webhookEventRes, webhookConfigRes] = await Promise.all([
@@ -62,7 +88,7 @@ export default function UspsSubscriptionsPage() {
         ]);
 
         if (cancelled) return;
-        setSubscriptions(Array.isArray(subscriptionRes?.rows) ? subscriptionRes.rows : []);
+        setSubscriptions(sortSubscriptions(Array.isArray(subscriptionRes?.rows) ? subscriptionRes.rows : []));
         setEvents(Array.isArray(webhookEventRes?.rows) ? webhookEventRes.rows : []);
         setWebhookConfig(webhookConfigRes || null);
         setError("");
@@ -82,16 +108,52 @@ export default function UspsSubscriptionsPage() {
       }
     };
 
-    void load(false);
-    const intervalId = window.setInterval(() => {
-      void load(true);
-    }, POLL_MS);
+    void load();
 
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
     };
   }, [reloadKey]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeUspsStream({
+      onEvent: (streamEvent) => {
+        const type = String(streamEvent?.type || "");
+        const payload = streamEvent?.data || {};
+
+        if (type === "usps.webhook.received" || type === "usps.webhook.error") {
+          const row = payload?.row;
+          if (!row?.id) return;
+          setEvents((prev) => upsertEvent(prev, row));
+          return;
+        }
+
+        if (type === "usps.subscription.created") {
+          const subscription = payload?.subscription;
+          if (!subscription) return;
+          setSubscriptions((prev) => upsertSubscription(prev, subscription));
+          return;
+        }
+
+        if (type === "usps.subscription.deleted") {
+          const trackingNumber = String(payload?.trackingNumber || "").trim().toUpperCase();
+          const subscriptionId = String(payload?.subscriptionId || "").trim();
+          setSubscriptions((prev) => prev.filter((row) => {
+            if (subscriptionId && row?.subscriptionId === subscriptionId) return false;
+            if (trackingNumber && String(row?.trackingNumber || "").trim().toUpperCase() === trackingNumber) return false;
+            return true;
+          }));
+        }
+      },
+      onError: (streamError) => {
+        console.error("USPS push stream failed for subscriptions page", streamError);
+      },
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
   const summary = useMemo(() => {
     const activeSubscriptions = subscriptions.filter((item) => !item?.isExpired && String(item?.status || "").toUpperCase() === "ENABLED").length;

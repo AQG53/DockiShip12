@@ -84,7 +84,7 @@ export default function ImageGallery({
     return (
         <>
             {/* Small View Slider */}
-            <div className={`relative group ${className || "w-full max-w-[200px]"}`}>
+            <div className={`relative group/gallery ${className || "w-full max-w-[200px]"}`}>
                 <div
                     className={`overflow-hidden rounded-md border border-gray-200 bg-gray-100 cursor-pointer relative ${thumbnailClassName || "h-32 w-full"}`}
                     onClick={() => setLightboxOpen(true)}
@@ -107,7 +107,7 @@ export default function ImageGallery({
                     )}
 
                     {/* Hover Overlay with Maximize Icon */}
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                    <div className="absolute inset-0 bg-black/0 transition-colors flex items-center justify-center opacity-0 group-hover/gallery:bg-black/20 group-hover/gallery:opacity-100">
                         <Maximize2 className="text-white drop-shadow-md" size={compact ? 16 : 20} />
                     </div>
 
@@ -133,13 +133,13 @@ export default function ImageGallery({
                     <>
                         <button
                             onClick={handlePrev}
-                            className="absolute top-1/2 -left-3 -translate-y-1/2 bg-white border border-gray-200 rounded-full p-1 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-50"
+                            className="absolute top-1/2 -left-3 -translate-y-1/2 bg-white border border-gray-200 rounded-full p-1 shadow-sm opacity-0 group-hover/gallery:opacity-100 transition-opacity hover:bg-gray-50"
                         >
                             <ChevronLeft size={14} className="text-gray-700" />
                         </button>
                         <button
                             onClick={handleNext}
-                            className="absolute top-1/2 -right-3 -translate-y-1/2 bg-white border border-gray-200 rounded-full p-1 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-50"
+                            className="absolute top-1/2 -right-3 -translate-y-1/2 bg-white border border-gray-200 rounded-full p-1 shadow-sm opacity-0 group-hover/gallery:opacity-100 transition-opacity hover:bg-gray-50"
                         >
                             <ChevronRight size={14} className="text-gray-700" />
                         </button>

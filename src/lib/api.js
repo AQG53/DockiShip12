@@ -978,7 +978,7 @@ export async function deleteRemarkType(id) {
 // =====================
 // Order Management (Manual)
 // =====================
-export async function listOrders({ search, status, startDate, endDate, mediumId, courierId, remarkTypeId, isSettled, sharedFlyersOnly, dateType, sortBy, sortOrder, page, perPage } = {}) {
+export async function listOrders({ search, status, startDate, endDate, mediumId, courierId, remarkTypeId, isSettled, sharedFlyersOnly, partialDeliveredOnly, dateType, sortBy, sortOrder, page, perPage } = {}) {
   const params = {};
   if (search) params.search = search;
   if (status && status !== 'ALL') params.status = status;
@@ -989,6 +989,7 @@ export async function listOrders({ search, status, startDate, endDate, mediumId,
   if (remarkTypeId) params.remarkTypeId = remarkTypeId;
   if (isSettled) params.isSettled = isSettled;
   if (sharedFlyersOnly) params.sharedFlyersOnly = sharedFlyersOnly;
+  if (partialDeliveredOnly) params.partialDeliveredOnly = partialDeliveredOnly;
   if (dateType) params.dateType = dateType;
   if (sortBy) params.sortBy = sortBy;
   if (sortOrder) params.sortOrder = sortOrder;
@@ -1062,6 +1063,7 @@ export async function getOrderSummary({
   remarkTypeId,
   isSettled,
   sharedFlyersOnly,
+  partialDeliveredOnly,
   dateType,
 } = {}) {
   const params = {};
@@ -1074,9 +1076,71 @@ export async function getOrderSummary({
   if (remarkTypeId) params.remarkTypeId = remarkTypeId;
   if (isSettled) params.isSettled = isSettled;
   if (sharedFlyersOnly) params.sharedFlyersOnly = sharedFlyersOnly;
+  if (partialDeliveredOnly) params.partialDeliveredOnly = partialDeliveredOnly;
   if (dateType) params.dateType = dateType;
   const res = await axiosInstance.get("/orders/meta/summary", { params });
   return res?.data ?? {};
+}
+
+export async function getOrderProductSummary({
+  search,
+  status,
+  startDate,
+  endDate,
+  mediumId,
+  courierId,
+  remarkTypeId,
+  isSettled,
+  sharedFlyersOnly,
+  partialDeliveredOnly,
+  dateType,
+} = {}) {
+  const params = {};
+  if (search) params.search = search;
+  if (status && status !== 'ALL') params.status = status;
+  if (startDate) params.startDate = startDate;
+  if (endDate) params.endDate = endDate;
+  if (mediumId) params.mediumId = mediumId;
+  if (courierId) params.courierId = courierId;
+  if (remarkTypeId) params.remarkTypeId = remarkTypeId;
+  if (isSettled) params.isSettled = isSettled;
+  if (sharedFlyersOnly) params.sharedFlyersOnly = sharedFlyersOnly;
+  if (partialDeliveredOnly) params.partialDeliveredOnly = partialDeliveredOnly;
+  if (dateType) params.dateType = dateType;
+  const res = await axiosInstance.get("/orders/meta/product-summary", { params });
+  return res?.data ?? { rows: [], meta: { orderCount: 0, productCount: 0 } };
+}
+
+export async function getOrderProductSummaryPdf({
+  search,
+  status,
+  startDate,
+  endDate,
+  mediumId,
+  courierId,
+  remarkTypeId,
+  isSettled,
+  sharedFlyersOnly,
+  partialDeliveredOnly,
+  dateType,
+} = {}) {
+  const params = {};
+  if (search) params.search = search;
+  if (status && status !== 'ALL') params.status = status;
+  if (startDate) params.startDate = startDate;
+  if (endDate) params.endDate = endDate;
+  if (mediumId) params.mediumId = mediumId;
+  if (courierId) params.courierId = courierId;
+  if (remarkTypeId) params.remarkTypeId = remarkTypeId;
+  if (isSettled) params.isSettled = isSettled;
+  if (sharedFlyersOnly) params.sharedFlyersOnly = sharedFlyersOnly;
+  if (partialDeliveredOnly) params.partialDeliveredOnly = partialDeliveredOnly;
+  if (dateType) params.dateType = dateType;
+  const res = await axiosInstance.get("/orders/meta/product-summary/pdf", {
+    params,
+    responseType: 'blob',
+  });
+  return res.data;
 }
 
 export async function checkOrderTrackingIdExists({ trackingId, excludeOrderId } = {}) {
