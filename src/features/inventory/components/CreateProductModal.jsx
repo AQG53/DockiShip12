@@ -61,6 +61,8 @@ const sanitizeIntegerInput = (value) => {
     return String(value).replace(/[^0-9]/g, "");
 };
 
+const normalizeStatusValue = (value) => String(value ?? "").trim().toLowerCase();
+
 export default function CreateProductModal({ open, onClose, onSave, edit = false, productId = null }) {
     const { mutateAsync: createProductMut, isPending: saving } = useCreateProduct();
     const { data: auth } = useAuthCheck({ refetchOnWindowFocus: false });
@@ -686,6 +688,24 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         ]);
     };
 
+    const deriveParentVariantProductStatus = (requestedStatus, variantRows = []) => {
+        const normalized = normalizeStatusValue(requestedStatus);
+        if (normalized === "archived") return "archived";
+        if (normalized === "inactive") return "inactive";
+        return variantRows.some((variant) => variant?.active) ? "active" : "inactive";
+    };
+
+    const handleParentStatusChange = (nextStatus) => {
+        const resolved = nextStatus || "active";
+        setStatus(resolved);
+
+        if (variantEnabled && normalizeStatusValue(resolved) !== "active") {
+            setVariants((prev) =>
+                prev.map((variant) => (variant.active ? { ...variant, active: false } : variant)),
+            );
+        }
+    };
+
     const patchVariant = (id, patch) =>
         setVariants((prev) => prev.map((v) => (v.id === id ? { ...v, ...patch } : v)));
 
@@ -884,7 +904,6 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         setSku(productDetail.sku || "");
         setName(productDetail.name || "");
         setBrand(productDetail.brand || "");
-        setStatus(productDetail.status || (enums?.ProductStatus?.[0] || "active"));
         setCondition(productDetail.condition || (enums?.ProductCondition?.[0] || "NEW"));
         setOrigin(productDetail.originCountry || "Select");
         setCategory(productDetail.category || "Select");
@@ -951,6 +970,13 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
         // variants
         const arr = productDetail.ProductVariant || [];
         if (Array.isArray(arr) && arr.length > 0) {
+            const loadedParentStatus = productDetail.status || (enums?.ProductStatus?.[0] || "active");
+            const hasActiveLoadedVariant = arr.some((variant) => normalizeStatusValue(variant?.status) === "active");
+            setStatus(
+                normalizeStatusValue(loadedParentStatus) !== "archived" && !hasActiveLoadedVariant
+                    ? "inactive"
+                    : loadedParentStatus,
+            );
             setVariantEnabled(arr.length > 0);
             // map into our local rows
             const rows = arr.map(v => {
@@ -1049,6 +1075,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             });
             setVariantPrices(priceMap);
         } else {
+            setStatus(productDetail.status || (enums?.ProductStatus?.[0] || "active"));
             setVariantEnabled(false);
             setVariants([]);
             setVariantPrices({});
@@ -1179,6 +1206,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
     };
 
     const buildVariantPayload = ({ isDraft }) => {
+        const effectiveParentStatus = deriveParentVariantProductStatus(status, variants);
         const mappedVariants = variants.map((v) => {
             const priceRow = variantPrices[v.id] || {};
             const packagingPayload = buildPackagingPayload(v.packagingType, v.packagingQuantity);
@@ -1189,7 +1217,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                 colorText: v.colorText || "",
                 barcode: isNonEmpty(v.barcode) ? v.barcode.trim() : undefined,
                 notes: isNonEmpty(v.notes) ? String(v.notes).trim() : null,
-                status,
+                status: normalizeStatusValue(effectiveParentStatus) === "active" ? (v.active ? "active" : "inactive") : "inactive",
                 condition,
                 weight: (() => {
                     if (!isNonEmpty(v.weight) && !isNonEmpty(v.weightSub)) return undefined;
@@ -1228,7 +1256,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
             name: name.trim(),
             brand: isNonEmpty(brand) ? brand.trim() : undefined,
             notes: isNonEmpty(notes) ? notes.trim() : null,
-            status,
+            status: effectiveParentStatus,
             originCountry: origin !== "Select" ? origin : undefined,
             category: category !== "Select" ? category : undefined,
             isDraft: !!isDraft,
@@ -1279,6 +1307,10 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                     showError('Product created but failed to link some suppliers');
                 }
             } else {
+                const effectiveParentStatus = usingVariants
+                    ? deriveParentVariantProductStatus(status, variants)
+                    : payload.status;
+
                 // 1) always patch parent-level fields first
                 const parentPackaging = buildPackagingPayload(mainPackagingType, mainPackagingQty);
                 // Calculate total weight for parent update
@@ -1303,7 +1335,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                     sku: payload.sku,
                     brand: payload.brand,
                     notes: isNonEmpty(notes) ? notes.trim() : null,
-                    status: payload.status,
+                    status: effectiveParentStatus,
                     isDraft: !!isDraft,
                     // optional: you can pass originCountry if backend supports in PATCH parent:
                     originCountry: payload.originCountry,
@@ -1380,7 +1412,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                             colorText: v.colorText || "",
                             barcode: v.barcode || undefined,
                             notes: isNonEmpty(v.notes) ? String(v.notes).trim() : null,
-                            status: v.active ? "active" : "inactive",
+                            status: normalizeStatusValue(effectiveParentStatus) === "active" ? (v.active ? "active" : "inactive") : "inactive",
                             isDraft: !!isDraft,
                             condition,
                             retailPrice: row.retail != null && row.retail !== "" ? Number(row.retail) : undefined,
@@ -1666,6 +1698,21 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                 <h3 className="px-2 text-sm font-semibold text-gray-900">Product Info</h3>
                                             </div>
 
+                                            <div className="flex items-center ml-auto gap-4">
+                                                {variantEnabled && (
+                                                    <div className="flex items-center gap-3">
+                                                        <span className="text-[12px] font-medium text-gray-600">Parent Active</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleParentStatusChange(normalizeStatusValue(status) === "active" ? "inactive" : "active")}
+                                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${normalizeStatusValue(status) === "active" ? "bg-amber-500" : "bg-gray-300"} `}
+                                                            title="Toggle parent product status"
+                                                        >
+                                                            <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${normalizeStatusValue(status) === "active" ? "translate-x-6" : "translate-x-1"} `} />
+                                                        </button>
+                                                    </div>
+                                                )}
+
                                             {!edit && (
                                                 <div className="flex items-center ml-auto gap-3">
                                                     <span className="text-[12px] text-gray-600">Enable variants</span>
@@ -1679,6 +1726,7 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                     </button>
                                                 </div>
                                             )}
+                                            </div>
                                         </div>
 
                                         <div className="p-4">
@@ -2036,8 +2084,9 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                             <button
                                                                                                 type="button"
                                                                                                 onClick={() => patchVariant(v.id, { active: !v.active })}
-                                                                                                className={`relative inline-flex h-4 w-8 items-center rounded-full transition ${v.active ? "bg-green-500" : "bg-gray-300"}`}
-                                                                                                title="Toggle Active"
+                                                                                                disabled={normalizeStatusValue(status) !== "active"}
+                                                                                                className={`relative inline-flex h-4 w-8 items-center rounded-full transition ${v.active ? "bg-green-500" : "bg-gray-300"} ${normalizeStatusValue(status) !== "active" ? "cursor-not-allowed opacity-60" : ""}`}
+                                                                                                title={normalizeStatusValue(status) !== "active" ? "Activate the parent product first" : "Toggle Active"}
                                                                                             >
                                                                                                 <span className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition ${v.active ? "translate-x-4" : "translate-x-0.5"}`} />
                                                                                             </button>
@@ -2411,8 +2460,9 @@ export default function CreateProductModal({ open, onClose, onSave, edit = false
                                                                                 <button
                                                                                     type="button"
                                                                                     onClick={() => patchVariant(v.id, { active: !v.active })}
-                                                                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${v.active ? "bg-amber-500" : "bg-gray-300"} `}
-                                                                                    title="Active"
+                                                                                    disabled={normalizeStatusValue(status) !== "active"}
+                                                                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${v.active ? "bg-amber-500" : "bg-gray-300"} ${normalizeStatusValue(status) !== "active" ? "cursor-not-allowed opacity-60" : ""} `}
+                                                                                    title={normalizeStatusValue(status) !== "active" ? "Activate the parent product first" : "Active"}
                                                                                 >
                                                                                     <span
                                                                                         className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${v.active ? "translate-x-6" : "translate-x-1"} `}

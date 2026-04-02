@@ -58,6 +58,17 @@ const resolveOrderProductImages = ({ listing, product, variant, name }) => {
                 productName: name,
             }));
 
+    const listingImage = String(listing?.url || listing?.imageUrl || "").trim();
+    if (isImagePath(listingImage)) {
+        return [
+            {
+                url: listingImage,
+                alt: name,
+                productName: name,
+            },
+        ];
+    }
+
     if (variant?.id) {
         const variantEntityImages = Array.isArray(variant?.images)
             ? toGalleryRows(variant.images)
@@ -68,17 +79,6 @@ const resolveOrderProductImages = ({ listing, product, variant, name }) => {
             rawImages.filter((img) => img?.url && String(img.url).includes(String(variant.id))),
         );
         if (variantImagesFromProduct.length > 0) return variantImagesFromProduct;
-    }
-
-    const listingImage = String(listing?.url || listing?.imageUrl || "").trim();
-    if (isImagePath(listingImage)) {
-        return [
-            {
-                url: listingImage,
-                alt: name,
-                productName: name,
-            },
-        ];
     }
 
     // Parent product image fallback.
